@@ -326,6 +326,53 @@
 </head>
 <body>
 
+
+
+<!-- Password gate -->
+<div id="pw-gate" style="
+  position:fixed;inset:0;z-index:9999;
+  background:#05050a;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  gap:20px;font-family:'Press Start 2P',monospace;
+">
+  <div style="color:#4ecca3;font-size:13px;letter-spacing:3px;text-shadow:0 0 12px rgba(78,204,163,0.7);">★ TANA.EXE ★</div>
+  <div style="color:#e0e0e0;font-size:8px;letter-spacing:2px;">ENTER PASSWORD</div>
+  <input id="pw-input" type="password" autocomplete="off" maxlength="32" style="
+    background:#0a0a14;border:2px solid #4ecca3;color:#4ecca3;
+    font-family:'Press Start 2P',monospace;font-size:10px;
+    padding:10px 14px;outline:none;width:220px;text-align:center;
+    box-shadow:0 0 18px rgba(78,204,163,0.3);
+    caret-color:#4ecca3;
+  ">
+  <div id="pw-err" style="color:#ff4466;font-size:7px;letter-spacing:1px;min-height:14px;"></div>
+</div>
+
+<script>
+(function(){
+  var gate = document.getElementById('pw-gate');
+  var inp  = document.getElementById('pw-input');
+  var err  = document.getElementById('pw-err');
+  if (sessionStorage.getItem('tana_auth') === '1') { gate.remove(); return; }
+  inp.focus();
+  function attempt() {
+    if (inp.value === 'pain11') {
+      sessionStorage.setItem('tana_auth', '1');
+      gate.remove();
+    } else {
+      err.textContent = 'ACCESS DENIED';
+      inp.value = '';
+      inp.focus();
+      setTimeout(function(){ err.textContent = ''; }, 1500);
+    }
+  }
+  inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') attempt(); });
+})();
+</script>
+
+
+
+
 <div id="header">★ TANA.EXE ★</div>
 
 <div id="game-container">
