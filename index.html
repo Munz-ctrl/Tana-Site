@@ -1207,30 +1207,85 @@ function drawPlayer() {
 // ─────────────────────────────────────────────────────────
 //  DRAW — INTERACT PROMPT  (floating [E] above object)
 // ─────────────────────────────────────────────────────────
-function drawInteractPrompt(obj) {
+// t = 0 → minimized textless pip (always on for interactables)
+// t = 1 → full [E] Label badge with arrow (when player is nearby)
+// In-between values tween smoothly so the pip "inflates" into the badge.
+function drawInteractPrompt(obj, t) {
   const sx = wx(obj.x + obj.w / 2);
   const sy = wy(obj.y - 8);
-  const bounce = Math.sin(Date.now() / 230) * 3;
-  const label = `[E] ${obj.label}`;
+  const time = Date.now();
 
   ctx.font = '6px "Press Start 2P"';
-  const tw = ctx.measureText(label).width + 18;
+  const label = `[E] ${obj.label}`;
+  const fullW = ctx.measureText(label).width + 18;
+  const fullH = 14;
+  const minW  = 6;
+  const minH  = 6;
 
-  ctx.fillStyle = 'rgba(249,199,79,0.13)';
-  ctx.strokeStyle = '#f9c74f'; ctx.lineWidth = 1.5;
-  roundRect(ctx, sx - tw/2, sy - 19 + bounce, tw, 14, 3);
+  // easeInOutQuad on the expansion
+  const e = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;
+  const w = minW + (fullW - minW) * e;
+  const h = minH + (fullH - minH) * e;
+
+  // Idle motion: slow pulse when minimized, livelier bounce when expanded
+  const pulse  = Math.sin(time / 700) * 1.2;
+  const bounce = Math.sin(time / 230) * 3;
+  const bob    = pulse * (1 - t) + bounce * t;
+
+  const boxBottom = sy - 5 + bob;
+  const boxTop    = boxBottom - h;
+  const cx        = sx;
+  const cy        = boxTop + h / 2;
+
+  // Soft halo behind the minimized pip so it reads at a distance,
+  // fades out as the badge expands so it doesn't muddy the full state.
+  const haloAlpha = (1 - t) * 0.18;
+  if (haloAlpha > 0.01) {
+    ctx.fillStyle = `rgba(249,199,79,${haloAlpha})`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // The box (same look as before — just sized by t)
+  ctx.fillStyle   = 'rgba(249,199,79,0.13)';
+  ctx.strokeStyle = '#f9c74f';
+  ctx.lineWidth   = 1.5;
+  roundRect(ctx, cx - w/2, boxTop, w, h, Math.min(3, h/2));
   ctx.fill(); ctx.stroke();
 
-  ctx.fillStyle = '#f9c74f';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(label, sx, sy - 12 + bounce);
+  // Solid yellow center pip — gives weight to the minimized state,
+  // fades out by the time the badge is half-expanded.
+  const pipAlpha = Math.max(0, 1 - t / 0.5);
+  if (pipAlpha > 0.02) {
+    ctx.fillStyle = `rgba(249,199,79,${pipAlpha})`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  // Down arrow
-  ctx.beginPath();
-  ctx.moveTo(sx, sy + bounce);
-  ctx.lineTo(sx - 4, sy - 5 + bounce);
-  ctx.lineTo(sx + 4, sy - 5 + bounce);
-  ctx.closePath(); ctx.fill();
+  // Label fades in late so it appears once the box has room for it
+  const textAlpha = Math.max(0, (t - 0.55) / 0.45);
+  if (textAlpha > 0.02) {
+    ctx.globalAlpha = textAlpha;
+    ctx.fillStyle   = '#f9c74f';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, cx, cy);
+    ctx.globalAlpha = 1;
+  }
+
+  // Down arrow — only meaningful when expanded; fades with t
+  if (t > 0.1) {
+    ctx.globalAlpha = t;
+    ctx.fillStyle = '#f9c74f';
+    ctx.beginPath();
+    ctx.moveTo(cx,     boxBottom + 5);
+    ctx.lineTo(cx - 4, boxBottom);
+    ctx.lineTo(cx + 4, boxBottom);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1298,9 +1353,14 @@ function render() {
           obj.draw(ctx, sx, sy);
         }
 
-        // Interaction prompt when near
-        if (obj.interactable && obj === nearby && !popupOpen && !tvOpen) {
-          drawInteractPrompt(obj);
+        // Interaction prompt — minimized pip always shown for interactables,
+        // expands into full [E] Label badge as the player approaches.
+        if (obj.interactable && !popupOpen && !tvOpen) {
+          if (obj.promptT === undefined) obj.promptT = 0;
+          const target = (obj === nearby) ? 1 : 0;
+          obj.promptT += (target - obj.promptT) * 0.18;
+          if (Math.abs(target - obj.promptT) < 0.001) obj.promptT = target;
+          drawInteractPrompt(obj, obj.promptT);
         }
       }
     });
