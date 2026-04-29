@@ -984,8 +984,8 @@ try { plaqueUnpacked = (localStorage.getItem(PLAQUE_STORAGE_KEY) === '1'); } cat
 // Tunable positions — open debug overlay (`) to see boxes & adjust.
 const packedPlaqueObj = {
   id: 'packed_plaque',
-  x: 70, y: 295,
-  w: 95, h: 115,
+  x: 40, y: 295,
+  w: 149, h: 99,
   baseY: 350,             // depth-sorts just in front of the bed
   collision: null,        // bed already blocks this area
   interactable: true,
@@ -997,8 +997,8 @@ const packedPlaqueObj = {
 
 const wallPlaqueObj = {
   id: 'wall_plaque',
-  x: 85, y: 5,
-  w: 90, h: 120,
+  x: 155, y: 20,
+  w: 99, h: 149,
   baseY: 200,             // low like TV → always renders behind player
   collision: null,        // wall-mounted; nothing to block
   interactable: true,
