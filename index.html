@@ -169,7 +169,7 @@
 
     /* email form */
     #email-wrap { margin-top: 14px; }
-    #email-input {
+    .form-input {
       width: 100%;
       background: #080818;
       border: 1px solid #4ecca3;
@@ -180,9 +180,15 @@
       margin-bottom: 8px;
       outline: none;
       display: block;
+      box-sizing: border-box;
     }
-    #email-input::placeholder { color: #1a3a2a; }
-    #email-input:focus { border-color: #78ffd0; }
+    .form-input::placeholder { color: #1a3a2a; }
+    .form-input:focus { border-color: #78ffd0; }
+    #form-error {
+      font-size: 6px; color: #e94560;
+      margin-top: 6px; display: none; text-align: center;
+      line-height: 1.6;
+    }
     #email-submit {
       width: 100%;
       background: rgba(78,204,163,0.08);
@@ -394,8 +400,11 @@
       <div id="popup-title"></div>
       <div id="popup-body"></div>
       <div id="email-wrap" style="display:none">
-        <input id="email-input" type="email" placeholder="your@email.com" autocomplete="email">
+        <input id="name-input"  class="form-input" type="text"  placeholder="your name" autocomplete="name">
+        <input id="email-input" class="form-input" type="email" placeholder="your@email.com (optional)" autocomplete="email">
+        <input id="phone-input" class="form-input" type="tel"   placeholder="phone # (optional)" autocomplete="tel">
         <button id="email-submit">JOIN THE LIST →</button>
+        <div id="form-error"></div>
         <div id="email-ok">✓ YOU'RE ON THE LIST</div>
       </div>
       <div id="popup-hint">[ tap ✕ or press ESC to close ]</div>
@@ -797,13 +806,19 @@ function getNearbyObject() {
 //  POPUP
 // ─────────────────────────────────────────────────────────
 const popupOverlay = document.getElementById('popup-overlay');
+// ▸ Paste your deployed Google Apps Script Web App URL here (ends with /exec)
+const APPS_SCRIPT_URL = 'PASTE_YOUR_APPS_SCRIPT_URL_HERE';
+
 const popupIcon    = document.getElementById('popup-icon');
 const popupTitle   = document.getElementById('popup-title');
 const popupBody    = document.getElementById('popup-body');
 const emailWrap    = document.getElementById('email-wrap');
+const nameInput    = document.getElementById('name-input');
 const emailInput   = document.getElementById('email-input');
+const phoneInput   = document.getElementById('phone-input');
 const emailOk      = document.getElementById('email-ok');
 const emailSubmit  = document.getElementById('email-submit');
+const formError    = document.getElementById('form-error');
 let popupOpen = false;
 
 function openEmailPopup() {
@@ -811,14 +826,21 @@ function openEmailPopup() {
   popupTitle.textContent = 'STAY IN THE LOOP';
   popupBody.innerHTML    = `
     <span style="color:#4ecca3">NEW MUSIC</span> on the way.<br><br>
-    Drop your email — you'll be the<br>first to hear it.
+    Drop your info — you'll be the<br>first to hear it.
   `;
-  emailWrap.style.display = 'block';
-  emailOk.style.display   = 'none';
-  emailInput.style.display = 'block';
-  emailSubmit.style.display = 'block';
+  emailWrap.style.display    = 'block';
+  emailOk.style.display      = 'none';
+  formError.style.display    = 'none';
+  nameInput.style.display    = 'block';
+  emailInput.style.display   = 'block';
+  phoneInput.style.display   = 'block';
+  emailSubmit.style.display  = 'block';
+  emailSubmit.disabled       = false;
+  emailSubmit.textContent    = 'JOIN THE LIST →';
+  nameInput.value = '';
   emailInput.value = '';
-  emailInput.style.borderColor = '#4ecca3';
+  phoneInput.value = '';
+  [nameInput, emailInput, phoneInput].forEach(i => i.style.borderColor = '#4ecca3');
   popupOverlay.classList.add('active');
   popupOpen = true;
 }
@@ -830,20 +852,65 @@ function closePopup() {
 
 document.getElementById('popup-close').addEventListener('click', closePopup);
 
-emailSubmit.addEventListener('click', () => {
-  const val = emailInput.value.trim();
-  if (!val || !val.includes('@') || !val.includes('.')) {
-    emailInput.style.borderColor = '#e94560';
-    setTimeout(() => { emailInput.style.borderColor = '#4ecca3'; }, 800);
+function showFormError(msg, fields) {
+  formError.textContent = msg;
+  formError.style.display = 'block';
+  (fields || []).forEach(f => {
+    f.style.borderColor = '#e94560';
+  });
+  setTimeout(() => {
+    (fields || []).forEach(f => f.style.borderColor = '#4ecca3');
+  }, 1200);
+}
+
+emailSubmit.addEventListener('click', async () => {
+  const name  = nameInput.value.trim();
+  const email = emailInput.value.trim();
+  const phone = phoneInput.value.trim();
+
+  formError.style.display = 'none';
+
+  if (!name) {
+    showFormError('NAME IS REQUIRED', [nameInput]);
     return;
   }
-  // ▸ TODO: POST to your mailing list API (Mailchimp, Beehiiv, etc.)
-  // fetch('/api/subscribe', { method:'POST', body: JSON.stringify({email:val}) })
-  console.log('[TANA.EXE] Email captured:', val);
-  emailInput.style.display   = 'none';
-  emailSubmit.style.display  = 'none';
-  emailOk.style.display      = 'block';
-  setTimeout(closePopup, 2800);
+  if (!email && !phone) {
+    showFormError('ENTER EMAIL OR PHONE', [emailInput, phoneInput]);
+    return;
+  }
+  if (email && (!email.includes('@') || !email.includes('.'))) {
+    showFormError('INVALID EMAIL', [emailInput]);
+    return;
+  }
+
+  // Loading state
+  emailSubmit.disabled    = true;
+  emailSubmit.textContent = 'SENDING...';
+
+  try {
+    if (APPS_SCRIPT_URL && !APPS_SCRIPT_URL.startsWith('PASTE_')) {
+      // No Content-Type header → simple request → no CORS preflight.
+      // Apps Script reads the JSON body via e.postData.contents regardless.
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({ name, email, phone })
+      });
+    } else {
+      console.log('[TANA.EXE] (no APPS_SCRIPT_URL set) Captured:', { name, email, phone });
+    }
+
+    nameInput.style.display    = 'none';
+    emailInput.style.display   = 'none';
+    phoneInput.style.display   = 'none';
+    emailSubmit.style.display  = 'none';
+    emailOk.style.display      = 'block';
+    setTimeout(closePopup, 2800);
+  } catch (err) {
+    console.error('[TANA.EXE] Submit failed:', err);
+    emailSubmit.disabled    = false;
+    emailSubmit.textContent = 'JOIN THE LIST →';
+    showFormError('SOMETHING WENT WRONG — TRY AGAIN', []);
+  }
 });
 
 // ─────────────────────────────────────────────────────────
