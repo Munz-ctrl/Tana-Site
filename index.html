@@ -595,7 +595,7 @@ const sceneObjects = [
   // baseY is low so it ALWAYS renders before the player → player never covers TV
   {
     id: 'tv',
-    x: 470, y: 48,
+    x: 480, y: 48,
     w: 120, h: 75,
     baseY: 200,            // low → renders before player always
     collision: null,       // wall-mounted; no floor collision
@@ -705,10 +705,10 @@ const sceneObjects = [
   // can't walk into the back-wall / window area in the centre of the room.
   {
     id: 'wall_mid_left',
-    x: 300, y: 10,
+    x: 310, y: 10,
     w: 50, h: 400,
     baseY: 10,
-    collision: { x: 310, y: 10, w: 50, h: 400 },
+    collision: { x: 310, y: 10, w: 45, h: 410 },
     interactable: false,
     img: null,
     draw() {}              // invisible — no render
@@ -718,7 +718,7 @@ const sceneObjects = [
     x: 720, y: 10,
     w: 50, h: 400,
     baseY: 10,
-    collision: { x: 715, y: 10, w: 50, h: 400 },
+    collision: { x: 720, y: 10, w: 50, h: 420 },
     interactable: false,
     img: null,
     draw() {}              // invisible — no render
