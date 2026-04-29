@@ -1000,15 +1000,17 @@ const sceneObjects = [
 ];
 
 // ─────────────────────────────────────────────────────────
-//  PLAQUE STATE  (packed → unpacked, irreversible per visitor)
+//  PLAQUE STATE  (packed → unpacked, irreversible per session)
 //  • Initial state: packed box visible on the bed.
-//  • After "unpack": the wall plaque replaces it permanently.
-//  • Persistence: localStorage. Switch to sessionStorage (resets per
-//    tab) or remove the read/write to test fresh every reload.
+//  • After "unpack": the wall plaque replaces it for the rest
+//    of this tab's session — resets when the tab closes.
+//  • Persistence: sessionStorage (matches the password gate's
+//    lifecycle). Swap to localStorage if you want unpacks to
+//    survive tab close / browser restart.
 // ─────────────────────────────────────────────────────────
 const PLAQUE_STORAGE_KEY = 'tana_plaque_unpacked';
 let plaqueUnpacked = false;
-try { plaqueUnpacked = (localStorage.getItem(PLAQUE_STORAGE_KEY) === '1'); } catch (_) {}
+try { plaqueUnpacked = (sessionStorage.getItem(PLAQUE_STORAGE_KEY) === '1'); } catch (_) {}
 
 // Tunable positions — open debug overlay (`) to see boxes & adjust.
 const packedPlaqueObj = {
@@ -1541,9 +1543,9 @@ function doUnpack(obj) {
   if (idx !== -1) sceneObjects.splice(idx, 1);
   if (sceneObjects.indexOf(wallPlaqueObj) === -1) sceneObjects.push(wallPlaqueObj);
 
-  // 3) Persist — irreversible from here on
+  // 3) Persist for the rest of this tab session — irreversible until tab close
   plaqueUnpacked = true;
-  try { localStorage.setItem(PLAQUE_STORAGE_KEY, '1'); } catch (_) {}
+  try { sessionStorage.setItem(PLAQUE_STORAGE_KEY, '1'); } catch (_) {}
 }
 
 function openPlaqueInfo() {
