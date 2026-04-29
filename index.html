@@ -328,6 +328,33 @@
     }
     #hint span { color: #4ecca3; }
     @media (hover: none) and (pointer: coarse) { #hint { display: none; } }
+
+    /* ── Soundtrack mute toggle ── */
+    #bgm-toggle {
+      position: fixed;
+      top: 8px; right: 8px;
+      width: 24px; height: 24px;
+      background: rgba(5,5,10,0.72);
+      border: 1px solid #f9c74f;
+      color: #f9c74f;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      outline: none;
+      transition: background 0.12s, color 0.12s, border-color 0.12s, opacity 0.12s;
+      box-shadow: 0 0 10px rgba(249,199,79,0.20);
+    }
+    #bgm-toggle:hover { background: rgba(249,199,79,0.18); }
+    #bgm-toggle.muted {
+      color: #555; border-color: #333;
+      box-shadow: none;
+    }
+    #bgm-toggle.muted #bgm-icon { text-decoration: line-through; }
   </style>
 </head>
 <body>
@@ -435,9 +462,16 @@
   </div>
 </div>
 
+<!-- Background soundtrack -->
+<audio id="bgm" src="assets/scA.m4a" loop preload="auto"></audio>
+<button id="bgm-toggle" type="button" aria-label="Toggle soundtrack" title="Toggle soundtrack (M)">
+  <span id="bgm-icon">♪</span>
+</button>
+
 <div id="hint">
   <span>WASD</span> / <span>↑↓←→</span> — MOVE &nbsp;&nbsp;
   <span>E</span> — INTERACT &nbsp;&nbsp;
+  <span>M</span> — MUTE &nbsp;&nbsp;
   <span>ESC</span> — CLOSE &nbsp;&nbsp;
   <span>`</span> — DEBUG
 </div>
@@ -932,15 +966,120 @@ function openTV(videoId) {
   tvOverlay.classList.add('active');
   tvOpen = true;
   if (proxAudio) setProxGain(0); // mute ambient while video plays
+  duckBGMForTV();                // fade soundtrack out under YouTube
 }
 
 function closeTV() {
   tvIframe.src = '';
   tvOverlay.classList.remove('active');
   tvOpen = false;
+  unduckBGMFromTV();             // fade soundtrack back in
 }
 
 document.getElementById('tv-close-btn').addEventListener('click', closeTV);
+
+// ─────────────────────────────────────────────────────────
+//  BACKGROUND SOUNDTRACK
+//  • Tries to autoplay on load. If the browser blocks it
+//    (most do on first visit), arms a one-shot listener
+//    that starts playback on the user's first interaction.
+//  • Fades out under the YouTube TV so the two don't fight.
+//  • Mute toggle persists to localStorage. 'M' is a shortcut.
+// ─────────────────────────────────────────────────────────
+const bgm        = document.getElementById('bgm');
+const bgmToggle  = document.getElementById('bgm-toggle');
+const BGM_VOLUME = 0.40;   // playback target volume (0..1)
+const BGM_FADE   = 250;    // fade duration in ms
+
+let bgmStarted = false;
+let bgmFadeRAF = null;
+let userMuted  = false;
+try { userMuted = (localStorage.getItem('tana-bgm-muted') === '1'); } catch (_) {}
+
+bgm.volume = 0; // always start silent; we ramp up via fadeBGM
+
+function applyMuteUI() {
+  bgmToggle.classList.toggle('muted', userMuted);
+}
+applyMuteUI();
+
+function fadeBGM(toVol, durMs) {
+  if (bgmFadeRAF) cancelAnimationFrame(bgmFadeRAF);
+  const fromVol = bgm.volume;
+  const start   = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - start) / durMs);
+    bgm.volume = fromVol + (toVol - fromVol) * k;
+    if (k < 1) bgmFadeRAF = requestAnimationFrame(step);
+    else       bgmFadeRAF = null;
+  };
+  bgmFadeRAF = requestAnimationFrame(step);
+}
+
+function tryStartBGM() {
+  if (bgmStarted || userMuted || tvOpen) return;
+  const p = bgm.play();
+  if (p && typeof p.then === 'function') {
+    p.then(() => {
+      bgmStarted = true;
+      fadeBGM(BGM_VOLUME, BGM_FADE);
+    }).catch(() => {
+      // Autoplay blocked — first-interaction listeners below will retry
+    });
+  } else {
+    bgmStarted = true;
+    fadeBGM(BGM_VOLUME, BGM_FADE);
+  }
+}
+
+window.addEventListener('load', tryStartBGM);
+
+// First-interaction fallback. Capture phase so we win even if
+// other handlers stopPropagation. Self-removes once started.
+['keydown', 'pointerdown', 'touchstart', 'click'].forEach(evt => {
+  const handler = () => {
+    tryStartBGM();
+    if (bgmStarted) window.removeEventListener(evt, handler, true);
+  };
+  window.addEventListener(evt, handler, true);
+});
+
+bgmToggle.addEventListener('click', () => {
+  userMuted = !userMuted;
+  try { localStorage.setItem('tana-bgm-muted', userMuted ? '1' : '0'); } catch (_) {}
+  applyMuteUI();
+  if (userMuted) {
+    fadeBGM(0, BGM_FADE);
+    setTimeout(() => { if (userMuted) bgm.pause(); }, BGM_FADE + 30);
+  } else {
+    if (!bgmStarted) { tryStartBGM(); return; }
+    bgm.play().catch(() => {});
+    if (!tvOpen) fadeBGM(BGM_VOLUME, BGM_FADE);
+  }
+});
+
+// 'M' keyboard shortcut. Ignore when typing into inputs.
+window.addEventListener('keydown', e => {
+  if (e.key !== 'm' && e.key !== 'M') return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+  bgmToggle.click();
+});
+
+// Two state flags fight each other otherwise:
+//   userMuted        → user clicked mute; stay silent regardless of TV
+//   bgmDuckedForTV   → temporary, restored when TV closes (unless userMuted)
+function duckBGMForTV() {
+  if (userMuted || !bgmStarted) return;
+  fadeBGM(0, BGM_FADE);
+  setTimeout(() => { if (tvOpen) bgm.pause(); }, BGM_FADE + 30);
+}
+function unduckBGMFromTV() {
+  if (userMuted) return;
+  if (!bgmStarted) { tryStartBGM(); return; }
+  bgm.play().catch(() => {});
+  fadeBGM(BGM_VOLUME, BGM_FADE);
+}
 
 // ─────────────────────────────────────────────────────────
 //  PROXIMITY AUDIO  (ambient TV glow sound)
