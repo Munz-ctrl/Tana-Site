@@ -137,6 +137,48 @@
     }
     #popup-overlay.active { opacity: 1; pointer-events: all; }
 
+    /* ── Unpack reveal overlay ── */
+    #reveal-overlay {
+      position: absolute; inset: 0;
+      background: rgba(5,5,10,0.0);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease, background 0.3s ease;
+      z-index: 32;
+    }
+    #reveal-overlay.active {
+      background: rgba(5,5,10,0.78);
+      opacity: 1; pointer-events: all;
+    }
+    #reveal-card {
+      background: #07070f;
+      border: 2px solid #f9c74f;
+      padding: 22px 24px 18px;
+      text-align: center;
+      font-family: 'Press Start 2P', monospace;
+      box-shadow: 0 0 50px rgba(249,199,79,0.55), inset 0 0 0 1px #2a1f08;
+      transform: scale(0.85);
+      transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+      max-width: 88%;
+    }
+    #reveal-overlay.active #reveal-card { transform: scale(1); }
+    #reveal-banner {
+      color: #f9c74f; font-size: 10px; letter-spacing: 4px;
+      margin-bottom: 14px;
+      text-shadow: 0 0 10px rgba(249,199,79,0.7);
+    }
+    #reveal-img {
+      display: block;
+      margin: 0 auto;
+      image-rendering: pixelated;
+      max-width: 220px; max-height: 240px;
+      filter: drop-shadow(0 0 16px rgba(249,199,79,0.55));
+    }
+    #reveal-caption {
+      color: #b0b8d0; font-size: 7px; letter-spacing: 2px;
+      margin-top: 14px;
+    }
+
     #popup-box {
       background: #09091a;
       border: 2px solid #4ecca3;
@@ -586,6 +628,15 @@
     </div>
   </div>
 
+  <!-- Unpack reveal overlay (auto-closes after a few seconds) -->
+  <div id="reveal-overlay">
+    <div id="reveal-card">
+      <div id="reveal-banner">★ UNPACKED ★</div>
+      <img id="reveal-img" alt="reveal">
+      <div id="reveal-caption">GOLD RECORD</div>
+    </div>
+  </div>
+
   <!-- TV video overlay -->
   <div id="tv-overlay">
     <div id="tv-frame-wrap">
@@ -712,6 +763,8 @@ const rackAImg   = loadImg('assets/racka.png');
 const boxesImg   = loadImg('assets/boxes.png');
 const couchwboxImg = loadImg('assets/couchwbox.png');
 const bedp1 = loadImg('assets/bedP1.png');
+const plaqImg        = loadImg('assets/plaq.png');
+const packedPlaqImg  = loadImg('assets/packedplaq.png');
 
 
 // ── Auto-size world to image ──────────────────────────────
@@ -916,6 +969,47 @@ const sceneObjects = [
   },
 
 ];
+
+// ─────────────────────────────────────────────────────────
+//  PLAQUE STATE  (packed → unpacked, irreversible per visitor)
+//  • Initial state: packed box visible on the bed.
+//  • After "unpack": the wall plaque replaces it permanently.
+//  • Persistence: localStorage. Switch to sessionStorage (resets per
+//    tab) or remove the read/write to test fresh every reload.
+// ─────────────────────────────────────────────────────────
+const PLAQUE_STORAGE_KEY = 'tana_plaque_unpacked';
+let plaqueUnpacked = false;
+try { plaqueUnpacked = (localStorage.getItem(PLAQUE_STORAGE_KEY) === '1'); } catch (_) {}
+
+// Tunable positions — open debug overlay (`) to see boxes & adjust.
+const packedPlaqueObj = {
+  id: 'packed_plaque',
+  x: 70, y: 295,
+  w: 95, h: 115,
+  baseY: 350,             // depth-sorts just in front of the bed
+  collision: null,        // bed already blocks this area
+  interactable: true,
+  action: 'unpack',
+  label: 'UNPACK',
+  img: packedPlaqImg,
+  draw() {}
+};
+
+const wallPlaqueObj = {
+  id: 'wall_plaque',
+  x: 85, y: 5,
+  w: 90, h: 120,
+  baseY: 200,             // low like TV → always renders behind player
+  collision: null,        // wall-mounted; nothing to block
+  interactable: true,
+  action: 'plaque-info',
+  label: 'GOLD RECORD',
+  img: plaqImg,
+  draw() {}
+};
+
+// Exactly one of the two objects is in the scene at a time.
+sceneObjects.push(plaqueUnpacked ? wallPlaqueObj : packedPlaqueObj);
 
 // ─────────────────────────────────────────────────────────
 //  PLAYER
@@ -1291,7 +1385,7 @@ const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === 'e' || e.key === 'E') tryInteract();
-  if (e.key === 'Escape') { closePopup(); closeTV(); }
+  if (e.key === 'Escape') { closePopup(); closeTV(); closeReveal(); }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
 });
@@ -1352,19 +1446,88 @@ iBtn.addEventListener('touchend', e => {
 }, { passive:false });
 
 function tryInteract() {
-  if (popupOpen) { closePopup(); return; }
-  if (tvOpen)    { closeTV();    return; }
+  if (popupOpen)  { closePopup();  return; }
+  if (tvOpen)     { closeTV();     return; }
+  if (revealOpen) { closeReveal(); return; }
   const obj = getNearbyObject();
   if (!obj) return;
-  if (obj.action === 'video') openTV(obj.videoId);
-  if (obj.action === 'email') openEmailPopup();
+  if (obj.action === 'video')        openTV(obj.videoId);
+  if (obj.action === 'email')        openEmailPopup();
+  if (obj.action === 'unpack')       doUnpack(obj);
+  if (obj.action === 'plaque-info')  openPlaqueInfo();
+}
+
+// ─────────────────────────────────────────────────────────
+//  PLAQUE — unpack reveal + info popup
+// ─────────────────────────────────────────────────────────
+const revealOverlay = document.getElementById('reveal-overlay');
+const revealImg     = document.getElementById('reveal-img');
+const revealBanner  = document.getElementById('reveal-banner');
+const revealCaption = document.getElementById('reveal-caption');
+let revealOpen      = false;
+let revealAutoCloseT = null;
+
+function openReveal({ src, banner, caption, autoCloseMs }) {
+  revealImg.src           = src;
+  revealBanner.textContent = banner  || '★ UNPACKED ★';
+  revealCaption.textContent = caption || '';
+  revealOverlay.classList.add('active');
+  revealOpen = true;
+  if (revealAutoCloseT) clearTimeout(revealAutoCloseT);
+  if (autoCloseMs && autoCloseMs > 0) {
+    revealAutoCloseT = setTimeout(closeReveal, autoCloseMs);
+  }
+}
+
+function closeReveal() {
+  revealOverlay.classList.remove('active');
+  revealOpen = false;
+  if (revealAutoCloseT) { clearTimeout(revealAutoCloseT); revealAutoCloseT = null; }
+}
+
+// Click backdrop or press ESC closes early. ESC handler already wired below.
+revealOverlay.addEventListener('click', e => {
+  if (e.target === revealOverlay) closeReveal();
+});
+
+function doUnpack(obj) {
+  if (plaqueUnpacked) return; // safety — already unpacked
+
+  // 1) Show the reveal popup with plaq.png
+  openReveal({
+    src: 'assets/plaq.png',
+    banner: '★ UNPACKED ★',
+    caption: 'GOLD RECORD',
+    autoCloseMs: 3000
+  });
+
+  // 2) Swap scene objects: remove packed box, add wall plaque
+  const idx = sceneObjects.indexOf(obj);
+  if (idx !== -1) sceneObjects.splice(idx, 1);
+  if (sceneObjects.indexOf(wallPlaqueObj) === -1) sceneObjects.push(wallPlaqueObj);
+
+  // 3) Persist — irreversible from here on
+  plaqueUnpacked = true;
+  try { localStorage.setItem(PLAQUE_STORAGE_KEY, '1'); } catch (_) {}
+}
+
+function openPlaqueInfo() {
+  popupIcon.textContent  = '★';
+  popupTitle.textContent = 'GOLD RECORD';
+  popupBody.innerHTML    = `
+    <span style="color:#f9c74f">RIAA-CERTIFIED.</span><br><br>
+    First plaque earned.<br>One of many to come.
+  `;
+  emailWrap.style.display = 'none';
+  popupOverlay.classList.add('active');
+  popupOpen = true;
 }
 
 // ─────────────────────────────────────────────────────────
 //  UPDATE
 // ─────────────────────────────────────────────────────────
 function update() {
-  if (popupOpen || tvOpen) return;
+  if (popupOpen || tvOpen || revealOpen) return;
 
   let vx = 0, vy = 0;
 
@@ -1589,7 +1752,7 @@ function drawHUD() {
 
   // Bottom action hint
   const near = getNearbyObject();
-  if (near && !popupOpen && !tvOpen) {
+  if (near && !popupOpen && !tvOpen && !revealOpen) {
     ctx.fillStyle = 'rgba(5,5,10,0.72)';
     ctx.fillRect(0, VIEW_H - 20, VIEW_W, 20);
     ctx.fillStyle = '#f9c74f';
@@ -1642,7 +1805,7 @@ function render() {
 
         // Interaction prompt — minimized pip always shown for interactables,
         // expands into full [E] Label badge as the player approaches.
-        if (obj.interactable && !popupOpen && !tvOpen) {
+        if (obj.interactable && !popupOpen && !tvOpen && !revealOpen) {
           if (obj.promptT === undefined) obj.promptT = 0;
           const target = (obj === nearby) ? 1 : 0;
           obj.promptT += (target - obj.promptT) * 0.18;
