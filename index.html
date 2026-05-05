@@ -930,13 +930,25 @@ const sceneObjects = [
     x: 273, y: 508,
     w: 128, h: 92,
     baseY: 590,
-    collision: { x: 273, y: 538, w: 100, h: 45 },
+    collision: { x: 273, y: 538, w: 128, h: 45 },
     interactable: false,
     img: boxesImg,
     draw() {}
   },
 
-  
+  ,
+
+  // ── BOXES  (by studio, bottom) ─────────────────────────
+  {
+    id: 'boxes',
+    x: 473, y: 408,
+    w: 148, h: 82,
+    baseY: 490,
+    collision: { x: 473, y: 438, w: 148, h: 45 },
+    interactable: false,
+    img: boxesImg,
+    draw() {}
+  }
   // ── STUDIO / RECORDING DESK  (right — tall, interactable) ─
   {
     id: 'studio_desk',
