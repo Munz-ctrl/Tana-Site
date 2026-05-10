@@ -25,13 +25,7 @@
 
     /* ── Header ── */
     #header {
-      font-size: 10px;
-      color: #4ecca3;
-      letter-spacing: 3px;
-      margin-bottom: 8px;
-      text-shadow: 0 0 12px rgba(78,204,163,0.7);
-      animation: flicker 4s infinite;
-      flex-shrink: 0;
+      display: none;
     }
     /* Shrink header chrome on mobile so the game gets more pixels */
     @media (hover: none) and (pointer: coarse) {
@@ -45,22 +39,10 @@
       0%,95%,100%{opacity:1}96%{opacity:0.6}97%{opacity:1}98%{opacity:0.5}99%{opacity:1}
     }
 
-    /*
-     * ── GAME CONTAINER ──
-     *  Landscape 2:1.  Sizes itself to fit the viewport:
-     *  – Desktop: up to 1200 px wide
-     *  – Portrait mobile: 100 vw wide → ~195 px tall (joystick overlaid on canvas)
-     *  – Landscape mobile: constrained by height
-     */
+    /* ── GAME CONTAINER — fills the full viewport edge to edge ── */
     #game-container {
-      position: relative;
-      /* JS sets exact px width/height via resizeGame() — no CSS math guessing */
-      border: 2px solid #4ecca3;
-      box-shadow:
-        0 0 0 1px #0a0a14,
-        0 0 50px rgba(78,204,163,0.2),
-        inset 0 0 30px rgba(0,0,0,0.5);
-      flex-shrink: 1;
+      position: fixed;
+      inset: 0;
     }
 
     /* ── Rotate prompt (portrait mobile only) ── */
@@ -381,13 +363,8 @@
     #interact-btn .blbl  { font-size: 5px;  color: rgba(249,199,79,0.55); letter-spacing: 1px; }
 
     /* ── Desktop hint ── */
-    #hint {
-      font-size: 7px; color: #242436;
-      margin-top: 8px; letter-spacing: 1px;
-      flex-shrink: 0;
-    }
+    #hint { display: none; }
     #hint span { color: #4ecca3; }
-    @media (hover: none) and (pointer: coarse) { #hint { display: none; } }
 
     /* ── Soundtrack mute toggle ── */
     #bgm-toggle {
@@ -726,6 +703,13 @@ let WORLD_H = 600;    // placeholder
 
 const VIEW_W  = 1068; // canvas internal width  — matches 16:9 image width
 const VIEW_H  = 600;  // canvas internal height — matches image height
+
+// Physical screen dimensions — updated by resizeGame() on every resize.
+// The canvas is sized to SCREEN_W*dpr × SCREEN_H*dpr so all drawing is
+// at native device resolution. VIEW_W/VIEW_H stay constant as the
+// logical world-camera coordinate space.
+let SCREEN_W = VIEW_W;
+let SCREEN_H = VIEW_H;
 
 // ── Player geometry (% of world height so it scales with image) ──
 //  Target: player ≈ 9% of world height, feet strip ≈ bottom 23% of sprite
@@ -1948,44 +1932,24 @@ function render() {
 const gameContainer = document.getElementById('game-container');
 
 function resizeGame() {
-  const header  = document.getElementById('header');
-  const hint    = document.getElementById('hint');
-  const vw      = window.innerWidth;
-  const vh      = window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  SCREEN_W = window.innerWidth;
+  SCREEN_H = window.innerHeight;
 
-  // Detect coarse-pointer (mobile/touch) to shrink chrome and grow the game
-  const isMobile = matchMedia('(hover: none) and (pointer: coarse)').matches;
+  // Size the canvas backing store to the exact display pixel count so there
+  // is no CSS upscaling — every canvas pixel maps 1:1 to a physical pixel.
+  canvas.width  = Math.round(SCREEN_W * dpr);
+  canvas.height = Math.round(SCREEN_H * dpr);
 
-  // Vertical space consumed by UI outside the game.
-  // Mobile: tighter margins + hint already hidden → more room for the canvas.
-  const headerMargin = isMobile ? 2 : 8;
-  const hintMargin   = isMobile ? 0 : 8;
-  const bodyBuffer   = isMobile ? 4 : 16;
-
-  const uiH = (header ? header.offsetHeight + headerMargin : 28)
-             + (hint && getComputedStyle(hint).display !== 'none'
-                ? hint.offsetHeight + hintMargin : 0)
-             + bodyBuffer;
-
-  const availH = vh - uiH;
-  // On mobile, reserve NOTHING for the touch controls horizontally — they're
-  // body-level fixed and intentionally sit in whatever gutter exists.
-  const availW = vw;
-
-  // Fit 16:9 ratio into available space
-  const RATIO = 1068 / 600; // matches base.png aspect
-  // Mobile gets a bigger cap so the game can grow past the desktop 1068 ceiling
-  // (canvas is pixelated — scaling up stays crisp).
-  const MAX_W = isMobile ? 1400 : 1068;
-
-  let w = Math.min(MAX_W, availW, availH * RATIO);
-  let h = w / RATIO;
-
-  // Never let height exceed available space
-  if (h > availH) { h = availH; w = h * RATIO; }
-
-  gameContainer.style.width  = Math.floor(w) + 'px';
-  gameContainer.style.height = Math.floor(h) + 'px';
+  // Combined transform: scale VIEW_W×VIEW_H world-space to fill the container,
+  // then multiply by dpr to reach physical pixels. All render code continues
+  // to draw in VIEW_W×VIEW_H coordinates unchanged.
+  ctx.setTransform(
+    SCREEN_W / VIEW_W * dpr, 0,
+    0, SCREEN_H / VIEW_H * dpr,
+    0, 0
+  );
+  ctx.imageSmoothingEnabled = false;
 }
 
 window.addEventListener('resize', resizeGame);
