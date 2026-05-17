@@ -43,6 +43,8 @@
     #game-container {
       position: fixed;
       inset: 0;
+      overflow: hidden;
+      background: #000;
     }
 
     /* ── Rotate prompt (portrait mobile only) ── */
@@ -83,8 +85,7 @@
 
     canvas {
       display: block;
-      width: 100%;
-      height: 100%;
+      position: absolute;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
     }
@@ -801,6 +802,11 @@ bgImg.onload = () => {
 //  CAMERA
 // ─────────────────────────────────────────────────────────
 const cam = { x: 0, y: 0 };
+
+// Visible game-space bounds (game-coords of the screen edges).
+// Updated by resizeGame() whenever the viewport changes.
+// Used by drawHUD() and debug overlay to stay within the visible crop.
+let visibleLeft = 0, visibleTop = 0, visibleRight = VIEW_W, visibleBtm = VIEW_H;
 
 function updateCamera() {
   // Centre camera on player horizontally and vertically
@@ -1776,23 +1782,25 @@ function drawInteractPrompt(obj, t) {
 //  DRAW — HUD
 // ─────────────────────────────────────────────────────────
 function drawHUD() {
-  // Top strip
+  const vw = visibleRight - visibleLeft;
+
+  // Top strip — anchored to the visible top edge
   ctx.fillStyle = 'rgba(5,5,10,0.72)';
-  ctx.fillRect(0, 0, VIEW_W, 20);
+  ctx.fillRect(visibleLeft, visibleTop, vw, 20);
   ctx.fillStyle = '#4ecca3';
   ctx.font = '6px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText('▸ TANA ROOM', 8, 10);
+  ctx.fillText('▸ TANA ROOM', visibleLeft + 8, visibleTop + 10);
 
-  // Bottom action hint
+  // Bottom action hint — anchored to the visible bottom edge
   const near = getNearbyObject();
   if (near && !popupOpen && !tvOpen && !revealOpen) {
     ctx.fillStyle = 'rgba(5,5,10,0.72)';
-    ctx.fillRect(0, VIEW_H - 20, VIEW_W, 20);
+    ctx.fillRect(visibleLeft, visibleBtm - 20, vw, 20);
     ctx.fillStyle = '#f9c74f';
     ctx.font = '6px "Press Start 2P"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(`[E]  →  ${near.label}`, VIEW_W / 2, VIEW_H - 10);
+    ctx.fillText(`[E]  →  ${near.label}`, visibleLeft + vw / 2, visibleBtm - 10);
   }
 }
 
@@ -1904,20 +1912,20 @@ function render() {
     ctx.setLineDash([]);
     // World info overlay
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.fillRect(0, VIEW_H - 42, VIEW_W, 42);
+    ctx.fillRect(visibleLeft, visibleBtm - 42, visibleRight - visibleLeft, 42);
     ctx.fillStyle = '#4ecca3'; ctx.font = '11px monospace';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillText(
       `WORLD ${WORLD_W}×${WORLD_H}  |  CAM (${Math.round(cam.x)},${Math.round(cam.y)})  |  PLAYER (${Math.round(player.x)},${Math.round(player.y)})  baseY=${playerBaseY()}`,
-      6, VIEW_H - 30
+      visibleLeft + 6, visibleBtm - 30
     );
     ctx.fillText(
       `FLOOR_TOP=${FLOOR_TOP}  FLOOR_BTM=${FLOOR_BTM}  PW=${PW} PH=${PH}  FEET_OY=${FEET_OY}`,
-      6, VIEW_H - 14
+      visibleLeft + 6, visibleBtm - 14
     );
     // Debug label top-right
     ctx.fillStyle = '#f9c74f'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
-    ctx.fillText('[ ` ] DEBUG ON', VIEW_W - 6, VIEW_H - 30);
+    ctx.fillText('[ ` ] DEBUG ON', visibleRight - 6, visibleBtm - 30);
   }
 
   drawHUD();
@@ -1936,20 +1944,37 @@ function resizeGame() {
   SCREEN_W = window.innerWidth;
   SCREEN_H = window.innerHeight;
 
-  // Size the canvas backing store to the exact display pixel count so there
-  // is no CSS upscaling — every canvas pixel maps 1:1 to a physical pixel.
-  canvas.width  = Math.round(SCREEN_W * dpr);
-  canvas.height = Math.round(SCREEN_H * dpr);
+  // Cover scale: uniform scale so the game fills the screen in both dimensions.
+  // The larger ratio wins — the canvas is bigger than the screen on one axis,
+  // and overflow:hidden on #game-container clips the excess.
+  const scale = Math.max(SCREEN_W / VIEW_W, SCREEN_H / VIEW_H);
 
-  // Combined transform: scale VIEW_W×VIEW_H world-space to fill the container,
-  // then multiply by dpr to reach physical pixels. All render code continues
-  // to draw in VIEW_W×VIEW_H coordinates unchanged.
-  ctx.setTransform(
-    SCREEN_W / VIEW_W * dpr, 0,
-    0, SCREEN_H / VIEW_H * dpr,
-    0, 0
-  );
+  // Canvas CSS dimensions (may exceed screen on one axis)
+  const cssW = VIEW_W * scale;
+  const cssH = VIEW_H * scale;
+
+  // Center the canvas so it bleeds equally on each side that overflows
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.style.left   = ((SCREEN_W - cssW) / 2) + 'px';
+  canvas.style.top    = ((SCREEN_H - cssH) / 2) + 'px';
+
+  // HiDPI backing store
+  canvas.width  = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+
+  // Uniform scale transform: game coords → physical pixels
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
+
+  // Visible game-space bounds — the slice of the 1068×600 view that maps
+  // onto the physical screen. HUD and overlays draw within these bounds.
+  const visW = SCREEN_W / scale;
+  const visH = SCREEN_H / scale;
+  visibleLeft  = (VIEW_W - visW) / 2;
+  visibleTop   = (VIEW_H - visH) / 2;
+  visibleRight = VIEW_W - visibleLeft;
+  visibleBtm   = VIEW_H - visibleTop;
 }
 
 window.addEventListener('resize', resizeGame);
