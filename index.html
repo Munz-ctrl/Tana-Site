@@ -803,14 +803,26 @@ bgImg.onload = () => {
 // ─────────────────────────────────────────────────────────
 const cam = { x: 0, y: 0 };
 
+// VIEW_H_DYN  — how many game-space pixels are visible vertically on the
+//               current screen. Equals VIEW_H on desktops (16:9) and shrinks
+//               on phones wider than 16:9 where the canvas overflows top/bottom.
+// CROP_TOP    — game-space units between canvas top and screen top edge.
+//               0 on desktop; positive on wide phones (canvas taller than screen).
+// Both updated by resizeGame() on every resize.
+let VIEW_H_DYN = VIEW_H;
+let CROP_TOP   = 0;
 
 function updateCamera() {
-  // Centre camera on player horizontally and vertically
+  // Horizontal: centre player in VIEW_W (fills screen width exactly)
   cam.x = player.x + PW / 2 - VIEW_W / 2;
-  cam.y = player.y + PH / 2 - VIEW_H / 2;
-  // Clamp to world bounds
   cam.x = Math.max(0, Math.min(WORLD_W - VIEW_W, cam.x));
-  cam.y = Math.max(0, Math.min(WORLD_H - VIEW_H, cam.y));
+
+  // Vertical: centre player at the screen centre (= canvas centre = VIEW_H/2).
+  // Clamp so neither the screen top nor bottom drifts past the world edge.
+  //   Upper bound = WORLD_H - VIEW_H + CROP_TOP  (screen bottom == world bottom)
+  //   Lower bound = 0                            (screen top == world top)
+  cam.y = player.y + PH / 2 - VIEW_H / 2;
+  cam.y = Math.max(0, Math.min(Math.max(0, WORLD_H - VIEW_H + CROP_TOP), cam.y));
 }
 
 // World → screen transform
@@ -1778,23 +1790,28 @@ function drawInteractPrompt(obj, t) {
 //  DRAW — HUD
 // ─────────────────────────────────────────────────────────
 function drawHUD() {
+  // Strips anchor to the visible screen edges, not canvas edges.
+  // CROP_TOP = 0 on desktop (no change); positive on phones where the canvas
+  // overflows and the screen top sits CROP_TOP game-px into the canvas.
+  const screenBtm = CROP_TOP + VIEW_H_DYN;
+
   // Top strip
   ctx.fillStyle = 'rgba(5,5,10,0.72)';
-  ctx.fillRect(0, 0, VIEW_W, 20);
+  ctx.fillRect(0, CROP_TOP, VIEW_W, 20);
   ctx.fillStyle = '#4ecca3';
   ctx.font = '6px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText('▸ TANA ROOM', 8, 10);
+  ctx.fillText('▸ TANA ROOM', 8, CROP_TOP + 10);
 
   // Bottom action hint
   const near = getNearbyObject();
   if (near && !popupOpen && !tvOpen && !revealOpen) {
     ctx.fillStyle = 'rgba(5,5,10,0.72)';
-    ctx.fillRect(0, VIEW_H - 20, VIEW_W, 20);
+    ctx.fillRect(0, screenBtm - 20, VIEW_W, 20);
     ctx.fillStyle = '#f9c74f';
     ctx.font = '6px "Press Start 2P"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(`[E]  →  ${near.label}`, VIEW_W / 2, VIEW_H - 10);
+    ctx.fillText(`[E]  →  ${near.label}`, VIEW_W / 2, screenBtm - 10);
   }
 }
 
@@ -1904,22 +1921,23 @@ function render() {
     ctx.beginPath(); ctx.moveTo(0, wy(FLOOR_TOP)); ctx.lineTo(VIEW_W, wy(FLOOR_TOP)); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, wy(FLOOR_BTM)); ctx.lineTo(VIEW_W, wy(FLOOR_BTM)); ctx.stroke();
     ctx.setLineDash([]);
-    // World info overlay
+    // World info overlay — anchored to visible screen bottom
+    const dbgBtm = CROP_TOP + VIEW_H_DYN;
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.fillRect(0, VIEW_H - 42, VIEW_W, 42);
+    ctx.fillRect(0, dbgBtm - 42, VIEW_W, 42);
     ctx.fillStyle = '#4ecca3'; ctx.font = '11px monospace';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillText(
       `WORLD ${WORLD_W}×${WORLD_H}  |  CAM (${Math.round(cam.x)},${Math.round(cam.y)})  |  PLAYER (${Math.round(player.x)},${Math.round(player.y)})  baseY=${playerBaseY()}`,
-      6, VIEW_H - 30
+      6, dbgBtm - 30
     );
     ctx.fillText(
       `FLOOR_TOP=${FLOOR_TOP}  FLOOR_BTM=${FLOOR_BTM}  PW=${PW} PH=${PH}  FEET_OY=${FEET_OY}`,
-      6, VIEW_H - 14
+      6, dbgBtm - 14
     );
     // Debug label top-right
     ctx.fillStyle = '#f9c74f'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
-    ctx.fillText('[ ` ] DEBUG ON', VIEW_W - 6, VIEW_H - 30);
+    ctx.fillText('[ ` ] DEBUG ON', VIEW_W - 6, dbgBtm - 30);
   }
 
   drawHUD();
@@ -1938,28 +1956,30 @@ function resizeGame() {
   SCREEN_W = window.innerWidth;
   SCREEN_H = window.innerHeight;
 
-  // Contain scale: uniform scale so the full game fits within the screen.
-  // The smaller ratio wins — canvas is always fully visible, letterbox bars
-  // fill the remainder (styled #05050a on the container, nearly invisible).
-  const scale = Math.min(SCREEN_W / VIEW_W, SCREEN_H / VIEW_H);
+  // Scale by width: game always fills the full screen width, aspect ratio locked.
+  // On phones wider than 16:9 the canvas is taller than the screen — overflow:hidden
+  // clips the excess symmetrically. The camera shifts so the player stays on-screen.
+  // On desktops (all ~16:9) the canvas fits the screen perfectly with no bars/crop.
+  const scale = SCREEN_W / VIEW_W;
+  const cssH  = VIEW_H * scale;   // may exceed SCREEN_H on wide phones
 
-  // Canvas CSS dimensions (always <= screen on both axes)
-  const cssW = VIEW_W * scale;
-  const cssH = VIEW_H * scale;
-
-  // Center the canvas so letterbox bars split equally on each side
-  canvas.style.width  = cssW + 'px';
+  canvas.style.width  = SCREEN_W + 'px';
   canvas.style.height = cssH + 'px';
-  canvas.style.left   = ((SCREEN_W - cssW) / 2) + 'px';
-  canvas.style.top    = ((SCREEN_H - cssH) / 2) + 'px';
+  canvas.style.left   = '0';
+  canvas.style.top    = ((SCREEN_H - cssH) / 2) + 'px'; // negative = canvas bleeds above
 
   // HiDPI backing store
-  canvas.width  = Math.round(cssW * dpr);
+  canvas.width  = Math.round(SCREEN_W * dpr);
   canvas.height = Math.round(cssH * dpr);
 
   // Uniform scale transform: game coords → physical pixels
   ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
+
+  // Visible slice: how many game-px fit on screen vertically, and where screen
+  // top lands in canvas game-space. Used by camera clamping and HUD placement.
+  VIEW_H_DYN = Math.min(VIEW_H, SCREEN_H / scale);
+  CROP_TOP   = (VIEW_H - VIEW_H_DYN) / 2;
 }
 
 window.addEventListener('resize', resizeGame);
