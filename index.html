@@ -2,11 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>TANA.EXE</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Lock html so iOS Safari can't scroll the root */
+    html {
+      height: 100%;
+      overflow: hidden;
+    }
 
     body {
       background: #05050a;
@@ -14,7 +20,10 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      height: 100dvh;
+      /* position:fixed prevents iOS Safari bounce/scroll even with overflow:hidden */
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
       overflow: hidden;
       font-family: 'Press Start 2P', monospace;
       color: #e0e0e0;
@@ -1953,8 +1962,11 @@ const gameContainer = document.getElementById('game-container');
 
 function resizeGame() {
   const dpr = window.devicePixelRatio || 1;
-  SCREEN_W = window.innerWidth;
-  SCREEN_H = window.innerHeight;
+  // visualViewport gives the true visible area after browser chrome (address bar,
+  // nav bar, keyboard) is accounted for. Falls back to innerWidth/Height on old browsers.
+  const vp = window.visualViewport;
+  SCREEN_W = vp ? vp.width  : window.innerWidth;
+  SCREEN_H = vp ? vp.height : window.innerHeight;
 
   // Scale by width: game always fills the full screen width, aspect ratio locked.
   // On phones wider than 16:9 the canvas is taller than the screen — overflow:hidden
@@ -1982,8 +1994,12 @@ function resizeGame() {
   CROP_TOP   = (VIEW_H - VIEW_H_DYN) / 2;
 }
 
+// visualViewport fires when the browser chrome shows/hides (address bar, keyboard).
+// window resize fires on desktop and as a fallback.
 window.addEventListener('resize', resizeGame);
-// Run once immediately (fonts/layout may not be painted yet, so also run after a tick)
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resizeGame);
+}
 resizeGame();
 setTimeout(resizeGame, 100);
 
