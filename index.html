@@ -828,10 +828,14 @@ function updateCamera() {
 
   // Vertical: centre player at the screen centre (= canvas centre = VIEW_H/2).
   // Clamp so neither the screen top nor bottom drifts past the world edge.
-  //   Upper bound = WORLD_H - VIEW_H + CROP_TOP  (screen bottom == world bottom)
-  //   Lower bound = 0                            (screen top == world top)
+  //   Lower bound = -CROP_TOP   → canvas shifts up so world y=0 hits screen top
+  //   Upper bound = WORLD_H - VIEW_H + CROP_TOP → world bottom hits screen bottom
+  // Using -CROP_TOP (not 0) is what allows the full back wall to be revealed:
+  // without it, the screen top is stuck CROP_TOP game-px below world y=0.
   cam.y = player.y + PH / 2 - VIEW_H / 2;
-  cam.y = Math.max(0, Math.min(Math.max(0, WORLD_H - VIEW_H + CROP_TOP), cam.y));
+  const camYMin = -CROP_TOP;
+  const camYMax = Math.max(camYMin, WORLD_H - VIEW_H + CROP_TOP);
+  cam.y = Math.max(camYMin, Math.min(camYMax, cam.y));
 }
 
 // World → screen transform
