@@ -769,13 +769,15 @@ function loadImg(src) {
 }
 
 // ▸ Swap these paths to wherever you host your assets
-const bgImg      = loadImg('assets/base.png');
+const bgImg      = loadImg('assets/base_new.png');
 const spriteImg  = loadImg('assets/spritetest.png');
-const stuImg     = loadImg('assets/STU.png');
-const rackAImg   = loadImg('assets/racka.png');
+const stuImg     = loadImg('assets/studio_packed.png');
+const shoeshelfpacked = loadImg('assets/shoeshelf_packed.png');
+const rackApacked   = loadImg('assets/rack_A_packed.png');
+const rackBpacked   = loadImg('assets/rack_B_packed.png');
 const boxesImg   = loadImg('assets/boxes.png');
-const couchwboxImg = loadImg('assets/couchwbox.png');
-const bedp1 = loadImg('assets/bedP1.png');
+const couchpacked = loadImg('assets/couch_packed.png');
+const bedpacked = loadImg('assets/bed_packed.png');
 const plaqImg        = loadImg('assets/plaq.png');
 const packedPlaqImg  = loadImg('assets/packedplaq.png');
 
@@ -919,19 +921,45 @@ const sceneObjects = [
     baseY: 300,             // floor level of shelf
     collision: { x: 8, y: 200, w: 280, h: 178 }, 
     interactable: false,
-    img: bedp1,
+    img: shoeshelfpacked,
     draw() {}
   },
 
-  // ── CLOTHES RACK  (left — tall, Y-sorted) ──────────────
+
   {
-    id: 'rack_left',
+    id: 'bed',
     x: 5, y: 430 ,
     w: 144, h: 111,
     baseY: 530,
     collision: { x: 5, y: 490, w: 140, h: 40 },
     interactable: false,
-    img: rackAImg,
+    img: bedpacked,
+    draw() {}
+  },
+
+
+
+  // ── CLOTHES RACK  (left — tall, Y-sorted) ──────────────
+  {
+    id: 'rack_A',
+    x: 5, y: 430 ,
+    w: 144, h: 111,
+    baseY: 530,
+    collision: { x: 5, y: 490, w: 140, h: 40 },
+    interactable: false,
+    img: rackApacked,
+    draw() {}
+  },
+
+  // ── CLOTHES RACK  (left — tall, Y-sorted) ──────────────
+  {
+    id: 'rack_B',
+    x: 5, y: 430 ,
+    w: 144, h: 111,
+    baseY: 530,
+    collision: { x: 5, y: 490, w: 140, h: 40 },
+    interactable: false,
+    img: rackBpacked,
     draw() {}
   },
 
