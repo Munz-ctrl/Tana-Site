@@ -894,14 +894,40 @@ const sceneObjects = [
     videoId: 'ZjRhoTnFpZE',
     img: null,
     draw(ctx, sx, sy) {
-      // [KEEP EXISTING TV DRAW FUNCTION EXACTLY AS-IS]
+     // Body
+      ctx.fillStyle = '#0d0d1a';
+      ctx.fillRect(sx, sy, this.w, this.h);
+      // Bezel
+      ctx.strokeStyle = '#222244'; ctx.lineWidth = 3;
+      ctx.strokeRect(sx+2, sy+2, this.w-4, this.h-4);
+      // Screen
+      const m = 14;
+      ctx.fillStyle = '#040d0a';
+      ctx.fillRect(sx+m, sy+m, this.w-m*2, this.h-m*2-18);
+      // Screen ambient glow
+      ctx.fillStyle = 'rgba(0,220,100,0.05)';
+      ctx.fillRect(sx+m, sy+m, this.w-m*2, this.h-m*2-18);
+      // Fake scanlines
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      for (let sl = 0; sl < this.h-m*2-18; sl += 4)
+        ctx.fillRect(sx+m, sy+m+sl, this.w-m*2, 2);
+      // Blinking cursor
+      if (Math.floor(Date.now()/700) % 2 === 0) {
+        ctx.fillStyle = '#00dd88';
+        ctx.fillRect(sx+m+8, sy+m+8, 5, 9);
+      }
+      // Play label
+      ctx.fillStyle = 'rgba(0,220,100,0.45)';
+      ctx.font = '8px "Press Start 2P"';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('▶  PLAY', sx + this.w/2, sy + this.h/2 - 6);
     }
   },
 
   // ── STUDIO — main desk visual (packed by default) ──
   {
     id: 'studio_desk',
-    x: 1050, y: 150, w: 460, h: 280,
+    x: 1050, y: 150, w: 489, h: 642,
     baseY: 160,
     collision: { x: 1050, y: 150, w: 460, h: 100 },
     interactable: true, action: 'email',
