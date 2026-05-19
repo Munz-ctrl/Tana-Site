@@ -968,9 +968,9 @@ const sceneObjects = [
   // ── LIVING ROOM — couch (packed by default) ──
   {
     id: 'couch',
-    x: 450, y: 160, w: 220, h: 260,
+    x: 450, y: 160, w: 119, h: 293,
     baseY: 280,
-    collision: { x: 450, y: 160, w: 210, h: 200 },
+    collision: { x: 450, y: 160, w: 119, h: 293 },
     interactable: false,
     img: couchPackedImg,
     draw() {}
@@ -979,9 +979,9 @@ const sceneObjects = [
   // ── LIVING ROOM BOXES — unpack trigger (removed after unpack, becomes trunk) ──
   {
     id: 'livingroom_boxes',
-    x: 560, y: 350, w: 148, h: 92,
+    x: 560, y: 350, w: 167, h: 116,
     baseY: 440,
-    collision: { x: 560, y: 370, w: 148, h: 55 },
+    collision: { x: 560, y: 370, w: 167, h: 116 },
     interactable: true, action: 'unpack-zone',
     zoneId: 'livingroom',
     label: 'UNPACK',
@@ -992,9 +992,9 @@ const sceneObjects = [
   // ── BEDROOM — shoe shelf (packed by default) ──
   {
     id: 'sneaker_shelf',
-    x: 8, y: 200, w: 320, h: 220,
+    x: 8, y: 200, w: 417, h: 369,
     baseY: 300,
-    collision: { x: 8, y: 200, w: 320, h: 200 },
+    collision: { x: 8, y: 200, w: 417, h: 369 },
     interactable: false,
     img: shoeshelfPackedImg,
     draw() {}
@@ -1014,9 +1014,9 @@ const sceneObjects = [
   // ── BEDROOM — clothing rack A (packed by default) ──
   {
     id: 'rack_A',
-    x: 270, y: 380, w: 160, h: 140,
+    x: 30, y: 380, w: 162, h: 146,
     baseY: 510,
-    collision: { x: 270, y: 450, w: 155, h: 50 },
+    collision: { x: 30, y: 380, w: 162, h: 146 },
     interactable: false,
     img: rackAPackedImg,
     draw() {}
@@ -1025,9 +1025,9 @@ const sceneObjects = [
   // ── BEDROOM — clothing rack B (packed by default) ──
   {
     id: 'rack_B',
-    x: 270, y: 520, w: 160, h: 140,
+    x: 70, y: 520, w: 162, h: 146,
     baseY: 640,
-    collision: { x: 270, y: 580, w: 155, h: 50 },
+    collision: { x: 70, y: 520, w: 162, h: 146 },
     interactable: false,
     img: rackBPackedImg,
     draw() {}
@@ -1167,7 +1167,7 @@ function applyLivingroomUnpack(play) {
   if (!sceneObjects.find(o => o.id === 'carpet')) {
     sceneObjects.push({
       id: 'carpet',
-      x: 400, y: 280, w: 400, h: 260,
+      x: 400, y: 280, w: 408, h: 264,
       baseY: 1,   // lowest possible — always renders first, under player
       collision: null,
       interactable: false,
