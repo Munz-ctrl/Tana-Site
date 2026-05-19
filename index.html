@@ -887,7 +887,7 @@ const sceneObjects = [
   // ── TV (wall-mounted, always visible, interactable) ──
   {
     id: 'tv',
-    x: 620, y: 48, w: 150, h: 95,
+    x: 640, y: 60, w: 250, h: 95,
     baseY: 200, collision: null,
     interactable: true, action: 'video',
     label: 'PLAY VIDEO',
@@ -927,7 +927,7 @@ const sceneObjects = [
   // ── STUDIO — main desk visual (packed by default) ──
   {
     id: 'studio_desk',
-    x: 1050, y: 50, w: 489, h: 642,
+    x: 1050, y: 10, w: 489, h: 642,
     baseY: 160,
     collision: { x: 1050, y: 150, w: 460, h: 200 },
     interactable: true, action: 'email',
@@ -939,7 +939,7 @@ const sceneObjects = [
   // ── STUDIO BOXES — unpack trigger (removed after unpack) ──
   {
     id: 'studio_boxes',
-    x: 1050, y: 380, w: 148, h: 100,
+    x: 1050, y: 500, w: 148, h: 100,
     baseY: 480,
     collision: { x: 1050, y: 400, w: 148, h: 60 },
     interactable: true, action: 'unpack-zone',
