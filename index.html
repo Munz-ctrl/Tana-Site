@@ -968,9 +968,9 @@ const sceneObjects = [
   // ── LIVING ROOM — couch (packed by default) ──
   {
     id: 'couch',
-    x: 450, y: 160, w: 119, h: 293,
+    x: 530, y: 250, w: 119, h: 293,
     baseY: 280,
-    collision: { x: 450, y: 160, w: 119, h: 293 },
+    collision: { x: 530, y: 250, w: 119, h: 293 },
     interactable: false,
     img: couchPackedImg,
     draw() {}
@@ -979,9 +979,9 @@ const sceneObjects = [
   // ── LIVING ROOM BOXES — unpack trigger (removed after unpack, becomes trunk) ──
   {
     id: 'livingroom_boxes',
-    x: 560, y: 350, w: 167, h: 116,
+    x: 630, y: 350, w: 167, h: 116,
     baseY: 440,
-    collision: { x: 560, y: 370, w: 167, h: 116 },
+    collision: { x: 630, y: 350, w: 167, h: 116 },
     interactable: true, action: 'unpack-zone',
     zoneId: 'livingroom',
     label: 'UNPACK',
