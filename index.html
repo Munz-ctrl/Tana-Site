@@ -930,6 +930,7 @@ const sceneObjects = [
     x: 1050, y: 10, w: 489, h: 642,
     baseY: 160,
     interactY: 450,   // ← add this line — floor level in front of desk
+    promptY: 380,    // ← add this — world Y where the prompt floats
     collision: { x: 1050, y: 150, w: 460, h: 200 },
     interactable: true, action: 'email',
     label: 'JOIN LIST',
@@ -1949,7 +1950,7 @@ function drawPlayer() {
 // In-between values tween smoothly so the pip "inflates" into the badge.
 function drawInteractPrompt(obj, t) {
   const sx = wx(obj.x + obj.w / 2);
-  const sy = wy(obj.y - 8);
+  const sy = wy((obj.promptY != null ? obj.promptY : obj.y) - 8);
   const time = Date.now();
 
   ctx.font = '6px "Press Start 2P"';
