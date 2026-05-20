@@ -929,6 +929,7 @@ const sceneObjects = [
     id: 'studio_desk',
     x: 1050, y: 10, w: 489, h: 642,
     baseY: 160,
+    interactY: 450,   // ← add this line — floor level in front of desk
     collision: { x: 1050, y: 150, w: 460, h: 200 },
     interactable: true, action: 'email',
     label: 'JOIN LIST',
@@ -941,7 +942,6 @@ const sceneObjects = [
     id: 'studio_boxes',
     x: 1350, y: 500, w: 148, h: 100,
     baseY: 480,
-    interactY: 450,   // ← add this line — floor level in front of desk
     collision: { x: 1350, y: 500, w: 148, h: 100 },
     interactable: true, action: 'unpack-zone',
     zoneId: 'studio',
@@ -1050,9 +1050,9 @@ const sceneObjects = [
   // ── INVISIBLE WALL — left centre (blocks back wall) ──
   {
     id: 'wall_mid_left',
-    x: 500, y: 100, w: 50, h: 420,
+    x: 490, y: 100, w: 50, h: 420,
     baseY: 10,
-    collision: { x: 500, y: 100, w: 50, h: 420 },
+    collision: { x: 490, y: 100, w: 50, h: 420 },
     interactable: false, img: null, draw() {}
   },
 
