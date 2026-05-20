@@ -1002,16 +1002,7 @@ const sceneObjects = [
     draw() {}
   },
 
-  // ── BEDROOM — bed (packed by default) ──
-  {
-    id: 'bed',
-    x: 8, y: 295, w: 268, h: 241,
-    baseY: 560,
-    collision: { x: 8, y: 295, w: 268, h: 241 },
-    interactable: false,
-    img: bedPackedImg,
-    draw() {}
-  },
+  
 
   // ── BEDROOM — clothing rack A (packed by default) ──
   {
@@ -1032,6 +1023,17 @@ const sceneObjects = [
     collision: { x: 70, y: 650, w: 162, h: 146 },
     interactable: false,
     img: rackBPackedImg,
+    draw() {}
+  },
+
+  // ── BEDROOM — bed (packed by default) ──
+  {
+    id: 'bed',
+    x: 8, y: 295, w: 268, h: 241,
+    baseY: 560,
+    collision: { x: 8, y: 295, w: 268, h: 241 },
+    interactable: false,
+    img: bedPackedImg,
     draw() {}
   },
 
@@ -1075,7 +1077,7 @@ try { plaqueUnpacked = (sessionStorage.getItem(PLAQUE_STORAGE_KEY) === '1'); } c
 // Tunable positions — open debug overlay (`) to see boxes & adjust.
 const packedPlaqueObj = {
   id: 'packed_plaque',
-  x: 40, y: 295,
+  x: 310, y: 295,
   w: 149, h: 99,
   baseY: 350,             // depth-sorts just in front of the bed
   collision: null,        // bed already blocks this area
