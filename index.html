@@ -930,7 +930,7 @@ const sceneObjects = [
     x: 1050, y: 10, w: 489, h: 642,
     baseY: 160,
     interactY: 450,   // ← add this line — floor level in front of desk
-    promptY: 380,    // ← add this — world Y where the prompt floats
+    promptY: 300,    // ← add this — world Y where the prompt floats
     collision: { x: 1050, y: 150, w: 460, h: 200 },
     interactable: true, action: 'email',
     label: 'JOIN LIST',
@@ -1009,7 +1009,7 @@ const sceneObjects = [
     id: 'rack_A',
     x: 30, y: 430, w: 162, h: 146,
     baseY: 510,
-    collision: { x: 30, y: 480, w: 162, h: 146 },
+    collision: { x: 30, y: 480, w: 162, h: 46 },
     interactable: false,
     img: rackAPackedImg,
     draw() {}
@@ -1020,7 +1020,7 @@ const sceneObjects = [
     id: 'rack_B',
     x: 70, y: 600, w: 162, h: 146,
     baseY: 670,
-    collision: { x: 70, y: 650, w: 162, h: 146 },
+    collision: { x: 70, y: 650, w: 162, h: 46 },
     interactable: false,
     img: rackBPackedImg,
     draw() {}
