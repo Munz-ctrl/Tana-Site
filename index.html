@@ -1159,9 +1159,9 @@ function applyLivingroomUnpack(play) {
   if (!sceneObjects.find(o => o.id === 'trunk')) {
     sceneObjects.push({
       id: 'trunk',
-      x: 560, y: 330, w: 180, h: 120,
+      x: 690, y: 330, w: 180, h: 120,
       baseY: 430,
-      collision: { x: 560, y: 370, w: 180, h: 70 },
+      collision: { x: 690, y: 330, w: 180, h: 70 },
       interactable: false,
       img: trunkImg,
       draw() {}
@@ -1171,7 +1171,7 @@ function applyLivingroomUnpack(play) {
   if (!sceneObjects.find(o => o.id === 'carpet')) {
     sceneObjects.push({
       id: 'carpet',
-      x: 400, y: 280, w: 408, h: 264,
+      x: 560, y: 280, w: 408, h: 264,
       baseY: 1,   // lowest possible — always renders first, under player
       collision: null,
       interactable: false,
