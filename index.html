@@ -824,7 +824,7 @@ bgImg.onload = () => {
   PW          = Math.round(PH * 0.75);
   FEET_OY     = Math.round(PH * 0.77);
   FEET_H      = Math.round(PH * 0.23);
-  FEET_MARGIN = Math.round(PW * 0.18);
+  FEET_MARGIN = Math.round(PW * 0.28);
 
   // Floor bounds: rough estimate — use debug (`) to fine-tune
   FLOOR_TOP = Math.round(WORLD_H * 0.30);
@@ -1279,12 +1279,14 @@ function drawUnpackBar() {
 let lastAxis = 'x';
 
 const player = {
-  x: WORLD_W / 2 - PW / 2,   // start centre of world
-  y: 460,   // safe default — bgImg.onload recalculates this anyway
+  x: WORLD_W / 2 - PW / 2,
+  y: 460,
   vx: 0, vy: 0,
   facing: 'down',
   animFrame: 0,
   animTick: 0,
+  idleFrame: 0,   // 0 = col0 (base idle), 1 = col2 (breathe frame)
+  idleTick: 0,    // counts up to trigger breathe swap
 };
 
 // World-space feet rect for collision & depth sorting
@@ -1842,13 +1844,21 @@ function update() {
   if (vx !== 0 && !wouldCollide(player.x + vx, player.y)) player.x += vx;
   if (vy !== 0 && !wouldCollide(player.x, player.y + vy)) player.y += vy;
 
-  // Walk animation
-  const moving = Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1;
-  if (moving) {
-    if (++player.animTick >= 10) { player.animTick = 0; player.animFrame ^= 1; }
-  } else {
-    player.animFrame = player.animTick = 0;
-  }
+ // Walk + idle breathe animation
+const moving = Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1;
+if (moving) {
+  // Reset idle state whenever walking starts
+  player.idleFrame = 0;
+  player.idleTick  = 0;
+  // Walk cycle toggles col 0 ↔ col 1
+  if (++player.animTick >= 10) { player.animTick = 0; player.animFrame ^= 1; }
+} else {
+  // Lock walk frame at col 0 while standing
+  player.animFrame = 0;
+  player.animTick  = 0;
+  // Breathe cycle slowly toggles col 0 ↔ col 2 (60 ticks ≈ 1 second per breath)
+  if (++player.idleTick >= 60) { player.idleTick = 0; player.idleFrame ^= 1; }
+}
 
   updateCamera();
   updateProxAudio();
@@ -1905,19 +1915,39 @@ function drawPlayer() {
   const sx = wx(player.x);
   const sy = wy(player.y);
 
-  // Drop shadow
+  // ── Shadow — anchored to feet, not sprite bottom ──
+  // Sits at the vertical midpoint of the feet rect so the player
+  // looks grounded regardless of which direction they're facing.
+  const shadowCY = sy + FEET_OY + FEET_H * 0.5;
   ctx.fillStyle = 'rgba(0,0,0,0.30)';
   ctx.beginPath();
-  ctx.ellipse(sx + PW/2, sy + PH + 3, PW/2.5, 5, 0, 0, Math.PI*2);
+  ctx.ellipse(sx + PW / 2, shadowCY, PW / 3.2, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.imageSmoothingEnabled = false;
+
   if (spriteImg.complete && spriteImg.naturalWidth > 0) {
-    const srcX = player.animFrame * FRAME_W;
+    const moving = Math.abs(player.vx ?? 0) > 0.1 || Math.abs(player.vy ?? 0) > 0.1;
+
+    // Column selection:
+    //   col 0 = base idle / walk frame A
+    //   col 1 = walk frame B
+    //   col 2 = breathe frame (only when standing still)
+    const col  = moving ? player.animFrame : (player.idleFrame === 1 ? 2 : 0);
+    const srcX = col * FRAME_W;
     const srcY = DIR_ROW[player.facing] * FRAME_H;
+
+    // Clip to the exact frame rect so dreads / tall sprites on adjacent
+    // rows never bleed into each other (fixes the looking-up bleed)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(sx, sy, PW, PH);
+    ctx.clip();
     ctx.drawImage(spriteImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+    ctx.restore();
+
   } else {
-    // Fallback block character
+    // Fallback coloured block while sprite loads
     ctx.fillStyle = '#e94560';
     ctx.fillRect(sx + 8, sy, PW - 16, PH * 0.35);
     ctx.fillStyle = '#f9c74f';
@@ -1926,12 +1956,12 @@ function drawPlayer() {
 
   // Name tag
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  roundRect(ctx, sx + PW/2 - 20, sy - 14, 40, 11, 2);
+  roundRect(ctx, sx + PW / 2 - 20, sy - 14, 40, 11, 2);
   ctx.fill();
   ctx.fillStyle = '#4ecca3';
   ctx.font = '5px "Press Start 2P"';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('ME', sx + PW/2, sy - 9);
+  ctx.fillText('ME', sx + PW / 2, sy - 9);
 }
 
 // ─────────────────────────────────────────────────────────
