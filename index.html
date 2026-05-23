@@ -905,22 +905,13 @@ const sceneObjects = [
     videoId: 'ZjRhoTnFpZE',
     img: null,
     draw(ctx, sx, sy) {
-  // Bezel / frame
-  ctx.fillStyle = '#0d0d1a';
-  ctx.fillRect(sx, sy, this.w, this.h);
-  ctx.strokeStyle = '#222244';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(sx + 2, sy + 2, this.w - 4, this.h - 4);
-
-  // Live video frame drawn into the screen area
-  if (tvVideo.readyState >= 2) {
-    ctx.drawImage(tvVideo, sx + 12, sy + 10, this.w - 24, this.h - 28);
-  } else {
-    // Fallback while video loads
-    ctx.fillStyle = '#040d0a';
-    ctx.fillRect(sx + 12, sy + 10, this.w - 24, this.h - 28);
+   if (tvVideo.readyState >= 2) {
+    ctx.drawImage(tvVideo, sx, sy, this.w, this.h);
+   } else {
+     ctx.fillStyle = '#040d0a';
+     ctx.fillRect(sx, sy, this.w, this.h);
+   }
   }
-}
   },
 
   // ── STUDIO — main desk visual (packed by default) ──
