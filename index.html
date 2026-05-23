@@ -771,6 +771,9 @@ function loadImg(src) {
 const bgImg             = loadImg('assets/base_new.png');
 const spriteImg         = loadImg('assets/spritetest.png');
 
+
+
+const tvImg         = loadImg('assets/tv.png');
 // Studio
 const studioPackedImg   = loadImg('assets/studio_packed.png');
 const studioUnpackedImg = loadImg('assets/studio_unpacked.png');
@@ -887,13 +890,13 @@ const sceneObjects = [
   // ── TV (wall-mounted, always visible, interactable) ──
   {
     id: 'tv',
-    x: 640, y: 60, w: 250, h: 195,
+    x: 640, y: 60, w: 245, h: 161,
     baseY: 200, collision: null,
     interactable: true, action: 'video',
     label: 'PLAY VIDEO',
     videoId: 'ZjRhoTnFpZE',
-    img: null,
-    draw(ctx, sx, sy) {
+    img: tvImg,
+    draw() {
      // Body
       // ctx.fillStyle = '#0d0d1a';
       // ctx.fillRect(sx, sy, this.w, this.h);
@@ -901,16 +904,16 @@ const sceneObjects = [
       // ctx.strokeStyle = '#222244'; ctx.lineWidth = 3;
       // ctx.strokeRect(sx+2, sy+2, this.w-4, this.h-4);
       // Screen
-      const m = 14;
-      ctx.fillStyle = '#040d0a';
-      ctx.fillRect(sx+m, sy+m, this.w-m*2, this.h-m*2-18);
-      // Screen ambient glow
-      ctx.fillStyle = 'rgba(0,220,100,0.05)';
-      ctx.fillRect(sx+m, sy+m, this.w-m*2, this.h-m*2-18);
-      // Fake scanlines
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      for (let sl = 0; sl < this.h-m*2-18; sl += 4)
-        ctx.fillRect(sx+m, sy+m+sl, this.w-m*2, 2);
+      // const m = 14;
+      // ctx.fillStyle = '#040d0a';
+      // ctx.fillRect(sx+m, sy+m, this.w-m*2, this.h-m*2-18);
+      // // Screen ambient glow
+      // ctx.fillStyle = 'rgba(0,220,100,0.05)';
+      // ctx.fillRect(sx+m, sy+m, this.w-m*2, this.h-m*2-18);
+      // // Fake scanlines
+      // ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      // for (let sl = 0; sl < this.h-m*2-18; sl += 4)
+      //   ctx.fillRect(sx+m, sy+m+sl, this.w-m*2, 2);
       // Blinking cursor
       if (Math.floor(Date.now()/700) % 2 === 0) {
         ctx.fillStyle = '#00dd88';
