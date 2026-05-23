@@ -1015,9 +1015,9 @@ const sceneObjects = [
   // ── BEDROOM BOX — unpack trigger (removed after unpack) ──
   {
     id: 'bedroom_box',
-    x: 60, y: 490, w: 310, h: 490,
+    x: 310, y: 490, w: 120, h: 90,
     baseY: 570,
-    collision: null,
+    collision: { x: 310, y: 520, w: 120, h: 50 },
     interactable: true, action: 'unpack-zone',
     zoneId: 'bedroom',
     label: 'UNPACK ROOM',
