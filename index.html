@@ -799,7 +799,7 @@ const bedroomBoxImg     = loadImg('assets/bedroombox.png');
 
 // Plaque (unchanged)
 const plaqImg           = loadImg('assets/plaq.png');
-const packedPlaqImg     = loadImg('assets/packedplaq.png');
+const packedPlaqImg     = loadImg('assets/plaque_unpacked.png');
 
 
 // ── Auto-size world to image ──────────────────────────────
@@ -929,9 +929,9 @@ const sceneObjects = [
   // ── STUDIO NULL COLLIDERS (invisible, unchanged) ──
   {
     id: 'wall_mid_right',
-    x: 1010, y: 110, w: 50, h: 420,
+    x: 1010, y: 110, w: 100, h: 420,
     baseY: 10,
-    collision: { x: 1010, y: 110, w: 50, h: 420 },
+    collision: { x: 1010, y: 110, w: 100, h: 420 },
     interactable: false, img: null, draw() {}
   },
   {
@@ -947,7 +947,7 @@ const sceneObjects = [
     id: 'couch',
     x: 530, y: 250, w: 119, h: 293,
     baseY: 543,
-    collision: { x: 530, y: 306, w: 119, h: 147 },
+    collision: { x: 530, y: 306, w: 105, h: 343 },
     interactable: false,
     img: couchPackedImg,
     draw() {}
@@ -958,7 +958,7 @@ const sceneObjects = [
     id: 'livingroom_boxes',
     x: 690, y: 350, w: 167, h: 116,
     baseY: 440,
-    collision: { x: 690, y: 350, w: 167, h: 116 },
+    collision: { x: 690, y: 380, w: 167, h: 85 },
     interactable: true, action: 'unpack-zone',
     zoneId: 'livingroom',
     label: 'UNPACK',
@@ -971,7 +971,7 @@ const sceneObjects = [
     id: 'sneaker_shelf',
     x: 8, y: 50, w: 472, h: 369,
     baseY: 300,
-    collision: { x: 400, y: 150, w: 57, h: 209 },
+    collision: { x: 410, y: 150, w: 57, h: 209 },
     interactable: false,
     img: shoeshelfPackedImg,
     draw() {}
@@ -1015,7 +1015,7 @@ const sceneObjects = [
   // ── BEDROOM BOX — unpack trigger (removed after unpack) ──
   {
     id: 'bedroom_box',
-    x: 60, y: 490, w: 120, h: 90,
+    x: 60, y: 490, w: 310, h: 490,
     baseY: 570,
     collision: null,
     interactable: true, action: 'unpack-zone',
@@ -1028,9 +1028,9 @@ const sceneObjects = [
   // ── INVISIBLE WALL — left centre (blocks back wall) ──
   {
     id: 'wall_mid_left',
-    x: 490, y: 110, w: 50, h: 420,
+    x: 480, y: 110, w: 50, h: 420,
     baseY: 10,
-    collision: { x: 490, y: 110, w: 50, h: 420 },
+    collision: { x: 480, y: 110, w: 50, h: 420 },
     interactable: false, img: null, draw() {}
   },
 
@@ -1052,9 +1052,9 @@ try { plaqueUnpacked = (sessionStorage.getItem(PLAQUE_STORAGE_KEY) === '1'); } c
 // Tunable positions — open debug overlay (`) to see boxes & adjust.
 const packedPlaqueObj = {
   id: 'packed_plaque',
-  x: 310, y: 550,
+  x: 200, y: 150,
   w: 149, h: 99,
-  baseY: 540,             // depth-sorts just in front of the bed
+  baseY: 150,             // depth-sorts just in front of the bed
   collision: null,        // bed already blocks this area
   interactable: true,
   action: 'unpack',
@@ -1065,8 +1065,8 @@ const packedPlaqueObj = {
 
 const wallPlaqueObj = {
   id: 'wall_plaque',
-  x: 169, y: 20,
-  w: 83, h: 130,
+  x: 200, y: 40,
+  w: 108, h: 262,
   baseY: 200,             // low like TV → always renders behind player
   interactY: 380,         // pull interaction zone down to floor so the
                           // player can reach it from in front of the bed
