@@ -1844,19 +1844,16 @@ function update() {
   if (vx !== 0 && !wouldCollide(player.x + vx, player.y)) player.x += vx;
   if (vy !== 0 && !wouldCollide(player.x, player.y + vy)) player.y += vy;
 
- // Walk + idle breathe animation
+// Walk + idle breathe animation
 const moving = Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1;
+player.moving = moving;   // ← write it to player so drawPlayer can read it
 if (moving) {
-  // Reset idle state whenever walking starts
   player.idleFrame = 0;
   player.idleTick  = 0;
-  // Walk cycle toggles col 0 ↔ col 1
   if (++player.animTick >= 10) { player.animTick = 0; player.animFrame ^= 1; }
 } else {
-  // Lock walk frame at col 0 while standing
   player.animFrame = 0;
   player.animTick  = 0;
-  // Breathe cycle slowly toggles col 0 ↔ col 2 (60 ticks ≈ 1 second per breath)
   if (++player.idleTick >= 60) { player.idleTick = 0; player.idleFrame ^= 1; }
 }
 
@@ -1918,7 +1915,7 @@ function drawPlayer() {
   // ── Shadow — anchored to feet, not sprite bottom ──
   // Sits at the vertical midpoint of the feet rect so the player
   // looks grounded regardless of which direction they're facing.
-  const shadowCY = sy + FEET_OY + FEET_H * 0.5;
+  const shadowCY = sy + PH - 6;
   ctx.fillStyle = 'rgba(0,0,0,0.30)';
   ctx.beginPath();
   ctx.ellipse(sx + PW / 2, shadowCY, PW / 3.2, 4, 0, 0, Math.PI * 2);
@@ -1927,7 +1924,7 @@ function drawPlayer() {
   ctx.imageSmoothingEnabled = false;
 
   if (spriteImg.complete && spriteImg.naturalWidth > 0) {
-    const moving = Math.abs(player.vx ?? 0) > 0.1 || Math.abs(player.vy ?? 0) > 0.1;
+    const moving = player.moving ?? false;
 
     // Column selection:
     //   col 0 = base idle / walk frame A
