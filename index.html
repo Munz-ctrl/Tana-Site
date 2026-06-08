@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>TANA.EXE</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -647,6 +648,108 @@
      ═══════════════════════════════════════════════════════════ -->
 
 
+<!-- ── MULTIPLAYER NAME ENTRY SCREEN ── -->
+<style>
+#name-screen {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(5,5,10,0.97);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.3s ease;
+  padding: max(env(safe-area-inset-top,0px),20px)
+           max(env(safe-area-inset-right,0px),20px)
+           max(env(safe-area-inset-bottom,0px),20px)
+           max(env(safe-area-inset-left,0px),20px);
+}
+#name-card {
+  max-width: 380px; width: 100%;
+  padding: 30px 26px;
+  background: #07070f;
+  border: 2px solid #4ecca3;
+  box-shadow: 0 0 40px rgba(78,204,163,0.25), inset 0 0 0 1px #0d2218;
+  text-align: center;
+  box-sizing: border-box;
+  max-height: calc(100svh - 40px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+.name-title {
+  color: #4ecca3; font-size: 10px; letter-spacing: 3px;
+  text-shadow: 0 0 12px rgba(78,204,163,0.7);
+  margin-bottom: 24px;
+}
+#mp-name-input {
+  width: 100%; box-sizing: border-box;
+  background: #080818;
+  border: 1px solid #4ecca3;
+  color: #4ecca3;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 10px 12px;
+  margin-bottom: 20px;
+  outline: none;
+  text-align: center;
+  text-transform: uppercase;
+  caret-color: #4ecca3;
+}
+#mp-name-input::placeholder { color: #1a3a2a; }
+#mp-name-input:focus { border-color: #78ffd0; }
+.name-skin-label {
+  color: #b0b8d0; font-size: 7px; letter-spacing: 2px;
+  margin-bottom: 12px;
+}
+.name-skin-row {
+  display: flex; gap: 10px; justify-content: center;
+  margin-bottom: 24px;
+}
+.skin-btn {
+  background: rgba(78,204,163,0.06);
+  border: 1px solid #4ecca3;
+  color: #4ecca3;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  min-width: 44px; min-height: 44px;
+  transition: background 0.1s;
+}
+.skin-btn.active, .skin-btn:hover {
+  background: rgba(78,204,163,0.22);
+  box-shadow: 0 0 10px rgba(78,204,163,0.3);
+}
+#name-confirm {
+  width: 100%;
+  background: rgba(78,204,163,0.10);
+  border: 1px solid #4ecca3;
+  color: #4ecca3;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px; letter-spacing: 2px;
+  padding: 12px 24px;
+  cursor: pointer; outline: none;
+  min-height: 44px;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+#name-confirm:hover {
+  background: rgba(78,204,163,0.22);
+  box-shadow: 0 0 18px rgba(78,204,163,0.35);
+}
+</style>
+
+<div id="name-screen">
+  <div id="name-card">
+    <div class="name-title">★ ENTER YOUR NAME ★</div>
+    <input id="mp-name-input" type="text" maxlength="12" placeholder="PLAYER" autocomplete="off">
+    <div class="name-skin-label">CHOOSE SKIN</div>
+    <div class="name-skin-row">
+      <button class="skin-btn active" data-skin="0">0</button>
+      <button class="skin-btn" data-skin="1">1</button>
+      <button class="skin-btn" data-skin="2">2</button>
+    </div>
+    <button id="name-confirm">PLAY →</button>
+  </div>
+</div>
+
 <div id="header">★ TANA.EXE ★</div>
 
 <div id="game-container">
@@ -729,6 +832,13 @@
 
 <script>
 'use strict';
+
+// ── Multiplayer state ──
+const playerId    = crypto.randomUUID();
+let   playerName  = 'ANON';
+let   playerSkin  = 0;
+let   nameScreenOpen = true;
+const remotePlayers  = new Map();
 
 // ═══════════════════════════════════════════════════════════
 //  ██████╗ ██████╗ ███╗   ██╗███████╗██╗ ██████╗
@@ -1855,7 +1965,7 @@ function update() {
   tickUnpackBar(now);   // always tick — bar runs independently of popups
 
 
-  if (popupOpen || tvOpen || revealOpen) return;
+  if (nameScreenOpen || popupOpen || tvOpen || revealOpen) return;
 
   let vx = 0, vy = 0;
 
@@ -2008,6 +2118,58 @@ function drawPlayer() {
 }
 
 // ─────────────────────────────────────────────────────────
+//  DRAW — REMOTE PLAYER
+// ─────────────────────────────────────────────────────────
+function drawRemotePlayer(rp) {
+  const sx = wx(rp.x);
+  const sy = wy(rp.y);
+  if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;
+
+  ctx.globalAlpha = 0.85;
+  ctx.imageSmoothingEnabled = false;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath();
+  ctx.ellipse(sx + PW / 2, sy + PH - 6, PW / 3.2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Sprite (spriteImg for all skins for now)
+  if (spriteImg.complete && spriteImg.naturalWidth > 0) {
+    const dir  = (rp.facing && DIR_ROW[rp.facing] !== undefined) ? rp.facing : 'down';
+    const col  = rp.animFrame ? 1 : 0;
+    const srcX = col * FRAME_W;
+    const srcY = DIR_ROW[dir] * FRAME_H;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(sx, sy, PW, PH);
+    ctx.clip();
+    ctx.drawImage(spriteImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#4ecca3';
+    ctx.fillRect(sx + 8, sy, PW - 16, PH * 0.35);
+    ctx.fillStyle = '#e0e0e0';
+    ctx.fillRect(sx + 4, sy + PH * 0.35, PW - 8, PH * 0.65);
+  }
+
+  // Name tag
+  const label = String(rp.name || 'ANON').substring(0, 12).toUpperCase();
+  ctx.font = '5px "Press Start 2P"';
+  const tw   = ctx.measureText(label).width;
+  const tagW = Math.max(tw + 8, 24);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  roundRect(ctx, sx + PW / 2 - tagW / 2, sy - 14, tagW, 11, 2);
+  ctx.fill();
+  ctx.fillStyle = '#4ecca3';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, sx + PW / 2, sy - 9);
+
+  ctx.globalAlpha = 1;
+}
+
+// ─────────────────────────────────────────────────────────
 //  DRAW — INTERACT PROMPT  (floating [E] above object)
 // ─────────────────────────────────────────────────────────
 // t = 0 → minimized textless pip (always on for interactables)
@@ -2107,6 +2269,8 @@ function drawHUD() {
   ctx.font = '6px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillText('▸ TANA ROOM', 8, CROP_TOP + 10);
+  ctx.textAlign = 'right';
+  ctx.fillText('ONLINE: ' + (remotePlayers.size + 1), VIEW_W - 8, CROP_TOP + 10);
 
   // Bottom action hint
   const near = getNearbyObject();
@@ -2182,6 +2346,9 @@ function render() {
 
   // Draw all
   for (const item of renderList) item.fn();
+
+  // Draw remote players
+  for (const rp of remotePlayers.values()) drawRemotePlayer(rp);
 
   // ── DEBUG OVERLAY (press ` backtick to toggle) ──────────
   if (debugOn) {
@@ -2303,6 +2470,87 @@ if (window.visualViewport) {
 }
 resizeGame();
 setTimeout(resizeGame, 100);
+
+// ─────────────────────────────────────────────────────────
+//  MULTIPLAYER — Name entry + Supabase Realtime
+// ─────────────────────────────────────────────────────────
+(function() {
+  const screen   = document.getElementById('name-screen');
+  const inp      = document.getElementById('mp-name-input');
+  const confirmBtn = document.getElementById('name-confirm');
+  const skinBtns = document.querySelectorAll('.skin-btn');
+
+  skinBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      skinBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      playerSkin = parseInt(btn.dataset.skin, 10);
+    });
+  });
+
+  function dismissNameScreen() {
+    const raw = inp.value.trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase();
+    playerName = raw || 'ANON';
+    screen.style.opacity = '0';
+    screen.style.pointerEvents = 'none';
+    setTimeout(() => { if (screen.parentNode) screen.remove(); }, 320);
+    nameScreenOpen = false;
+    initMultiplayer();
+  }
+
+  confirmBtn.addEventListener('click', dismissNameScreen);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') dismissNameScreen(); });
+
+  // Show once both pw-gate and intro-screen are gone
+  (function waitAndShow() {
+    if (document.getElementById('pw-gate') || document.getElementById('intro-screen')) {
+      requestAnimationFrame(waitAndShow);
+    } else {
+      screen.style.opacity = '1';
+      screen.style.pointerEvents = 'all';
+      inp.focus();
+    }
+  })();
+})();
+
+function initMultiplayer() {
+  try {
+    const sb = supabase.createClient(
+      'https://bqhltjtktpaoctymmjrc.supabase.co',
+      'sb_publishable_75Z_fkmYckjBRFmI2jol6A_Czi0estn'
+    );
+    const channel = sb.channel('tana-world');
+    channel
+      .on('broadcast', { event: 'player' }, ({ payload }) => {
+        if (!payload || payload.id === playerId) return;
+        payload._lastSeen = Date.now();
+        remotePlayers.set(payload.id, payload);
+      })
+      .subscribe(() => {
+        setInterval(() => {
+          const now = Date.now();
+          for (const [id, p] of remotePlayers) {
+            if (now - p._lastSeen > 3000) remotePlayers.delete(id);
+          }
+          channel.send({
+            type: 'broadcast',
+            event: 'player',
+            payload: {
+              id:        playerId,
+              name:      playerName,
+              skin:      playerSkin,
+              x:         player.x,
+              y:         player.y,
+              facing:    player.facing,
+              animFrame: player.animFrame,
+            }
+          });
+        }, 100);
+      });
+  } catch (e) {
+    console.error('[TANA.EXE] Multiplayer init failed:', e);
+  }
+}
 
 // ─────────────────────────────────────────────────────────
 //  GAME LOOP
