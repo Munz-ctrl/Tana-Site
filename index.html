@@ -1968,14 +1968,16 @@ function render() {
   // Add player to sort list
   renderList.push({ baseY: playerBaseY(), fn: drawPlayer });
 
+  for (const rp of remotePlayers.values()) {
+    const rpBaseY = rp.y + FEET_OY + FEET_H;
+    renderList.push({ baseY: rpBaseY, fn: () => drawRemotePlayer(rp) });
+  }
+
   // Sort by Y depth
   renderList.sort((a, b) => a.baseY - b.baseY);
 
   // Draw all
   for (const item of renderList) item.fn();
-
-  // Draw remote players
-  for (const rp of remotePlayers.values()) drawRemotePlayer(rp);
 
   // ── DEBUG OVERLAY (press ` backtick to toggle) ──────────
   if (debugOn) {
