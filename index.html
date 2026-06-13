@@ -664,13 +664,21 @@
   margin-bottom: 24px;
 }
 .skin-btn {
-  background: rgba(78,204,163,0.06);
+  width: 64px;
+  height: 64px;
+  padding: 0;
   border: 2px solid rgba(78,204,163,0.25);
-  padding: 4px;
+  background-color: rgba(78,204,163,0.06);
+  /* Crop col 0 row 0 (idle-down frame) from the 512px-wide sheet.
+     512 → 128px means each 256px frame = 64px = button size. */
+  background-size: 128px auto;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
   cursor: pointer;
-  transition: border-color 0.1s, box-shadow 0.1s;
   flex-shrink: 0;
-  line-height: 0;
+  transition: border-color 0.1s, box-shadow 0.1s;
 }
 .skin-btn.active {
   border-color: #4ecca3;
@@ -678,18 +686,6 @@
 }
 .skin-btn:hover {
   border-color: rgba(78,204,163,0.6);
-}
-.skin-thumb {
-  display: block;
-  width: 64px;
-  height: 64px;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  /* Crop idle-down frame (col 0, row 0) from the 512-wide sheet.
-     Scale: 512px sheet → 128px display = each 256px frame → 64px. */
-  background-size: 128px auto;
-  background-position: 0 0;
-  background-repeat: no-repeat;
 }
 #name-confirm {
   width: 100%;
@@ -715,9 +711,9 @@
     <input id="mp-name-input" type="text" maxlength="12" placeholder="PLAYER" autocomplete="off">
     <div class="name-skin-label">CHOOSE SKIN</div>
     <div class="name-skin-row">
-      <button class="skin-btn active" data-skin="0"><div class="skin-thumb" style="background-image:url('assets/spritetestf2.png')"></div></button>
-      <button class="skin-btn" data-skin="1"><div class="skin-thumb" style="background-image:url('assets/girlsprite.png')"></div></button>
-      <button class="skin-btn" data-skin="2"><div class="skin-thumb" style="background-image:url('assets/mascotsprite.png')"></div></button>
+      <button class="skin-btn active" data-skin="0" style="background-image:url('assets/spritetestf2.png')"></button>
+      <button class="skin-btn" data-skin="1" style="background-image:url('assets/girlsprite.png')"></button>
+      <button class="skin-btn" data-skin="2" style="background-image:url('assets/mascotsprite.png')"></button>
     </div>
     <button id="name-confirm">PLAY →</button>
   </div>
