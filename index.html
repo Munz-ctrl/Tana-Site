@@ -135,80 +135,6 @@
     }
     #popup-overlay.active { opacity: 1; pointer-events: all; }
 
-    /* ── Unpack reveal overlay ── */
-    #reveal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(5,5,10,0.0);
-      display: flex; align-items: center; justify-content: center;
-      padding: max(env(safe-area-inset-top, 0px), 12px)
-               max(env(safe-area-inset-right, 0px), 12px)
-               max(env(safe-area-inset-bottom, 0px), 12px)
-               max(env(safe-area-inset-left, 0px), 12px);
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.3s ease, background 0.3s ease;
-      z-index: 32;
-    }
-    #reveal-overlay.active {
-      background: rgba(5,5,10,0.78);
-      opacity: 1; pointer-events: all;
-    }
-    #reveal-card {
-      background: #07070f;
-      border: 2px solid #f9c74f;
-      padding: 22px 24px 18px;
-      text-align: center;
-      font-family: 'Press Start 2P', monospace;
-      box-shadow: 0 0 50px rgba(249,199,79,0.55), inset 0 0 0 1px #2a1f08;
-      transform: scale(0.85);
-      transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
-      max-width: 88%;
-      /* never taller than the safe visible area */
-      max-height: calc(100svh - 40px);
-      max-height: calc(100vh - 40px); /* fallback for older browsers */
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      position: relative;
-    }
-    #reveal-close {
-      position: absolute;
-      top: 0; right: 0;
-      background: transparent;
-      border: none;
-      color: #6a7090;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 10px;
-      cursor: pointer;
-      /* 44×44 minimum tap target */
-      min-width: 44px;
-      min-height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      outline: none;
-      transition: color 0.12s, text-shadow 0.12s;
-    }
-    #reveal-close:hover {
-      color: #f9c74f;
-      text-shadow: 0 0 6px rgba(249,199,79,0.6);
-    }
-    #reveal-overlay.active #reveal-card { transform: scale(1); }
-    #reveal-banner {
-      color: #f9c74f; font-size: 10px; letter-spacing: 4px;
-      margin-bottom: 14px;
-      text-shadow: 0 0 10px rgba(249,199,79,0.7);
-    }
-    #reveal-img {
-      display: block;
-      margin: 0 auto;
-      image-rendering: pixelated;
-      max-width: 220px; max-height: 240px;
-      filter: drop-shadow(0 0 16px rgba(249,199,79,0.55));
-    }
-    #reveal-caption {
-      color: #b0b8d0; font-size: 7px; letter-spacing: 2px;
-      margin-top: 14px;
-    }
-
     #popup-box {
       background: #09091a;
       border: 2px solid #4ecca3;
@@ -748,16 +674,6 @@
     </div>
   </div>
 
-  <!-- Reveal overlay — used by unpack (auto-close) and the wall plaque (manual close) -->
-  <div id="reveal-overlay">
-    <div id="reveal-card">
-      <button id="reveal-close" type="button" aria-label="Close">✕</button>
-      <div id="reveal-banner">★ UNPACKED ★</div>
-      <img id="reveal-img" alt="reveal">
-      <div id="reveal-caption">GOLD RECORD</div>
-    </div>
-  </div>
-
   <!-- TV video overlay -->
   <div id="tv-overlay">
     <div id="tv-frame-wrap">
@@ -901,31 +817,21 @@ const skinImgs = [
 
 const tvImg         = loadImg('assets/tvloop.gif');
 // Studio
-const studioPackedImg   = loadImg('assets/studio_packed.png');
 const studioUnpackedImg = loadImg('assets/studio_unpacked.png');
-const studioBoxImg      = loadImg('assets/studioBox.png');
 
 // Living room
-const couchPackedImg    = loadImg('assets/couch_packed.png');
 const couchUnpackedImg  = loadImg('assets/couch_unpacked.png');
-const livingroomBoxImg  = loadImg('assets/boxes.png');   // boxes.png used as LR trigger visual
 const trunkImg          = loadImg('assets/livingroom_trunk.png');
 const carpetImg         = loadImg('assets/carpet.png');
 
 // Bedroom
-const bedPackedImg      = loadImg('assets/bed_packed.png');
 const bedUnpackedImg    = loadImg('assets/bed_unpacked.png');
-const shoeshelfPackedImg   = loadImg('assets/shoeshelf_packed.png');
 const shoeshelfUnpackedImg = loadImg('assets/shoeshelf_unpacked.png');
-const rackAPackedImg    = loadImg('assets/rack_A_packed.png');
 const rackAUnpackedImg  = loadImg('assets/rack_A_unpacked.png');
-const rackBPackedImg    = loadImg('assets/rack_B_packed.png');
 const rackBUnpackedImg  = loadImg('assets/rack_B_unpacked.png');
-const bedroomBoxImg     = loadImg('assets/bedroombox.png');
 
-// Plaque (unchanged)
+// Plaque
 const plaqImg           = loadImg('assets/plaq.png');
-const packedPlaqImg     = loadImg('assets/plaque_unpacked.png');
 
 
 // ── TV loop video ──
@@ -1050,20 +956,7 @@ const sceneObjects = [
     collision: { x: 1040, y: 150, w: 460, h: 250 },
     interactable: true, action: 'email',
     label: 'JOIN LIST',
-    img: studioPackedImg,
-    draw() {}
-  },
-
-  // ── STUDIO BOXES — unpack trigger (removed after unpack) ──
-  {
-    id: 'studio_boxes',
-    x: 1350, y: 600, w: 148, h: 100,
-    baseY: 700,
-    collision: { x: 1350, y: 650, w: 148, h: 50 },
-    interactable: true, action: 'unpack-zone',
-    zoneId: 'studio',
-    label: 'UNPACK',
-    img: studioBoxImg,
+    img: studioUnpackedImg,
     draw() {}
   },
 
@@ -1090,20 +983,7 @@ const sceneObjects = [
     baseY: 543,
     collision: { x: 530, y: 306, w: 105, h: 233 },
     interactable: false,
-    img: couchPackedImg,
-    draw() {}
-  },
-
-  // ── LIVING ROOM BOXES — unpack trigger (removed after unpack, becomes trunk) ──
-  {
-    id: 'livingroom_boxes',
-    x: 690, y: 350, w: 167, h: 116,
-    baseY: 440,
-    collision: { x: 690, y: 380, w: 167, h: 85 },
-    interactable: true, action: 'unpack-zone',
-    zoneId: 'livingroom',
-    label: 'UNPACK',
-    img: livingroomBoxImg,
+    img: couchUnpackedImg,
     draw() {}
   },
 
@@ -1114,7 +994,7 @@ const sceneObjects = [
     baseY: 260,
     collision: { x: 420, y: 130, w: 57, h: 229 },
     interactable: false,
-    img: shoeshelfPackedImg,
+    img: shoeshelfUnpackedImg,
     draw() {}
   },
 
@@ -1127,42 +1007,29 @@ const sceneObjects = [
     baseY: 576,
     collision: { x: 30, y: 530, w: 162, h: 46 },
     interactable: false,
-    img: rackAPackedImg,
+    img: rackAUnpackedImg,
     draw() {}
   },
 
-  // ── BEDROOM — clothing rack B (packed by default) ──
+  // ── BEDROOM — clothing rack B ──
   {
     id: 'rack_B',
     x: 70, y: 600, w: 162, h: 146,
     baseY: 746,
     collision: { x: 70, y: 700, w: 162, h: 46 },
     interactable: false,
-    img: rackBPackedImg,
+    img: rackBUnpackedImg,
     draw() {}
   },
 
-  // ── BEDROOM — bed (packed by default) ──
+  // ── BEDROOM — bed ──
   {
     id: 'bed',
     x: 8, y: 255, w: 252, h: 227,
     baseY: 330,
     collision: { x: 8, y: 315, w: 222, h: 167 },
     interactable: false,
-    img: bedPackedImg,
-    draw() {}
-  },
-
-  // ── BEDROOM BOX — unpack trigger (removed after unpack) ──
-  {
-    id: 'bedroom_box',
-    x: 280, y: 490, w: 120, h: 90,
-    baseY: 570,
-    collision: { x: 280, y: 520, w: 120, h: 50 },
-    interactable: true, action: 'unpack-zone',
-    zoneId: 'bedroom',
-    label: 'UNPACK ROOM',
-    img: bedroomBoxImg,
+    img: bedUnpackedImg,
     draw() {}
   },
 
@@ -1177,41 +1044,13 @@ const sceneObjects = [
 
 ];
 
-// ─────────────────────────────────────────────────────────
-//  PLAQUE STATE  (packed → unpacked, irreversible per session)
-//  • Initial state: packed box visible on the bed.
-//  • After "unpack": the wall plaque replaces it for the rest
-//    of this tab's session — resets when the tab closes.
-//  • Persistence: sessionStorage (matches the password gate's
-//    lifecycle). Swap to localStorage if you want unpacks to
-//    survive tab close / browser restart.
-// ─────────────────────────────────────────────────────────
-const PLAQUE_STORAGE_KEY = 'tana_plaque_unpacked';
-let plaqueUnpacked = false;
-try { plaqueUnpacked = (sessionStorage.getItem(PLAQUE_STORAGE_KEY) === '1'); } catch (_) {}
-
-// Tunable positions — open debug overlay (`) to see boxes & adjust.
-const packedPlaqueObj = {
-  id: 'packed_plaque',
-  x: 200, y: 245,
-  w: 149, h: 99,
-  baseY: 240,             // depth-sorts just in front of the bed
-  collision: null,        // bed already blocks this area
-  interactable: true,
-  action: 'unpack',
-  label: 'UNPACK',
-  img: packedPlaqImg,
-  draw() {}
-};
-
 const wallPlaqueObj = {
   id: 'wall_plaque',
   x: 250, y: 40,
   w: 108, h: 162,
-  baseY: 200,             // low like TV → always renders behind player
-  interactY: 380,         // pull interaction zone down to floor so the
-                          // player can reach it from in front of the bed
-  collision: null,        // wall-mounted; nothing to block
+  baseY: 200,
+  interactY: 380,
+  collision: null,
   interactable: true,
   action: 'plaque-info',
   label: 'GOLD RECORD',
@@ -1219,59 +1058,24 @@ const wallPlaqueObj = {
   draw() {}
 };
 
-// Exactly one of the two objects is in the scene at a time.
-sceneObjects.push(plaqueUnpacked ? wallPlaqueObj : packedPlaqueObj);
+sceneObjects.push(wallPlaqueObj);
 
 
-// ─────────────────────────────────────────────────────────
-//  ZONE UNPACK STATES
-//  Three irreversible zones: studio, livingroom, bedroom.
-//  Each persists to sessionStorage. On page load, zones
-//  that were already unpacked restore immediately.
-//  Plaque system is completely separate — do not mix.
-// ─────────────────────────────────────────────────────────
-
-const zoneUnpacked = {
-  studio:     false,
-  livingroom: false,
-  bedroom:    false,
-};
-
-// Restore from session on load
-try {
-  if (sessionStorage.getItem('tana_studio_unpacked')     === '1') zoneUnpacked.studio     = true;
-  if (sessionStorage.getItem('tana_livingroom_unpacked') === '1') zoneUnpacked.livingroom = true;
-  if (sessionStorage.getItem('tana_bedroom_unpacked')    === '1') zoneUnpacked.bedroom    = true;
-} catch(_) {}
-
-// Apply restored states immediately before first render
-(function restoreZones() {
-  if (zoneUnpacked.studio)     applyStudioUnpack(false);
-  if (zoneUnpacked.livingroom) applyLivingroomUnpack(false);
-  if (zoneUnpacked.bedroom)    applyBedroomUnpack(false);
-})();
+applyStudioUnpack(false);
+applyLivingroomUnpack(false);
+applyBedroomUnpack(false);
 
 // ── Zone apply functions ──
 // play=false on restore (no animation/sfx), play=true on first unpack
 
-function applyStudioUnpack(play) {
-  // Swap studio desk to unpacked visual
+function applyStudioUnpack() {
   const desk = sceneObjects.find(o => o.id === 'studio_desk');
   if (desk) desk.img = studioUnpackedImg;
-  // Remove studio boxes trigger
-  const idx = sceneObjects.findIndex(o => o.id === 'studio_boxes');
-  if (idx !== -1) sceneObjects.splice(idx, 1);
-  if (play) playUnpackSfx();
 }
 
-function applyLivingroomUnpack(play) {
-  // Swap couch to unpacked
+function applyLivingroomUnpack() {
   const couch = sceneObjects.find(o => o.id === 'couch');
   if (couch) couch.img = couchUnpackedImg;
-  // Replace livingroom_boxes with trunk
-  const lrIdx = sceneObjects.findIndex(o => o.id === 'livingroom_boxes');
-  if (lrIdx !== -1) sceneObjects.splice(lrIdx, 1);
-  // Add trunk if not already there
   if (!sceneObjects.find(o => o.id === 'trunk')) {
     sceneObjects.push({
       id: 'trunk',
@@ -1283,115 +1087,32 @@ function applyLivingroomUnpack(play) {
       draw() {}
     });
   }
-  // Add carpet if not already there (always renders under everything)
   if (!sceneObjects.find(o => o.id === 'carpet')) {
     sceneObjects.push({
       id: 'carpet',
       x: 560, y: 280, w: 408, h: 264,
-      baseY: 1,   // lowest possible — always renders first, under player
+      baseY: 1,
       collision: null,
       interactable: false,
       img: carpetImg,
       draw() {}
     });
   }
-  if (play) playUnpackSfx();
 }
 
-function applyBedroomUnpack(play) {
-  // Swap bed
+function applyBedroomUnpack() {
   const bed = sceneObjects.find(o => o.id === 'bed');
   if (bed) bed.img = bedUnpackedImg;
-  // Swap shoe shelf
   const shelf = sceneObjects.find(o => o.id === 'sneaker_shelf');
   if (shelf) shelf.img = shoeshelfUnpackedImg;
-  // Swap rack A
   const rackA = sceneObjects.find(o => o.id === 'rack_A');
   if (rackA) rackA.img = rackAUnpackedImg;
-  // Swap rack B
   const rackB = sceneObjects.find(o => o.id === 'rack_B');
   if (rackB) rackB.img = rackBUnpackedImg;
-  // Remove bedroom box trigger
-  const bIdx = sceneObjects.findIndex(o => o.id === 'bedroom_box');
-  if (bIdx !== -1) sceneObjects.splice(bIdx, 1);
-  if (play) playUnpackSfx();
-}
-
-function playUnpackSfx() {
-  try { new Audio('assets/unpack.mp3').play().catch(()=>{}); } catch(_) {}
 }
 
 
 
-// ── Loading bar state ──
-const unpackBar = {
-  active:  false,
-  zoneId:  null,
-  t:       0,          // 0 → 1 over UNPACK_DURATION ms
-  worldX:  0,          // world-space centre X of bar
-  worldY:  0,          // world-space Y of bar (above trigger)
-};
-const UNPACK_DURATION = 1500; // ms
-let   unpackLastTime  = 0;
-
-function startUnpackBar(zoneId, worldCX, worldCY) {
-  if (unpackBar.active) return;           // one at a time
-  if (zoneUnpacked[zoneId]) return;       // already done
-  unpackBar.active = true;
-  unpackBar.zoneId = zoneId;
-  unpackBar.t      = 0;
-  unpackBar.worldX = worldCX;
-  unpackBar.worldY = worldCY - 30;       // float above trigger
-  unpackLastTime   = performance.now();
-}
-
-function tickUnpackBar(now) {
-  if (!unpackBar.active) return;
-  const dt = now - unpackLastTime;
-  unpackLastTime = now;
-  unpackBar.t = Math.min(1, unpackBar.t + dt / UNPACK_DURATION);
-  if (unpackBar.t >= 1) {
-    unpackBar.active = false;
-    const zId = unpackBar.zoneId;
-    zoneUnpacked[zId] = true;
-    try { sessionStorage.setItem(`tana_${zId}_unpacked`, '1'); } catch(_) {}
-    if (zId === 'studio')     applyStudioUnpack(true);
-    if (zId === 'livingroom') applyLivingroomUnpack(true);
-    if (zId === 'bedroom')    applyBedroomUnpack(true);
-  }
-}
-
-function drawUnpackBar() {
-  if (!unpackBar.active) return;
-  const sx = wx(unpackBar.worldX);
-  const sy = wy(unpackBar.worldY);
-  const barW = 90, barH = 9, r = 4;
-
-  // Background pill
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
-  roundRect(ctx, sx - barW/2 - 2, sy - barH/2 - 2, barW + 4, barH + 4, r + 1);
-  ctx.fill();
-
-  // Track
-  ctx.fillStyle = '#1a1a2e';
-  roundRect(ctx, sx - barW/2, sy - barH/2, barW, barH, r);
-  ctx.fill();
-
-  // Fill
-  const fillW = Math.round(barW * unpackBar.t);
-  if (fillW > 0) {
-    ctx.fillStyle = '#f9c74f';
-    roundRect(ctx, sx - barW/2, sy - barH/2, fillW, barH, r);
-    ctx.fill();
-  }
-
-  // Label above bar
-  ctx.fillStyle = 'rgba(249,199,79,0.8)';
-  ctx.font = '5px "Press Start 2P"';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText('UNPACKING...', sx, sy - barH/2 - 4);
-}
 
 
 
@@ -1780,7 +1501,7 @@ window.addEventListener('keydown', e => {
    const _t = e.target;
   const _typing = _t && (_t.tagName === 'INPUT' || _t.tagName === 'TEXTAREA');
   if (!_typing && (e.key === 'e' || e.key === 'E')) tryInteract();
-  if (e.key === 'Escape') { closePopup(); closeTV(); closeReveal(); }
+  if (e.key === 'Escape') { closePopup(); closeTV(); }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
 });
@@ -1841,91 +1562,28 @@ iBtn.addEventListener('touchend', e => {
 }, { passive:false });
 
 function tryInteract() {
-  if (popupOpen)  { closePopup();  return; }
-  if (tvOpen)     { closeTV();     return; }
-  if (revealOpen) { closeReveal(); return; }
+  if (popupOpen) { closePopup(); return; }
+  if (tvOpen)    { closeTV();    return; }
   const obj = getNearbyObject();
   if (!obj) return;
-  if (obj.action === 'video')        openTV(obj.videoId);
-  if (obj.action === 'email')        openEmailPopup();
-  if (obj.action === 'unpack')       doUnpack(obj);
-  if (obj.action === 'plaque-info')  openPlaqueInfo();
-
-  if (obj.action === 'unpack-zone') {
-  if (!zoneUnpacked[obj.zoneId] && !unpackBar.active) {
-    const cx = obj.x + obj.w / 2;
-    const cy = obj.y;
-    startUnpackBar(obj.zoneId, cx, cy);
-  }
-}
-
-
+  if (obj.action === 'video')       openTV(obj.videoId);
+  if (obj.action === 'email')       openEmailPopup();
+  if (obj.action === 'plaque-info') openPlaqueInfo();
 }
 
 // ─────────────────────────────────────────────────────────
-//  PLAQUE — unpack reveal + info popup
+//  PLAQUE — info popup
 // ─────────────────────────────────────────────────────────
-const revealOverlay = document.getElementById('reveal-overlay');
-const revealImg     = document.getElementById('reveal-img');
-const revealBanner  = document.getElementById('reveal-banner');
-const revealCaption = document.getElementById('reveal-caption');
-let revealOpen      = false;
-let revealAutoCloseT = null;
-
-function openReveal({ src, banner, caption, autoCloseMs }) {
-  revealImg.src           = src;
-  revealBanner.textContent = banner  || '★ UNPACKED ★';
-  revealCaption.textContent = caption || '';
-  revealOverlay.classList.add('active');
-  revealOpen = true;
-  if (revealAutoCloseT) clearTimeout(revealAutoCloseT);
-  if (autoCloseMs && autoCloseMs > 0) {
-    revealAutoCloseT = setTimeout(closeReveal, autoCloseMs);
-  }
-}
-
-function closeReveal() {
-  revealOverlay.classList.remove('active');
-  revealOpen = false;
-  if (revealAutoCloseT) { clearTimeout(revealAutoCloseT); revealAutoCloseT = null; }
-}
-
-// Click backdrop, click ✕, or press ESC closes early. ESC is wired below.
-revealOverlay.addEventListener('click', e => {
-  if (e.target === revealOverlay) closeReveal();
-});
-document.getElementById('reveal-close').addEventListener('click', closeReveal);
-
-function doUnpack(obj) {
-  if (plaqueUnpacked) return; // safety — already unpacked
-
-  // 1) Show the reveal popup with plaq.png
-  openReveal({
-    src: 'assets/plaq.png',
-    banner: '★ UNPACKED ★',
-    caption: 'GOLD RECORD',
-    autoCloseMs: 3000
-  });
-
-  // 2) Swap scene objects: remove packed box, add wall plaque
-  const idx = sceneObjects.indexOf(obj);
-  if (idx !== -1) sceneObjects.splice(idx, 1);
-  if (sceneObjects.indexOf(wallPlaqueObj) === -1) sceneObjects.push(wallPlaqueObj);
-
-  // 3) Persist for the rest of this tab session — irreversible until tab close
-  plaqueUnpacked = true;
-  try { sessionStorage.setItem(PLAQUE_STORAGE_KEY, '1'); } catch (_) {}
-}
-
 function openPlaqueInfo() {
-  // Same visual reveal as the unpack moment — but no auto-close,
-  // user dismisses via the ✕, the backdrop, or ESC.
-  openReveal({
-    src: 'assets/plaq.png',
-    banner: '★ GOLD RECORD ★',
-    caption: 'RIAA-CERTIFIED',
-    autoCloseMs: 0
-  });
+  popupIcon.textContent  = '★';
+  popupTitle.textContent = 'GOLD RECORD';
+  popupBody.innerHTML    = `
+    <span style="color:#f9c74f">RIAA-CERTIFIED</span><br><br>
+    A gold record. The real deal.
+  `;
+  emailWrap.style.display = 'none';
+  popupOverlay.classList.add('active');
+  popupOpen = true;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1933,11 +1591,7 @@ function openPlaqueInfo() {
 // ─────────────────────────────────────────────────────────
 function update() {
 
-  const now = performance.now();
-  tickUnpackBar(now);   // always tick — bar runs independently of popups
-
-
-  if (nameScreenOpen || popupOpen || tvOpen || revealOpen) return;
+  if (nameScreenOpen || popupOpen || tvOpen) return;
 
   let vx = 0, vy = 0;
 
@@ -2247,7 +1901,7 @@ function drawHUD() {
 
   // Bottom action hint
   const near = getNearbyObject();
-  if (near && !popupOpen && !tvOpen && !revealOpen) {
+  if (near && !popupOpen && !tvOpen) {
     ctx.fillStyle = 'rgba(5,5,10,0.72)';
     ctx.fillRect(0, screenBtm - 20, VIEW_W, 20);
     ctx.fillStyle = '#f9c74f';
@@ -2300,7 +1954,7 @@ function render() {
 
         // Interaction prompt — minimized pip always shown for interactables,
         // expands into full [E] Label badge as the player approaches.
-        if (obj.interactable && !popupOpen && !tvOpen && !revealOpen) {
+        if (obj.interactable && !popupOpen && !tvOpen) {
           if (obj.promptT === undefined) obj.promptT = 0;
           const target = (obj === nearby) ? 1 : 0;
           obj.promptT += (target - obj.promptT) * 0.18;
@@ -2384,10 +2038,6 @@ function render() {
     ctx.fillStyle = '#f9c74f'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
     ctx.fillText('[ ` ] DEBUG ON', VIEW_W - 6, dbgBtm - 30);
   }
-
-
-  drawUnpackBar();
-
 
 
   drawHUD();
