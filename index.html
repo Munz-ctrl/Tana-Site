@@ -685,6 +685,11 @@
   height: 64px;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+  /* Crop idle-down frame (col 0, row 0) from the 512-wide sheet.
+     Scale: 512px sheet → 128px display = each 256px frame → 64px. */
+  background-size: 128px auto;
+  background-position: 0 0;
+  background-repeat: no-repeat;
 }
 #name-confirm {
   width: 100%;
@@ -710,9 +715,9 @@
     <input id="mp-name-input" type="text" maxlength="12" placeholder="PLAYER" autocomplete="off">
     <div class="name-skin-label">CHOOSE SKIN</div>
     <div class="name-skin-row">
-      <button class="skin-btn active" data-skin="0"><canvas class="skin-thumb" width="64" height="64"></canvas></button>
-      <button class="skin-btn" data-skin="1"><canvas class="skin-thumb" width="64" height="64"></canvas></button>
-      <button class="skin-btn" data-skin="2"><canvas class="skin-thumb" width="64" height="64"></canvas></button>
+      <button class="skin-btn active" data-skin="0"><div class="skin-thumb" style="background-image:url('assets/spritetestf2.png')"></div></button>
+      <button class="skin-btn" data-skin="1"><div class="skin-thumb" style="background-image:url('assets/girlsprite.png')"></div></button>
+      <button class="skin-btn" data-skin="2"><div class="skin-thumb" style="background-image:url('assets/mascotsprite.png')"></div></button>
     </div>
     <button id="name-confirm">PLAY →</button>
   </div>
@@ -2461,16 +2466,6 @@ setTimeout(resizeGame, 100);
       btn.classList.add('active');
       playerSkin = parseInt(btn.dataset.skin, 10);
     });
-  });
-
-  document.querySelectorAll('.skin-thumb').forEach(canvas => {
-    const idx = parseInt(canvas.closest('.skin-btn').dataset.skin, 10);
-    const img = skinImgs[idx];
-    const tctx = canvas.getContext('2d');
-    tctx.imageSmoothingEnabled = false;
-    function draw() { tctx.drawImage(img, 0, 0, FRAME_W, FRAME_H, 0, 0, 64, 64); }
-    if (img.complete && img.naturalWidth > 0) draw();
-    else img.addEventListener('load', draw);
   });
 
   function dismissNameScreen() {
