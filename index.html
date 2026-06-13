@@ -1699,7 +1699,9 @@ canvas.addEventListener('touchstart', tryInitAudio);
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
-  if (e.key === 'e' || e.key === 'E') tryInteract();
+  const _t = e.target;
+  const _typing = _t && (_t.tagName === 'INPUT' || _t.tagName === 'TEXTAREA');
+  if (!_typing && (e.key === 'e' || e.key === 'E')) tryInteract();
   if (e.key === 'Escape') { closePopup(); closeTV(); closeReveal(); }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
