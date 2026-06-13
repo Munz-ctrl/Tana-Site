@@ -665,18 +665,25 @@
 }
 .skin-btn {
   background: rgba(78,204,163,0.06);
-  border: 1px solid #4ecca3;
-  color: #4ecca3;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  padding: 8px 14px;
+  border: 2px solid rgba(78,204,163,0.25);
+  padding: 4px;
   cursor: pointer;
-  min-width: 44px; min-height: 44px;
-  transition: background 0.1s;
+  transition: border-color 0.1s, box-shadow 0.1s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.skin-btn.active, .skin-btn:hover {
-  background: rgba(78,204,163,0.22);
-  box-shadow: 0 0 10px rgba(78,204,163,0.3);
+.skin-btn.active {
+  border-color: #4ecca3;
+  box-shadow: 0 0 12px rgba(78,204,163,0.45);
+}
+.skin-btn:hover {
+  border-color: rgba(78,204,163,0.6);
+}
+.skin-thumb {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 #name-confirm {
   width: 100%;
@@ -702,9 +709,9 @@
     <input id="mp-name-input" type="text" maxlength="12" placeholder="PLAYER" autocomplete="off">
     <div class="name-skin-label">CHOOSE SKIN</div>
     <div class="name-skin-row">
-      <button class="skin-btn active" data-skin="0">0</button>
-      <button class="skin-btn" data-skin="1">1</button>
-      <button class="skin-btn" data-skin="2">2</button>
+      <button class="skin-btn active" data-skin="0"><canvas class="skin-thumb" width="64" height="64"></canvas></button>
+      <button class="skin-btn" data-skin="1"><canvas class="skin-thumb" width="64" height="64"></canvas></button>
+      <button class="skin-btn" data-skin="2"><canvas class="skin-thumb" width="64" height="64"></canvas></button>
     </div>
     <button id="name-confirm">PLAY →</button>
   </div>
@@ -885,7 +892,11 @@ function loadImg(src) {
 }
 
 const bgImg             = loadImg('assets/base_newfr.png');
-const spriteImg         = loadImg('assets/spritetestf2.png');
+const skinImgs = [
+  loadImg('assets/spritetestf2.png'),
+  loadImg('assets/girlsprite.png'),
+  loadImg('assets/mascotsprite.png')
+];
 
 
 
@@ -2041,7 +2052,8 @@ function drawPlayer() {
 
   ctx.imageSmoothingEnabled = false;
 
-  if (spriteImg.complete && spriteImg.naturalWidth > 0) {
+  const _sImg = skinImgs[playerSkin];
+  if (_sImg.complete && _sImg.naturalWidth > 0) {
     const moving = player.moving ?? false;
 
     // Column selection:
@@ -2058,7 +2070,7 @@ function drawPlayer() {
     ctx.beginPath();
     ctx.rect(sx, sy, PW, PH);
     ctx.clip();
-    ctx.drawImage(spriteImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+    ctx.drawImage(_sImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
     ctx.restore();
 
   } else {
@@ -2096,8 +2108,8 @@ function drawRemotePlayer(rp) {
   ctx.ellipse(sx + PW / 2, sy + PH - 6, PW / 3.2, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Sprite (spriteImg for all skins for now)
-  if (spriteImg.complete && spriteImg.naturalWidth > 0) {
+  const _rsImg = skinImgs[rp.skin ?? 0];
+  if (_rsImg.complete && _rsImg.naturalWidth > 0) {
     const dir  = (rp.facing && DIR_ROW[rp.facing] !== undefined) ? rp.facing : 'down';
     const col  = rp.animFrame ? 1 : 0;
     const srcX = col * FRAME_W;
@@ -2106,7 +2118,7 @@ function drawRemotePlayer(rp) {
     ctx.beginPath();
     ctx.rect(sx, sy, PW, PH);
     ctx.clip();
-    ctx.drawImage(spriteImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+    ctx.drawImage(_rsImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
     ctx.restore();
   } else {
     ctx.fillStyle = '#4ecca3';
@@ -2448,6 +2460,16 @@ setTimeout(resizeGame, 100);
       btn.classList.add('active');
       playerSkin = parseInt(btn.dataset.skin, 10);
     });
+  });
+
+  document.querySelectorAll('.skin-thumb').forEach(canvas => {
+    const idx = parseInt(canvas.closest('.skin-btn').dataset.skin, 10);
+    const img = skinImgs[idx];
+    const tctx = canvas.getContext('2d');
+    tctx.imageSmoothingEnabled = false;
+    function draw() { tctx.drawImage(img, 0, 0, FRAME_W, FRAME_H, 0, 0, 64, 64); }
+    if (img.complete && img.naturalWidth > 0) draw();
+    else img.addEventListener('load', draw);
   });
 
   function dismissNameScreen() {
