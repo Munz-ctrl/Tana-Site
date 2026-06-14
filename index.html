@@ -1748,8 +1748,11 @@ function drawPlayer() {
 //  DRAW — REMOTE PLAYER
 // ─────────────────────────────────────────────────────────
 function drawRemotePlayer(rp) {
-  const sx = wx(rp.x);
-  const sy = wy(rp.y);
+  const t = rp._interpStart !== undefined ? Math.min(1, (Date.now() - rp._interpStart) / 150) : 1;
+  const drawX = rp._fromX !== undefined ? rp._fromX + (rp._targetX - rp._fromX) * t : rp.x;
+  const drawY = rp._fromY !== undefined ? rp._fromY + (rp._targetY - rp._fromY) * t : rp.y;
+  const sx = wx(drawX);
+  const sy = wy(drawY);
   if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;
 
   ctx.globalAlpha = 1;
@@ -2158,27 +2161,37 @@ function initMultiplayer() {
       .on('broadcast', { event: 'player' }, ({ payload }) => {
         if (!payload || payload.id === playerId) return;
         const existing = remotePlayers.get(payload.id) || {};
-        remotePlayers.set(payload.id, Object.assign(existing, payload, { _lastSeen: Date.now() }));
+        const now = Date.now();
+        const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
+        const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
+        const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
+        remotePlayers.set(payload.id, Object.assign(existing, payload, {
+          _lastSeen: now,
+          _fromX: fromX, _fromY: fromY,
+          _targetX: payload.x, _targetY: payload.y,
+          _interpStart: now,
+        }));
       })
       .subscribe(() => {
+        let _lastBroadcast = null;
         setInterval(() => {
           const now = Date.now();
           for (const [id, p] of remotePlayers) {
             if (now - p._lastSeen > 3000) remotePlayers.delete(id);
           }
-          channel.send({
-            type: 'broadcast',
-            event: 'player',
-            payload: {
-              id:        playerId,
-              name:      playerName,
-              skin:      playerSkin,
-              x:         player.x,
-              y:         player.y,
-              facing:    player.facing,
-              animFrame: player.animFrame,
-            }
-          });
+          const state = {
+            x: player.x, y: player.y,
+            facing: player.facing, animFrame: player.animFrame,
+          };
+          if (!_lastBroadcast ||
+              state.x !== _lastBroadcast.x || state.y !== _lastBroadcast.y ||
+              state.facing !== _lastBroadcast.facing || state.animFrame !== _lastBroadcast.animFrame) {
+            _lastBroadcast = { ...state };
+            channel.send({
+              type: 'broadcast', event: 'player',
+              payload: { id: playerId, name: playerName, skin: playerSkin, ...state }
+            });
+          }
         }, 100);
       });
   } catch (e) {
