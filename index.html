@@ -2157,8 +2157,8 @@ function initMultiplayer() {
     channel
       .on('broadcast', { event: 'player' }, ({ payload }) => {
         if (!payload || payload.id === playerId) return;
-        payload._lastSeen = Date.now();
-        remotePlayers.set(payload.id, payload);
+        const existing = remotePlayers.get(payload.id) || {};
+        remotePlayers.set(payload.id, Object.assign(existing, payload, { _lastSeen: Date.now() }));
       })
       .subscribe(() => {
         setInterval(() => {
