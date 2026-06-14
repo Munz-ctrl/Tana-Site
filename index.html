@@ -1752,7 +1752,7 @@ function drawRemotePlayer(rp) {
   const sy = wy(rp.y);
   if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;
 
-  ctx.globalAlpha = 0.85;
+  ctx.globalAlpha = 1;
   ctx.imageSmoothingEnabled = false;
 
   // Shadow
@@ -1764,7 +1764,7 @@ function drawRemotePlayer(rp) {
   const _rsImg = skinImgs[rp.skin ?? 0];
   if (_rsImg.complete && _rsImg.naturalWidth > 0) {
     const dir  = (rp.facing && DIR_ROW[rp.facing] !== undefined) ? rp.facing : 'down';
-    const col  = rp.animFrame ? 1 : 0;
+    const col  = rp.animFrame ? 1 : (rp._idleFrame ? 2 : 0);
     const srcX = col * FRAME_W;
     const srcY = DIR_ROW[dir] * FRAME_H;
     ctx.save();
@@ -1927,6 +1927,15 @@ function drawHUD() {
 function render() {
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.imageSmoothingEnabled = false;
+
+  for (const rp of remotePlayers.values()) {
+    if (!rp.animFrame) {
+      rp._idleTick = (rp._idleTick || 0) + 1;
+      if (rp._idleTick >= 60) { rp._idleTick = 0; rp._idleFrame = (rp._idleFrame || 0) ^ 1; }
+    } else {
+      rp._idleTick = 0; rp._idleFrame = 0;
+    }
+  }
 
   drawBackground();
 
