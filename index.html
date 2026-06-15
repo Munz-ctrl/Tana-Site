@@ -2160,6 +2160,11 @@ function initMultiplayer() {
     channel
       .on('broadcast', { event: 'player' }, ({ payload }) => {
         if (!payload || payload.id === playerId) return;
+        if (payload.x === undefined) {
+          const rp = remotePlayers.get(payload.id);
+          if (rp) rp._lastSeen = Date.now();
+          return;
+        }
         const existing = remotePlayers.get(payload.id) || {};
         const now = Date.now();
         const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
@@ -2174,10 +2179,11 @@ function initMultiplayer() {
       })
       .subscribe(() => {
         let _lastBroadcast = null;
+        let _lastHeartbeat = 0;
         setInterval(() => {
           const now = Date.now();
           for (const [id, p] of remotePlayers) {
-            if (now - p._lastSeen > 3000) remotePlayers.delete(id);
+            if (now - p._lastSeen > 6000) remotePlayers.delete(id);
           }
           const state = {
             x: player.x, y: player.y,
@@ -2187,10 +2193,14 @@ function initMultiplayer() {
               state.x !== _lastBroadcast.x || state.y !== _lastBroadcast.y ||
               state.facing !== _lastBroadcast.facing || state.animFrame !== _lastBroadcast.animFrame) {
             _lastBroadcast = { ...state };
+            _lastHeartbeat = now;
             channel.send({
               type: 'broadcast', event: 'player',
               payload: { id: playerId, name: playerName, skin: playerSkin, ...state }
             });
+          } else if (now - _lastHeartbeat >= 2000) {
+            _lastHeartbeat = now;
+            channel.send({ type: 'broadcast', event: 'player', payload: { id: playerId } });
           }
         }, 100);
       });
