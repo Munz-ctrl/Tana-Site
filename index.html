@@ -223,53 +223,6 @@
     }
 
     /* ────────────────────────────────────────
-       TV VIDEO OVERLAY
-    ──────────────────────────────────────── */
-    #tv-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.94);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 14px;
-      padding: max(env(safe-area-inset-top, 0px), 12px)
-               max(env(safe-area-inset-right, 0px), 12px)
-               max(env(safe-area-inset-bottom, 0px), 12px)
-               max(env(safe-area-inset-left, 0px), 12px);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.15s ease;
-      z-index: 35;
-    }
-    #tv-overlay.active { opacity: 1; pointer-events: all; }
-
-    #tv-frame-wrap {
-      width: min(640px, 92%);
-      /* cap height so the close button is never pushed off-screen */
-      max-height: calc(100svh - 80px);
-      max-height: calc(100vh - 80px); /* fallback */
-      aspect-ratio: 16/9;
-      border: 2px solid #4ecca3;
-      box-shadow: 0 0 40px rgba(78,204,163,0.35);
-      background: #000;
-    }
-    #tv-frame-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
-
-    #tv-close-btn {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 7px; color: #4ecca3;
-      background: rgba(78,204,163,0.06);
-      border: 1px solid rgba(78,204,163,0.4);
-      padding: 10px 24px; cursor: pointer;
-      /* ensure a comfortable tap target */
-      min-height: 44px;
-      transition: background 0.1s;
-    }
-    #tv-close-btn:hover { background: rgba(78,204,163,0.2); }
-
-    /* ────────────────────────────────────────
        TOUCH CONTROLS  (body-level fixed overlay)
        Sits at viewport edges so controls land in the
        side gutters left/right of the 2:1 game container
@@ -281,7 +234,7 @@
       inset: 0;
       pointer-events: none;
       display: none;        /* hidden on desktop */
-      z-index: 15;          /* below popup (30) and tv (35) so modals cover controls */
+      z-index: 15;          /* below popup (30) so modals cover controls */
     }
     @media (hover: none) and (pointer: coarse) {
       #touch-ui { display: block; }
@@ -674,15 +627,6 @@
     </div>
   </div>
 
-  <!-- TV video overlay -->
-  <div id="tv-overlay">
-    <div id="tv-frame-wrap">
-      <iframe id="tv-iframe" src="" allowfullscreen
-        allow="autoplay; encrypted-media; picture-in-picture"></iframe>
-    </div>
-    <button id="tv-close-btn">✕  CLOSE</button>
-  </div>
-
 
 </div>
 
@@ -815,7 +759,6 @@ const skinImgs = [
 
 
 
-const tvImg         = loadImg('assets/tvloop.gif');
 // Studio
 const studioUnpackedImg = loadImg('assets/studio4party.webp');
 
@@ -833,14 +776,6 @@ const rackBUnpackedImg  = loadImg('assets/rack_B_unpacked.png');
 // Plaque
 const plaqImg           = loadImg('assets/plaq.png');
 
-
-// ── TV loop video ──
-const tvVideo = document.createElement('video');
-tvVideo.src = 'assets/tvloop.webm';
-tvVideo.loop = true;
-tvVideo.muted = true;
-tvVideo.playsInline = true;
-tvVideo.play();
 
 // ── Auto-size world to image ──────────────────────────────
 //  Once base.png loads, world coordinates = image pixel coordinates.
@@ -926,25 +861,6 @@ function wy(worldY) { return Math.round(worldY - cam.y); }
 //    3. Done — engine draws the PNG at (x,y,w,h) automatically
 // ─────────────────────────────────────────────────────────
 const sceneObjects = [
-
-  // ── TV (wall-mounted, always visible, interactable) ──
-  {
-    id: 'tv',
-    x: 640, y: 50, w: 245, h: 161,
-    baseY: 200, collision: null,
-    interactable: true, action: 'video',
-    label: 'PLAY VIDEO',
-    videoId: 'ZjRhoTnFpZE',
-    img: null,
-    draw(ctx, sx, sy) {
-   if (tvVideo.readyState >= 2) {
-    ctx.drawImage(tvVideo, sx, sy, this.w, this.h);
-   } else {
-     ctx.fillStyle = '#040d0a';
-     ctx.fillRect(sx, sy, this.w, this.h);
-   }
-  }
-  },
 
   // ── STUDIO — main desk visual (packed by default) ──
   {
@@ -1313,33 +1229,11 @@ let debugOn = false;
 window.addEventListener('keydown', e => {
   if (e.key === '`' || e.key === '~') debugOn = !debugOn;
 });
-const tvOverlay = document.getElementById('tv-overlay');
-const tvIframe  = document.getElementById('tv-iframe');
-let tvOpen = false;
-
-function openTV(videoId) {
-  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
-  tvOverlay.classList.add('active');
-  tvOpen = true;
-  if (proxAudio) setProxGain(0); // mute ambient while video plays
-  duckBGMForTV();                // fade soundtrack out under YouTube
-}
-
-function closeTV() {
-  tvIframe.src = '';
-  tvOverlay.classList.remove('active');
-  tvOpen = false;
-  unduckBGMFromTV();             // fade soundtrack back in
-}
-
-document.getElementById('tv-close-btn').addEventListener('click', closeTV);
-
 // ─────────────────────────────────────────────────────────
 //  BACKGROUND SOUNDTRACK
 //  • Tries to autoplay on load. If the browser blocks it
 //    (most do on first visit), arms a one-shot listener
 //    that starts playback on the user's first interaction.
-//  • Fades out under the YouTube TV so the two don't fight.
 //  • Mute toggle persists to localStorage. 'M' is a shortcut.
 // ─────────────────────────────────────────────────────────
 const bgm        = document.getElementById('bgm');
@@ -1373,7 +1267,7 @@ function fadeBGM(toVol, durMs) {
 }
 
 function tryStartBGM() {
-  if (bgmStarted || userMuted || tvOpen) return;
+  if (bgmStarted || userMuted) return;
   const p = bgm.play();
   if (p && typeof p.then === 'function') {
     p.then(() => {
@@ -1410,7 +1304,7 @@ bgmToggle.addEventListener('click', () => {
   } else {
     if (!bgmStarted) { tryStartBGM(); return; }
     bgm.play().catch(() => {});
-    if (!tvOpen) fadeBGM(BGM_VOLUME, BGM_FADE);
+    fadeBGM(BGM_VOLUME, BGM_FADE);
   }
 });
 
@@ -1422,76 +1316,6 @@ window.addEventListener('keydown', e => {
   bgmToggle.click();
 });
 
-// Two state flags fight each other otherwise:
-//   userMuted        → user clicked mute; stay silent regardless of TV
-//   bgmDuckedForTV   → temporary, restored when TV closes (unless userMuted)
-function duckBGMForTV() {
-  if (userMuted || !bgmStarted) return;
-  fadeBGM(0, BGM_FADE);
-  setTimeout(() => { if (tvOpen) bgm.pause(); }, BGM_FADE + 30);
-}
-function unduckBGMFromTV() {
-  if (userMuted) return;
-  if (!bgmStarted) { tryStartBGM(); return; }
-  bgm.play().catch(() => {});
-  fadeBGM(BGM_VOLUME, BGM_FADE);
-}
-
-// ─────────────────────────────────────────────────────────
-//  PROXIMITY AUDIO  (ambient TV glow sound)
-//
-//  ▸ To enable: set AMBIENT_AUDIO_SRC to a hosted audio file path.
-//    e.g.  const AMBIENT_AUDIO_SRC = '/apps/tanapixelgame/assets/ambient.mp3';
-//  ▸ Volume scales from 0 → MAX_VOL as player approaches TV.
-// ─────────────────────────────────────────────────────────
-const AMBIENT_AUDIO_SRC = null;   // ← swap in your audio file path
-const PROX_MAX_DIST     = 380;    // world px — silent beyond this
-const PROX_MAX_VOL      = 0.75;
-
-let proxAudio = null;
-
-function initProxAudio() {
-  if (!AMBIENT_AUDIO_SRC) return;
-  try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    const ctx2 = new AC();
-    const gainNode = ctx2.createGain();
-    gainNode.gain.value = 0;
-    gainNode.connect(ctx2.destination);
-    const el = new Audio(AMBIENT_AUDIO_SRC);
-    el.loop = true;
-    const src = ctx2.createMediaElementSource(el);
-    src.connect(gainNode);
-    el.play().catch(() => {});
-    proxAudio = { ctx: ctx2, gainNode };
-  } catch(e) { console.warn('ProxAudio init failed:', e); }
-}
-
-function setProxGain(v) {
-  if (!proxAudio) return;
-  proxAudio.gainNode.gain.setTargetAtTime(v, proxAudio.ctx.currentTime, 0.4);
-}
-
-function updateProxAudio() {
-  if (!proxAudio || tvOpen) return;
-  const tvObj = sceneObjects.find(o => o.id === 'tv');
-  if (!tvObj) return;
-  const dx = (player.x + PW/2) - (tvObj.x + tvObj.w/2);
-  const dy = (player.y + FEET_OY) - tvObj.baseY;
-  const dist = Math.hypot(dx, dy);
-  setProxGain(Math.max(0, 1 - dist / PROX_MAX_DIST) * PROX_MAX_VOL);
-}
-
-// Init audio on first user gesture
-let _audioInited = false;
-function tryInitAudio() {
-  if (_audioInited) return;
-  _audioInited = true;
-  initProxAudio();
-}
-window.addEventListener('keydown', tryInitAudio);
-canvas.addEventListener('touchstart', tryInitAudio);
-
 // ─────────────────────────────────────────────────────────
 //  INPUT — keyboard
 // ─────────────────────────────────────────────────────────
@@ -1501,7 +1325,7 @@ window.addEventListener('keydown', e => {
    const _t = e.target;
   const _typing = _t && (_t.tagName === 'INPUT' || _t.tagName === 'TEXTAREA');
   if (!_typing && (e.key === 'e' || e.key === 'E')) tryInteract();
-  if (e.key === 'Escape') { closePopup(); closeTV(); }
+  if (e.key === 'Escape') { closePopup(); }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
 });
@@ -1563,10 +1387,8 @@ iBtn.addEventListener('touchend', e => {
 
 function tryInteract() {
   if (popupOpen) { closePopup(); return; }
-  if (tvOpen)    { closeTV();    return; }
   const obj = getNearbyObject();
   if (!obj) return;
-  if (obj.action === 'video')       openTV(obj.videoId);
   if (obj.action === 'email')       openEmailPopup();
   if (obj.action === 'plaque-info') openPlaqueInfo();
 }
@@ -1591,7 +1413,7 @@ function openPlaqueInfo() {
 // ─────────────────────────────────────────────────────────
 function update() {
 
-  if (nameScreenOpen || popupOpen || tvOpen) return;
+  if (nameScreenOpen || popupOpen) return;
 
   let vx = 0, vy = 0;
 
@@ -1640,7 +1462,6 @@ if (moving) {
 }
 
   updateCamera();
-  updateProxAudio();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1904,7 +1725,7 @@ function drawHUD() {
 
   // Bottom action hint
   const near = getNearbyObject();
-  if (near && !popupOpen && !tvOpen) {
+  if (near && !popupOpen) {
     ctx.fillStyle = 'rgba(5,5,10,0.72)';
     ctx.fillRect(0, screenBtm - 20, VIEW_W, 20);
     ctx.fillStyle = '#f9c74f';
@@ -1966,7 +1787,7 @@ function render() {
 
         // Interaction prompt — minimized pip always shown for interactables,
         // expands into full [E] Label badge as the player approaches.
-        if (obj.interactable && !popupOpen && !tvOpen) {
+        if (obj.interactable && !popupOpen) {
           if (obj.promptT === undefined) obj.promptT = 0;
           const target = (obj === nearby) ? 1 : 0;
           obj.promptT += (target - obj.promptT) * 0.18;
