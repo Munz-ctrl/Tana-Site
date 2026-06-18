@@ -1618,7 +1618,7 @@ if (moving) {
 } else {
   player.animFrame = 0;
   player.animTick  = 0;
-  if (++player.idleTick >= 60) { player.idleTick = 0; player.idleFrame ^= 1; }
+  if (++player.idleTick >= 30) { player.idleTick = 0; player.idleFrame ^= 1; }
 }
 
   updateCamera();
