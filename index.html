@@ -1718,11 +1718,11 @@ function drawChatBubble(cx, sy, text, expiresAt) {
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.font = '5px "Press Start 2P"';
+  ctx.font = '8px "Press Start 2P"';
   const tw = ctx.measureText(text).width;
-  const bw = tw + 10;
-  const bh = 13;
-  const by = sy - 32 - floatY;
+  const bw = tw + 12;
+  const bh = 16;
+  const by = sy - 44 - floatY;
   const bx = Math.max(4, Math.min(VIEW_W - bw - 4, cx - bw / 2));
   ctx.fillStyle = 'rgba(5,5,10,0.88)';
   roundRect(ctx, bx, by, bw, bh, 3);
@@ -1787,12 +1787,12 @@ function drawPlayer() {
 
   // Name tag
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  roundRect(ctx, sx + PW / 2 - 20, sy - 14, 40, 11, 2);
+  roundRect(ctx, sx + PW / 2 - 22, sy - 22, 44, 16, 2);
   ctx.fill();
   ctx.fillStyle = '#4ecca3';
-  ctx.font = '5px "Press Start 2P"';
+  ctx.font = '8px "Press Start 2P"';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('ME', sx + PW / 2, sy - 9);
+  ctx.fillText('ME', sx + PW / 2, sy - 14);
   if (player._chat && Date.now() < player._chatExp)
     drawChatBubble(sx + PW / 2, sy, player._chat, player._chatExp);
 }
@@ -1838,16 +1838,16 @@ function drawRemotePlayer(rp) {
 
   // Name tag
   const label = String(rp.name || 'ANON').substring(0, 12).toUpperCase();
-  ctx.font = '5px "Press Start 2P"';
+  ctx.font = '8px "Press Start 2P"';
   const tw   = ctx.measureText(label).width;
-  const tagW = Math.max(tw + 8, 24);
+  const tagW = Math.max(tw + 12, 32);
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  roundRect(ctx, sx + PW / 2 - tagW / 2, sy - 14, tagW, 11, 2);
+  roundRect(ctx, sx + PW / 2 - tagW / 2, sy - 22, tagW, 16, 2);
   ctx.fill();
   ctx.fillStyle = '#4ecca3';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(label, sx + PW / 2, sy - 9);
+  ctx.fillText(label, sx + PW / 2, sy - 14);
   if (rp._chat && Date.now() < rp._chatExp)
     drawChatBubble(sx + PW / 2, sy, rp._chat, rp._chatExp);
 
@@ -1865,7 +1865,7 @@ function drawInteractPrompt(obj, t) {
   const sy = wy((obj.promptY != null ? obj.promptY : obj.y) - 8);
   const time = Date.now();
 
-  ctx.font = '6px "Press Start 2P"';
+  ctx.font = '9px "Press Start 2P"';
   const label = `[E] ${obj.label}`;
   const fullW = ctx.measureText(label).width + 18;
   const fullH = 14;
@@ -1951,7 +1951,7 @@ function drawHUD() {
   ctx.fillStyle = 'rgba(5,5,10,0)';
   ctx.fillRect(0, CROP_TOP, VIEW_W, 20);
   ctx.fillStyle = '#4ecca3';
-  ctx.font = '6px "Press Start 2P"';
+  ctx.font = '9px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillText('▸ TANA ROOM', 8, CROP_TOP + 10);
   ctx.textAlign = 'right';
@@ -1963,7 +1963,7 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(5,5,10,0.72)';
     ctx.fillRect(0, screenBtm - 20, VIEW_W, 20);
     ctx.fillStyle = '#f9c74f';
-    ctx.font = '6px "Press Start 2P"';
+    ctx.font = '9px "Press Start 2P"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(`[E]  →  ${near.label}`, VIEW_W / 2, screenBtm - 10);
   }
