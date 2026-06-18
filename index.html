@@ -1575,7 +1575,7 @@ _chatInput.addEventListener('keydown', e => {
   const text = _chatInput.value.trim().toUpperCase().substring(0, 40);
   if (text && _worldChannel) {
     player._chat    = text;
-    player._chatExp = Date.now() + 6000;
+    player._chatExp = Date.now() + 5000;
     _worldChannel.send({ type: 'broadcast', event: 'chat_msg', payload: { id: playerId, text } });
   }
   closeChatPopup();
@@ -1700,15 +1700,29 @@ function drawBackground() {
 //  DRAW — CHAT BUBBLE
 // ─────────────────────────────────────────────────────────
 function drawChatBubble(cx, sy, text, expiresAt) {
+  const HOLD  = 2000;
+  const RISE  = 3000;
   const remaining = expiresAt - Date.now();
   if (remaining <= 0) return;
+
+  const elapsed = (HOLD + RISE) - remaining;
+  let alpha, floatY;
+  if (elapsed < HOLD) {
+    alpha  = 1;
+    floatY = 0;
+  } else {
+    const t = (elapsed - HOLD) / RISE;   // 0 → 1 over the rise phase
+    alpha  = 1 - t;
+    floatY = t * 28;                      // drift up 28px
+  }
+
   ctx.save();
-  ctx.globalAlpha = Math.min(1, remaining / 600);
+  ctx.globalAlpha = alpha;
   ctx.font = '5px "Press Start 2P"';
   const tw = ctx.measureText(text).width;
   const bw = tw + 10;
   const bh = 13;
-  const by = sy - 32;   // 5px gap above name tag (name tag top = sy-14, height=11)
+  const by = sy - 32 - floatY;
   const bx = Math.max(4, Math.min(VIEW_W - bw - 4, cx - bw / 2));
   ctx.fillStyle = 'rgba(5,5,10,0.88)';
   roundRect(ctx, bx, by, bw, bh, 3);
@@ -2286,7 +2300,7 @@ function initMultiplayer() {
         .on('broadcast', { event: 'chat_msg' }, ({ payload }) => {
           if (!payload || !payload.id || !payload.text) return;
           const rp = remotePlayers.get(payload.id);
-          if (rp) { rp._chat = String(payload.text).substring(0, 40); rp._chatExp = Date.now() + 6000; }
+          if (rp) { rp._chat = String(payload.text).substring(0, 40); rp._chatExp = Date.now() + 5000; }
         })
         .subscribe(() => {
           // Announce identity once on channel join
