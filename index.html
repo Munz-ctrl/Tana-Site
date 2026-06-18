@@ -1480,12 +1480,8 @@ function tryInteract() {
   if (obj.action === 'plaque-info') openPlaqueInfo();
   if (obj.action === 'npc-talk') {
     const phrase = obj.phrases[Math.floor(Math.random() * obj.phrases.length)];
-    popupIcon.textContent  = '💬';
-    popupTitle.textContent = obj.label;
-    popupBody.textContent  = phrase;
-    emailWrap.style.display = 'none';
-    popupOverlay.classList.add('active');
-    popupOpen = true;
+    obj._chat    = phrase;
+    obj._chatExp = Date.now() + 5000;
   }
 }
 
@@ -1859,6 +1855,39 @@ function drawNPC(npc) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(npc.label, sx + npc.w / 2, sy - 14);
+  }
+
+  if (npc._chat && Date.now() < npc._chatExp) {
+    const HOLD = 2000, RISE = 3000;
+    const remaining = npc._chatExp - Date.now();
+    const elapsed   = (HOLD + RISE) - remaining;
+    let alpha = 1, floatY = 0;
+    if (elapsed >= HOLD) {
+      const t = (elapsed - HOLD) / RISE;
+      alpha   = 1 - t;
+      floatY  = t * 28;
+    }
+    const bcx = sx + npc.w / 2;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = '8px "Press Start 2P"';
+    const tw  = ctx.measureText(npc._chat).width;
+    const bw  = tw + 12;
+    const bh  = 16;
+    const by  = sy - 44 - floatY;
+    const bx  = Math.max(4, Math.min(VIEW_W - bw - 4, bcx - bw / 2));
+    ctx.fillStyle = 'rgba(5,5,10,0.88)';
+    roundRect(ctx, bx, by, bw, bh, 3);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(249,199,79,0.6)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, bx, by, bw, bh, 3);
+    ctx.stroke();
+    ctx.fillStyle = '#f9c74f';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(npc._chat, bx + bw / 2, by + bh / 2);
+    ctx.restore();
   }
 }
 
