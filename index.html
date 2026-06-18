@@ -374,179 +374,20 @@
 <!-- Password gate disabled on multiplayer branch -->
 
 
-<!-- ═══════════════════════════════════════════════════════════
-     INTRO SCREEN  ── self-contained block ─────────────────────
-     To remove the intro entirely later, delete:
-       1) the <style id="intro-screen-css"> block below
-       2) the <div id="intro-screen"> markup
-       3) the <script id="intro-screen-script"> block
-     The password gate above is fully independent of this block.
-     ═══════════════════════════════════════════════════════════ -->
-<style id="intro-screen-css">
-  #intro-screen {
-    position: fixed; inset: 0; z-index: 100;
-    background: rgba(5,5,10,0.96);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'Press Start 2P', monospace;
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.35s ease;
-    padding: max(env(safe-area-inset-top, 0px), 20px)
-             max(env(safe-area-inset-right, 0px), 20px)
-             max(env(safe-area-inset-bottom, 0px), 20px)
-             max(env(safe-area-inset-left, 0px), 20px);
-  }
-  #intro-screen.active { opacity: 1; pointer-events: all; }
-
-  #intro-card {
-    max-width: 460px; width: 100%;
-    padding: 30px 26px;
-    background: #07070f;
-    border: 2px solid #4ecca3;
-    box-shadow: 0 0 40px rgba(78,204,163,0.25), inset 0 0 0 1px #0d2218;
-    text-align: center;
-    transform: translateY(10px);
-    transition: transform 0.35s ease;
-    box-sizing: border-box;
-    max-height: calc(100svh - 40px);
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  #intro-screen.active #intro-card { transform: translateY(0); }
-
-  .intro-title {
-    color: #4ecca3; font-size: 13px; letter-spacing: 4px;
-    text-shadow: 0 0 12px rgba(78,204,163,0.7);
-    margin-bottom: 22px;
-  }
-  .intro-welcome {
-    color: #e0e0e0; font-size: 9px; letter-spacing: 1px;
-    line-height: 1.9; margin-bottom: 18px;
-  }
-  #intro-link {
-    color: #f9c74f; text-decoration: none;
-    border-bottom: 1px dotted #f9c74f;
-    transition: color 0.12s, border-color 0.12s, text-shadow 0.12s;
-  }
-  #intro-link:hover {
-    color: #ffe27a; border-bottom-color: #ffe27a;
-    text-shadow: 0 0 8px rgba(249,199,79,0.6);
-  }
-  .intro-tagline {
-    color: #b0b8d0; font-size: 8px; letter-spacing: 1px;
-    line-height: 1.9; margin-bottom: 12px;
-  }
-  .intro-sub {
-    color: #6a7090; font-size: 7px; letter-spacing: 1px;
-    line-height: 1.9; margin-bottom: 26px;
-  }
-  #intro-enter {
-    background: rgba(78,204,163,0.10);
-    border: 1px solid #4ecca3;
-    color: #4ecca3;
-    font-family: 'Press Start 2P', monospace;
-    font-size: 8px; letter-spacing: 2px;
-    padding: 12px 24px;
-    cursor: pointer; outline: none;
-    transition: background 0.12s, box-shadow 0.12s;
-  }
-  #intro-enter:hover {
-    background: rgba(78,204,163,0.22);
-    box-shadow: 0 0 18px rgba(78,204,163,0.35);
-  }
-  .intro-hint {
-    margin-top: 16px;
-    color: #2a2a44; font-size: 6px; letter-spacing: 1px;
-  }
-</style>
-
-<div id="intro-screen">
-  <div id="intro-card">
-    <div class="intro-title">★ WELCOME ★</div>
-    <div class="intro-welcome">
-      to <a id="intro-link" href="http://Popstar-Life.com" target="_blank" rel="noopener">Popstar-Life.com</a>
-    </div>
-    <div class="intro-tagline">An all new Popstar experience.</div>
-    <div class="intro-sub">Explore the world as me for now.</div>
-    <button id="intro-enter" type="button">ENTER →</button>
-    <div class="intro-hint">[ press ENTER or click ]</div>
-  </div>
-</div>
-
-<script id="intro-screen-script">
-(function(){
-  var intro = document.getElementById('intro-screen');
-  if (!intro) return;
-
-  // Skip if already seen this session. Delete this block to show every load.
-  if (sessionStorage.getItem('tana_intro_seen') === '1') {
-    intro.remove();
-    return;
-  }
-
-  // Defer the fade-in until the password gate is gone, so the user
-  // actually sees the appear animation. Polls cheaply at 80ms.
-  function activate() { intro.classList.add('active'); }
-  if (document.getElementById('pw-gate')) {
-    var poll = setInterval(function(){
-      if (!document.getElementById('pw-gate')) {
-        clearInterval(poll);
-        requestAnimationFrame(activate);
-      }
-    }, 80);
-  } else {
-    requestAnimationFrame(activate);
-  }
-
-  function dismiss() {
-    intro.classList.remove('active');
-    sessionStorage.setItem('tana_intro_seen', '1');
-    setTimeout(function(){ if (intro && intro.parentNode) intro.remove(); }, 380);
-  }
-
-  document.getElementById('intro-enter').addEventListener('click', dismiss);
-
-  // Click backdrop (but not the card itself) dismisses too
-  intro.addEventListener('click', function(e){
-    if (e.target === intro) dismiss();
-  });
-
-  // Enter key dismisses — but ignore while password gate is still up
-  // (so its Enter-to-submit doesn't bleed into ours), and ignore while
-  // the user is typing into any input/textarea.
-  document.addEventListener('keydown', function onKey(e){
-    if (e.key !== 'Enter') return;
-    if (document.getElementById('pw-gate')) return;
-    var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-    dismiss();
-    document.removeEventListener('keydown', onKey);
-  });
-})();
-</script>
-<!-- ═══════════════════════════════════════════════════════════
-     END INTRO SCREEN block
-     ═══════════════════════════════════════════════════════════ -->
-
-
-<!-- ── MULTIPLAYER NAME ENTRY SCREEN ── -->
+<!-- ── ENTRY SCREEN — unified intro + name/skin picker ── -->
 <style>
-#name-screen {
+#entry-screen {
   position: fixed; inset: 0; z-index: 200;
   background: rgba(5,5,10,0.97);
   display: flex; align-items: center; justify-content: center;
   font-family: 'Press Start 2P', monospace;
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.3s ease;
   padding: max(env(safe-area-inset-top,0px),20px)
            max(env(safe-area-inset-right,0px),20px)
            max(env(safe-area-inset-bottom,0px),20px)
            max(env(safe-area-inset-left,0px),20px);
 }
-#name-card {
-  max-width: 380px; width: 100%;
+#entry-card {
+  max-width: 420px; width: 100%;
   padding: 30px 26px;
   background: #07070f;
   border: 2px solid #4ecca3;
@@ -556,28 +397,29 @@
   max-height: calc(100svh - 40px);
   max-height: calc(100vh - 40px);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
-.name-title {
-  color: #4ecca3; font-size: 10px; letter-spacing: 3px;
-  text-shadow: 0 0 12px rgba(78,204,163,0.7);
-  margin-bottom: 24px;
+.entry-title {
+  color: #4ecca3; font-size: 13px; letter-spacing: 4px;
+  text-shadow: 0 0 14px rgba(78,204,163,0.75);
+  margin-bottom: 18px;
 }
-#mp-name-input {
-  width: 100%; box-sizing: border-box;
-  background: #080818;
-  border: 1px solid #4ecca3;
-  color: #4ecca3;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 9px;
-  padding: 10px 12px;
-  margin-bottom: 20px;
-  outline: none;
-  text-align: center;
-  text-transform: uppercase;
-  caret-color: #4ecca3;
+#entry-link {
+  display: inline-block;
+  color: #f9c74f; font-size: 7px; letter-spacing: 2px;
+  text-decoration: none; border-bottom: 1px dotted #f9c74f;
+  margin-bottom: 18px;
+  transition: color 0.12s, text-shadow 0.12s;
 }
-#mp-name-input::placeholder { color: #1a3a2a; }
-#mp-name-input:focus { border-color: #78ffd0; }
+#entry-link:hover { color: #ffe27a; text-shadow: 0 0 8px rgba(249,199,79,0.6); }
+.entry-body {
+  color: #b0b8d0; font-size: 7px; letter-spacing: 1px;
+  line-height: 2.1; margin-bottom: 22px;
+}
+.entry-divider {
+  border: none; border-top: 1px solid rgba(78,204,163,0.15);
+  margin: 0 0 22px;
+}
 .name-skin-label {
   color: #b0b8d0; font-size: 7px; letter-spacing: 2px;
   margin-bottom: 12px;
@@ -590,9 +432,7 @@
   background: rgba(78,204,163,0.06);
   border: 2px solid rgba(78,204,163,0.25);
   padding: 4px;
-  cursor: pointer;
-  flex-shrink: 0;
-  line-height: 0;
+  cursor: pointer; flex-shrink: 0; line-height: 0;
   transition: border-color 0.1s, box-shadow 0.1s;
 }
 .skin-btn.active {
@@ -601,13 +441,24 @@
 }
 .skin-btn:hover { border-color: rgba(78,204,163,0.6); }
 .skin-thumb {
-  display: block;
-  width: 64px;
-  height: 64px;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  display: block; width: 64px; height: 64px;
+  image-rendering: pixelated; image-rendering: crisp-edges;
 }
-#name-confirm {
+#mp-name-input {
+  width: 100%; box-sizing: border-box;
+  background: #080818;
+  border: 1px solid #4ecca3;
+  color: #4ecca3;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 10px 12px;
+  margin-bottom: 20px;
+  outline: none; text-align: center; text-transform: uppercase;
+  caret-color: #4ecca3;
+}
+#mp-name-input::placeholder { color: #1a3a2a; }
+#mp-name-input:focus { border-color: #78ffd0; }
+#entry-confirm {
   width: 100%;
   background: rgba(78,204,163,0.10);
   border: 1px solid #4ecca3;
@@ -615,27 +466,30 @@
   font-family: 'Press Start 2P', monospace;
   font-size: 8px; letter-spacing: 2px;
   padding: 12px 24px;
-  cursor: pointer; outline: none;
-  min-height: 44px;
+  cursor: pointer; outline: none; min-height: 44px;
   transition: background 0.12s, box-shadow 0.12s;
 }
-#name-confirm:hover {
+#entry-confirm:hover {
   background: rgba(78,204,163,0.22);
   box-shadow: 0 0 18px rgba(78,204,163,0.35);
 }
 </style>
 
-<div id="name-screen">
-  <div id="name-card">
-    <div class="name-title">★ ENTER YOUR NAME ★</div>
+<div id="entry-screen">
+  <div id="entry-card">
+    <div class="entry-title">★ TANA.EXE ★</div>
+    <a id="entry-link" href="https://Popstar-Life.com" target="_blank" rel="noopener">POPSTAR-LIFE.COM</a>
+    <div class="entry-body">PHASE 2 IS LIVE. THE ALBUM 'TANA — ME' IS DROPPING SOON.<br>EXPLORE THE WORLD. BE THERE WHEN IT DROPS.</div>
+    <hr class="entry-divider">
+    <div class="name-skin-label">ENTER YOUR NAME</div>
     <input id="mp-name-input" type="text" maxlength="12" placeholder="PLAYER" autocomplete="off">
-    <div class="name-skin-label">CHOOSE SKIN</div>
+    <div class="name-skin-label">CHOOSE YOUR SKIN</div>
     <div class="name-skin-row">
       <button class="skin-btn active" data-skin="0"><img class="skin-thumb" src="assets/spritetestf2PRV.png" alt="Skin 0"></button>
       <button class="skin-btn" data-skin="1"><img class="skin-thumb" src="assets/girlspritePRV.png" alt="Skin 1"></button>
       <button class="skin-btn" data-skin="2"><img class="skin-thumb" src="assets/mascotspritePRV.png" alt="Skin 2"></button>
     </div>
-    <button id="name-confirm">PLAY →</button>
+    <button id="entry-confirm">ENTER THE PARTY →</button>
   </div>
 </div>
 
@@ -2164,13 +2018,13 @@ resizeGame();
 setTimeout(resizeGame, 100);
 
 // ─────────────────────────────────────────────────────────
-//  MULTIPLAYER — Name entry + Supabase Realtime
+//  ENTRY SCREEN — name, skin, and game launch
 // ─────────────────────────────────────────────────────────
 (function() {
-  const screen   = document.getElementById('name-screen');
-  const inp      = document.getElementById('mp-name-input');
-  const confirmBtn = document.getElementById('name-confirm');
-  const skinBtns = document.querySelectorAll('.skin-btn');
+  const screen     = document.getElementById('entry-screen');
+  const inp        = document.getElementById('mp-name-input');
+  const confirmBtn = document.getElementById('entry-confirm');
+  const skinBtns   = document.querySelectorAll('.skin-btn');
 
   skinBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2180,29 +2034,17 @@ setTimeout(resizeGame, 100);
     });
   });
 
-  function dismissNameScreen() {
+  function confirm() {
     const raw = inp.value.trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase();
     playerName = raw || 'ANON';
-    screen.style.opacity = '0';
-    screen.style.pointerEvents = 'none';
-    setTimeout(() => { if (screen.parentNode) screen.remove(); }, 320);
     nameScreenOpen = false;
+    screen.remove();
     initMultiplayer();
   }
 
-  confirmBtn.addEventListener('click', dismissNameScreen);
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') dismissNameScreen(); });
-
-  // Show once both pw-gate and intro-screen are gone
-  (function waitAndShow() {
-    if (document.getElementById('pw-gate') || document.getElementById('intro-screen')) {
-      requestAnimationFrame(waitAndShow);
-    } else {
-      screen.style.opacity = '1';
-      screen.style.pointerEvents = 'all';
-      inp.focus();
-    }
-  })();
+  confirmBtn.addEventListener('click', confirm);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') confirm(); });
+  inp.focus();
 })();
 
 function initMultiplayer() {
