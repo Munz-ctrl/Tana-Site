@@ -988,7 +988,7 @@ const sceneObjects = [
   // speaker_left
   {
     id: 'speaker_left',
-    x: 450, y: 390, w: 168, h: 226,
+    x: 460, y: 390, w: 168, h: 226,
     baseY: 590,
     collision: null,
     interactable: false,
@@ -1005,11 +1005,22 @@ const sceneObjects = [
   // balloon_left — under wall_mid_left collider
   {
     id: 'balloon_left',
-    x: 430, y: 300, w: 140, h: 260,
+    x: 400, y: 300, w: 140, h: 260,
     baseY: 550,
     collision: null,
     interactable: false,
     img: baloonImg,
+    draw() {}
+  },
+
+  // balloon_left — under wall_mid_left collider
+  {
+    id: 'balloon_left2',
+    x: 100, y: 300, w: 140, h: 260,
+    baseY: 550,
+    collision: null,
+    interactable: false,
+    img: baloon2Img,
     draw() {}
   },
 
