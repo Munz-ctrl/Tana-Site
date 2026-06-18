@@ -1005,7 +1005,7 @@ const sceneObjects = [
   // balloon_left — under wall_mid_left collider
   {
     id: 'balloon_left',
-    x: 450, y: 440, w: 140, h: 210,
+    x: 450, y: 400, w: 140, h: 260,
     baseY: 530,
     collision: null,
     interactable: false,
@@ -1061,9 +1061,9 @@ function applyLivingroomUnpack() {
   if (!sceneObjects.find(o => o.id === 'trunk')) {
     sceneObjects.push({
       id: 'trunk',
-      x: 1200, y: 560, w: 180, h: 120,
-      baseY: 430,
-      collision: { x: 1200, y: 610, w: 180, h: 70 },
+      x: 1200, y: 590, w: 180, h: 120,
+      baseY: 460,
+      collision: { x: 1200, y: 640, w: 180, h: 70 },
       interactable: true,
       action: 'external-link',
       url: 'https://popstar-life.com/me',
