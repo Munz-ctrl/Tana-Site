@@ -803,9 +803,9 @@ bgImg.onload = () => {
   FLOOR_TOP = Math.round(WORLD_H * 0.30);
   FLOOR_BTM = Math.round(WORLD_H * 0.96);
 
-  // Spawn player near the entrance (matches bouncer NPC y)
+  // Spawn player at entrance, same Y as bouncer NPC
   player.x = WORLD_W / 2 - PW / 2;
-  player.y = 820;
+  player.y = 614;
 
   WELCOME_ZONE.x = WORLD_W / 2 - 120;
   WELCOME_ZONE.y = FLOOR_BTM - 80;
@@ -1151,7 +1151,7 @@ let npcIdleTick  = 0;
 
 const player = {
   x: WORLD_W / 2 - PW / 2,
-  y: 820,
+  y: 614,
   vx: 0, vy: 0,
   facing: 'down',
   animFrame: 0,
