@@ -1979,32 +1979,50 @@ function initMultiplayer() {
     );
     const channel = sb.channel('tana-world');
     channel
-      .on('broadcast', { event: 'player' }, ({ payload }) => {
+      .on('broadcast', { event: 'player_join' }, ({ payload }) => {
         if (!payload || payload.id === playerId) return;
-        if (payload.x === undefined) {
-          const rp = remotePlayers.get(payload.id);
-          if (rp) rp._lastSeen = Date.now();
-          return;
-        }
+        const existing = remotePlayers.get(payload.id) || {};
+        remotePlayers.set(payload.id, Object.assign(existing, {
+          name: payload.name, skin: payload.skin,
+          _lastSeen: Date.now(),
+        }));
+        // FIX 2: snapshot our current state so the new joiner can see us immediately
+        channel.send({
+          type: 'broadcast', event: 'player_move',
+          payload: { id: playerId, x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame },
+        });
+      })
+      .on('broadcast', { event: 'player_move' }, ({ payload }) => {
+        if (!payload || payload.id === playerId) return;
         const existing = remotePlayers.get(payload.id) || {};
         const now = Date.now();
         const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
         const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
         const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
-        remotePlayers.set(payload.id, Object.assign(existing, payload, {
+        remotePlayers.set(payload.id, Object.assign(existing, {
+          x: payload.x, y: payload.y,
+          facing: payload.facing, animFrame: payload.animFrame,
           _lastSeen: now,
           _fromX: fromX, _fromY: fromY,
           _targetX: payload.x, _targetY: payload.y,
           _interpStart: now,
         }));
       })
+      .on('broadcast', { event: 'player_leave' }, ({ payload }) => {
+        if (!payload || payload.id === playerId) return;
+        remotePlayers.delete(payload.id);
+      })
       .subscribe(() => {
+        // FIX 1: announce identity once on join
+        channel.send({
+          type: 'broadcast', event: 'player_join',
+          payload: { id: playerId, name: playerName, skin: playerSkin },
+        });
         let _lastBroadcast = null;
-        let _lastHeartbeat = 0;
         setInterval(() => {
           const now = Date.now();
           for (const [id, p] of remotePlayers) {
-            if (now - p._lastSeen > 6000) remotePlayers.delete(id);
+            if (now - p._lastSeen > 12000) remotePlayers.delete(id);
           }
           const state = {
             x: player.x, y: player.y,
@@ -2014,17 +2032,17 @@ function initMultiplayer() {
               state.x !== _lastBroadcast.x || state.y !== _lastBroadcast.y ||
               state.facing !== _lastBroadcast.facing || state.animFrame !== _lastBroadcast.animFrame) {
             _lastBroadcast = { ...state };
-            _lastHeartbeat = now;
             channel.send({
-              type: 'broadcast', event: 'player',
-              payload: { id: playerId, name: playerName, skin: playerSkin, ...state }
+              type: 'broadcast', event: 'player_move',
+              payload: { id: playerId, ...state },
             });
-          } else if (now - _lastHeartbeat >= 2000) {
-            _lastHeartbeat = now;
-            channel.send({ type: 'broadcast', event: 'player', payload: { id: playerId } });
           }
         }, 100);
       });
+    // FIX 3: clean exit — broadcast leave on tab close or hide
+    const _sendLeave = () => channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
+    window.addEventListener('beforeunload', _sendLeave);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) _sendLeave(); });
   } catch (e) {
     console.error('[TANA.EXE] Multiplayer init failed:', e);
   }
