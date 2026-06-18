@@ -719,6 +719,8 @@ let FLOOR_BTM = 590;  // default safe margin — bgImg.onload recalculates both
 let ROOM_L    = 10;
 let ROOM_R    = WORLD_W - 10;
 
+const WELCOME_ZONE = { x: WORLD_W / 2 - 120, y: FLOOR_BTM - 160, w: 240, h: 160 };
+
 // ── Sprite sheet layout: rows = directions, cols = frames ──
 //  row 0=down  1=up  2=left  3=right
 //  col 0=idle  1=walkA
@@ -753,6 +755,11 @@ const skinImgs = [
   loadImg('assets/girlsprite.png'),
   loadImg('assets/mascotsprite.png')
 ];
+
+const chrisSpriteImg  = loadImg('assets/chrissprite.webp');
+const bouncerNpcImg   = loadImg('assets/bouncernpc.webp');
+const speakerRightImg = loadImg('assets/spkrsprite.webp');
+const speakerLeftImg  = loadImg('assets/spkrspriteLEFT.webp');
 
 
 
@@ -797,6 +804,10 @@ bgImg.onload = () => {
   // Respawn player at centre of walkable area if they're out of bounds
   player.x = WORLD_W / 2 - PW / 2;
   player.y = FLOOR_TOP + (FLOOR_BTM - FLOOR_TOP) * 0.7 - PH;
+
+  WELCOME_ZONE.x = WORLD_W / 2 - 120;
+  WELCOME_ZONE.y = FLOOR_BTM - 160;
+  for (const npc of npcs) { npc.w = PW; npc.h = PH; npc.baseY = npc.y + PH; }
 
   console.log(`[TANA.EXE] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH} | Floor: ${FLOOR_TOP}–${FLOOR_BTM}`);
 };
@@ -955,6 +966,40 @@ const sceneObjects = [
     interactable: false, img: null, draw() {}
   },
 
+  // speaker_right
+  {
+    id: 'speaker_right',
+    x: 900, y: 600, w: 140, h: 180,
+    baseY: 780,
+    collision: null,
+    interactable: false,
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerRightImg;
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      }
+    }
+  },
+
+  // speaker_left
+  {
+    id: 'speaker_left',
+    x: 700, y: 600, w: 140, h: 180,
+    baseY: 780,
+    collision: null,
+    interactable: false,
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerLeftImg;
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      }
+    }
+  },
+
 ];
 
 const wallPlaqueObj = {
@@ -1033,10 +1078,49 @@ function applyBedroomUnpack() {
 
 
 
+// ── NPCs — tune x/y in debug mode (` backtick) ──
+const npcs = [
+
+  // chris
+  {
+    id: 'chris',
+    x: 600, y: 500,
+    w: PW, h: PH,
+    baseY: 500 + PH,
+    img: chrisSpriteImg,
+    label: 'CHRIS SKYLARK',
+    action: 'npc-talk',
+    phrases: [
+      'TANA IS DROPPING SOMETHING SPECIAL TONIGHT.',
+      'YOU MADE IT. THE REAL ONES ARE ALWAYS EARLY.',
+      'CHECK THE STUDIO. SOMETHING NEW IS IN THERE.',
+      'WE MOVING DIFFERENT THIS YEAR.',
+      "DON'T LEAVE. IT'S ABOUT TO GET CRAZY IN HERE."
+    ],
+    _idleFrame: 0
+  },
+
+  // bouncer_npc
+  {
+    id: 'bouncer_npc',
+    x: 750, y: 820,
+    w: PW, h: PH,
+    baseY: 820 + PH,
+    img: bouncerNpcImg,
+    label: 'BOUNCER',
+    action: null,
+    phrases: null,
+    _idleFrame: 0
+  },
+
+];
+
 // ─────────────────────────────────────────────────────────
 //  PLAYER
 // ─────────────────────────────────────────────────────────
-let lastAxis = 'x';
+let lastAxis     = 'x';
+let speakerFrame = 0;
+let npcIdleTick  = 0;
 
 const player = {
   x: WORLD_W / 2 - PW / 2,
@@ -1101,6 +1185,12 @@ function getNearbyObject() {
     // objects can be reached from the floor without breaking rendering.
     const ocy = (obj.interactY != null) ? obj.interactY : obj.baseY;
     if (Math.hypot(px - ocx, py - ocy) < INTERACT_RANGE) return obj;
+  }
+  for (const npc of npcs) {
+    if (!npc.action) continue;
+    const ocx = npc.x + npc.w / 2;
+    const ocy = npc.baseY;
+    if (Math.hypot(px - ocx, py - ocy) < INTERACT_RANGE) return npc;
   }
   return null;
 }
@@ -1388,6 +1478,15 @@ function tryInteract() {
   if (!obj) return;
   if (obj.action === 'email')       openEmailPopup();
   if (obj.action === 'plaque-info') openPlaqueInfo();
+  if (obj.action === 'npc-talk') {
+    const phrase = obj.phrases[Math.floor(Math.random() * obj.phrases.length)];
+    popupIcon.textContent  = '💬';
+    popupTitle.textContent = obj.label;
+    popupBody.textContent  = phrase;
+    emailWrap.style.display = 'none';
+    popupOverlay.classList.add('active');
+    popupOpen = true;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1502,6 +1601,21 @@ if (moving) {
   player.animTick  = 0;
   if (++player.idleTick >= 30) { player.idleTick = 0; player.idleFrame ^= 1; }
 }
+
+  // Bouncer welcome zone — reactively set _idleFrame based on player proximity
+  const _bouncerNpc = npcs.find(n => n.id === 'bouncer_npc');
+  if (_bouncerNpc) {
+    let _anyInZone = rectsOverlap(playerFeetRect(), WELCOME_ZONE);
+    if (!_anyInZone) {
+      for (const rp of remotePlayers.values()) {
+        const _t  = rp._interpStart !== undefined ? Math.min(1, (Date.now() - rp._interpStart) / 150) : 1;
+        const _rx = rp._fromX !== undefined ? rp._fromX + (rp._targetX - rp._fromX) * _t : rp.x;
+        const _ry = rp._fromY !== undefined ? rp._fromY + (rp._targetY - rp._fromY) * _t : rp.y;
+        if (rectsOverlap(playerFeetRect(_rx, _ry), WELCOME_ZONE)) { _anyInZone = true; break; }
+      }
+    }
+    _bouncerNpc._idleFrame = _anyInZone ? 1 : 0;
+  }
 
   updateCamera();
 }
@@ -1709,6 +1823,46 @@ function drawRemotePlayer(rp) {
 }
 
 // ─────────────────────────────────────────────────────────
+//  DRAW — NPC
+// ─────────────────────────────────────────────────────────
+function drawNPC(npc) {
+  const sx = wx(npc.x);
+  const sy = wy(npc.y);
+  if (sx + npc.w < 0 || sx > VIEW_W || sy + npc.h < 0 || sy > VIEW_H) return;
+
+  const shadowCY = sy + npc.h - 6;
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath();
+  ctx.ellipse(sx + npc.w / 2, shadowCY, npc.w / 3.2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.imageSmoothingEnabled = false;
+
+  if (npc.img && npc.img.complete && npc.img.naturalWidth > 0) {
+    const srcX = npc._idleFrame === 1 ? 512 : 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(sx, sy, npc.w, npc.h);
+    ctx.clip();
+    ctx.drawImage(npc.img, srcX, 0, FRAME_W, FRAME_H, sx, sy, npc.w, npc.h);
+    ctx.restore();
+  }
+
+  if (npc.label) {
+    ctx.font = '8px "Press Start 2P"';
+    const tw   = ctx.measureText(npc.label).width;
+    const tagW = Math.max(tw + 12, 32);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    roundRect(ctx, sx + npc.w / 2 - tagW / 2, sy - 22, tagW, 16, 2);
+    ctx.fill();
+    ctx.fillStyle = '#f9c74f';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(npc.label, sx + npc.w / 2, sy - 14);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 //  DRAW — INTERACT PROMPT  (floating [E] above object)
 // ─────────────────────────────────────────────────────────
 // t = 0 → minimized textless pip (always on for interactables)
@@ -1840,6 +1994,17 @@ function render() {
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.imageSmoothingEnabled = false;
 
+  // Advance NPC idle animation tick and speaker frame
+  npcIdleTick++;
+  if (npcIdleTick >= 30) {
+    npcIdleTick = 0;
+    speakerFrame ^= 1;
+    for (const npc of npcs) {
+      if (npc.id === 'bouncer_npc') continue;
+      npc._idleFrame ^= 1;
+    }
+  }
+
   for (const rp of remotePlayers.values()) {
     if (!rp.animFrame) {
       rp._idleTick = (rp._idleTick || 0) + 1;
@@ -1892,6 +2057,10 @@ function render() {
   for (const rp of remotePlayers.values()) {
     const rpBaseY = rp.y + FEET_OY + FEET_H;
     renderList.push({ baseY: rpBaseY, fn: () => drawRemotePlayer(rp) });
+  }
+
+  for (const npc of npcs) {
+    renderList.push({ baseY: npc.baseY, fn: () => drawNPC(npc) });
   }
 
   // Sort by Y depth
