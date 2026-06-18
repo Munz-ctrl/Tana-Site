@@ -595,6 +595,48 @@
   </div>
 </div>
 
+<style>
+#bouncer-overlay {
+  position: fixed; inset: 0; z-index: 250;
+  background: rgba(5,5,10,0.97);
+  display: none; align-items: center; justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  padding: max(env(safe-area-inset-top,0px),20px)
+           max(env(safe-area-inset-right,0px),20px)
+           max(env(safe-area-inset-bottom,0px),20px)
+           max(env(safe-area-inset-left,0px),20px);
+}
+#bouncer-card {
+  max-width: 380px; width: 100%;
+  padding: 30px 26px;
+  background: #07070f;
+  border: 2px solid #e94560;
+  box-shadow: 0 0 40px rgba(233,69,96,0.3), inset 0 0 0 1px #220a10;
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  box-sizing: border-box;
+  max-height: calc(100svh - 40px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+#bouncer-join { transition: opacity 0.2s, box-shadow 0.2s; }
+#bouncer-vip::placeholder { color: #1a3a2a; }
+#bouncer-vip:focus { border-color: #4ecca3; }
+</style>
+
+<div id="bouncer-overlay">
+  <div id="bouncer-card">
+    <img src="assets/bouncerQfull.webp" width="96" style="image-rendering:pixelated;image-rendering:crisp-edges;display:block" alt="">
+    <div style="color:#e94560;font-size:12px;letter-spacing:3px;text-shadow:0 0 14px rgba(233,69,96,0.8)">ROOM FULL</div>
+    <div id="bouncer-count" style="color:#4ecca3;font-size:9px;letter-spacing:2px">— / 50 PLAYERS</div>
+    <div style="color:#b0b8d0;font-size:7px;letter-spacing:2px;line-height:1.8">YOU'RE ON THE LIST — HANG TIGHT</div>
+    <button id="bouncer-join" disabled
+      style="width:100%;background:rgba(78,204,163,0.10);border:1px solid #4ecca3;color:#4ecca3;font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:2px;padding:12px 24px;cursor:pointer;outline:none;min-height:44px;opacity:0.35">JOIN →</button>
+    <input id="bouncer-vip" type="password" placeholder="VIP ACCESS" autocomplete="off"
+      style="width:100%;box-sizing:border-box;background:#080818;border:1px solid rgba(78,204,163,0.3);color:#4ecca3;font-family:'Press Start 2P',monospace;font-size:7px;padding:10px 12px;outline:none;text-align:center;text-transform:uppercase;caret-color:#4ecca3">
+  </div>
+</div>
+
 <div id="header">★ TANA.EXE ★</div>
 
 <div id="game-container">
@@ -665,6 +707,9 @@ let   playerName  = 'ANON';
 let   playerSkin  = 0;
 let   nameScreenOpen = true;
 const remotePlayers  = new Map();
+
+const ROOM_CAP   = 50;
+const FORCE_PASS = 'vip11';
 
 // ═══════════════════════════════════════════════════════════
 //  ██████╗ ██████╗ ███╗   ██╗███████╗██╗ ██████╗
@@ -1977,159 +2022,228 @@ function initMultiplayer() {
       'https://bqhltjtktpaoctymmjrc.supabase.co',
       'sb_publishable_75Z_fkmYckjBRFmI2jol6A_Czi0estn'
     );
-    const channel = sb.channel('tana-world');
-    channel
-      .on('broadcast', { event: 'player_join' }, ({ payload }) => {
-        if (!payload || payload.id === playerId) return;
-        const existing = remotePlayers.get(payload.id) || {};
-        remotePlayers.set(payload.id, Object.assign(existing, {
-          name: payload.name, skin: payload.skin,
-          _lastSeen: Date.now(),
-        }));
-        // Send full snapshot (identity + position) so the new joiner sees us correctly
-        channel.send({
-          type: 'broadcast', event: 'player_snapshot',
-          payload: {
-            id: playerId, name: playerName, skin: playerSkin,
-            x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame,
-          },
+
+    // ── Room presence ──
+    const presenceMap  = new Map();
+    let   _isVip       = false;
+    let   _bouncerOpen = false;
+
+    const _bouncerOverlay = document.getElementById('bouncer-overlay');
+    const _bouncerCount   = document.getElementById('bouncer-count');
+    const _bouncerJoin    = document.getElementById('bouncer-join');
+    const _bouncerVip     = document.getElementById('bouncer-vip');
+
+    const _syncBouncer = () => {
+      if (!_bouncerOpen) return;
+      _bouncerCount.textContent = presenceMap.size + ' / 50 PLAYERS';
+      const full = presenceMap.size >= ROOM_CAP;
+      _bouncerJoin.disabled = full;
+      _bouncerJoin.style.opacity = full ? '0.35' : '1';
+      _bouncerJoin.style.boxShadow = full ? 'none' : '0 0 18px rgba(78,204,163,0.35)';
+    };
+
+    // ── tana-world channel (all existing broadcast logic, now callable) ──
+    const joinWorld = () => {
+      _bouncerOpen = false;
+      _bouncerOverlay.style.display = 'none';
+
+      const channel = sb.channel('tana-world');
+      channel
+        .on('broadcast', { event: 'player_join' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          const existing = remotePlayers.get(payload.id) || {};
+          remotePlayers.set(payload.id, Object.assign(existing, {
+            name: payload.name, skin: payload.skin,
+            _lastSeen: Date.now(),
+          }));
+          // Send full snapshot (identity + position) so the new joiner sees us correctly
+          channel.send({
+            type: 'broadcast', event: 'player_snapshot',
+            payload: {
+              id: playerId, name: playerName, skin: playerSkin,
+              x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame,
+            },
+          });
+        })
+        .on('broadcast', { event: 'player_snapshot' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          const existing = remotePlayers.get(payload.id) || {};
+          const now = Date.now();
+          const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
+          const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
+          const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
+          remotePlayers.set(payload.id, Object.assign(existing, {
+            name: payload.name, skin: payload.skin,
+            x: payload.x, y: payload.y,
+            facing: payload.facing, animFrame: payload.animFrame,
+            _lastSeen: now,
+            _fromX: fromX, _fromY: fromY,
+            _targetX: payload.x, _targetY: payload.y,
+            _interpStart: now,
+          }));
+        })
+        .on('broadcast', { event: 'player_move' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          const existing = remotePlayers.get(payload.id) || {};
+          const now = Date.now();
+          const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
+          const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
+          const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
+          remotePlayers.set(payload.id, Object.assign(existing, {
+            x: payload.x, y: payload.y,
+            facing: payload.facing, animFrame: payload.animFrame,
+            _lastSeen: now,
+            _fromX: fromX, _fromY: fromY,
+            _targetX: payload.x, _targetY: payload.y,
+            _interpStart: now,
+          }));
+        })
+        .on('broadcast', { event: 'player_heartbeat' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          const rp = remotePlayers.get(payload.id);
+          if (rp) rp._lastSeen = Date.now();
+        })
+        .on('broadcast', { event: 'player_leave' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          remotePlayers.delete(payload.id);
+        })
+        .subscribe(() => {
+          // Announce identity once on channel join
+          channel.send({
+            type: 'broadcast', event: 'player_join',
+            payload: { id: playerId, name: playerName, skin: playerSkin },
+          });
+
+          let _lastBroadcast = null;
+          let _lastHeartbeat = 0;
+          let _lastActivityTime = Date.now();
+
+          const _resetActivity = () => { _lastActivityTime = Date.now(); };
+          window.addEventListener('keydown', _resetActivity);
+          window.addEventListener('mousemove', _resetActivity);
+          window.addEventListener('touchstart', _resetActivity, { passive: true });
+
+          // AFK overlay — built once, toggled by display
+          const _afkOverlay = document.createElement('div');
+          _afkOverlay.style.cssText = [
+            'position:fixed;inset:0;z-index:500',
+            'background:rgba(5,5,10,0.95)',
+            "font-family:'Press Start 2P',monospace",
+            'display:none;flex-direction:column;align-items:center;justify-content:center',
+            'gap:24px;text-align:center;padding:20px',
+          ].join(';');
+          _afkOverlay.innerHTML =
+            '<div style="color:#4ecca3;font-size:10px;letter-spacing:3px;text-shadow:0 0 12px rgba(78,204,163,0.7)">STILL THERE?</div>' +
+            '<div id="_afkCount" style="color:#b0b8d0;font-size:8px;letter-spacing:2px"></div>' +
+            '<button id="_afkBtn" style="background:rgba(78,204,163,0.10);border:1px solid #4ecca3;color:#4ecca3;' +
+            "font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:2px;" +
+            'padding:12px 24px;cursor:pointer;outline:none;min-height:44px">YES, I\'M HERE</button>';
+          document.body.appendChild(_afkOverlay);
+
+          let _afkVisible = false;
+          let _afkCountTimer = null;
+
+          const _dismissAfk = () => {
+            _afkVisible = false;
+            _afkOverlay.style.display = 'none';
+            clearInterval(_afkCountTimer);
+            _lastActivityTime = Date.now();
+          };
+          _afkOverlay.querySelector('#_afkBtn').addEventListener('click', _dismissAfk);
+          window.addEventListener('keydown', _dismissAfk);
+
+          const _showAfk = () => {
+            _afkVisible = true;
+            let _secs = 30;
+            const _countEl = _afkOverlay.querySelector('#_afkCount');
+            _countEl.textContent = 'RETURNING IN ' + _secs + '...';
+            _afkOverlay.style.display = 'flex';
+            _afkCountTimer = setInterval(() => {
+              _secs--;
+              _countEl.textContent = 'RETURNING IN ' + _secs + '...';
+              if (_secs <= 0) {
+                clearInterval(_afkCountTimer);
+                channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
+                location.reload();
+              }
+            }, 1000);
+          };
+
+          setInterval(() => {
+            const now = Date.now();
+            // Stale cleanup — 30s covers 3 missed heartbeats
+            for (const [id, p] of remotePlayers) {
+              if (now - p._lastSeen > 30000) remotePlayers.delete(id);
+            }
+            // Movement broadcast (on change only)
+            const state = { x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame };
+            if (!_lastBroadcast ||
+                state.x !== _lastBroadcast.x || state.y !== _lastBroadcast.y ||
+                state.facing !== _lastBroadcast.facing || state.animFrame !== _lastBroadcast.animFrame) {
+              _lastBroadcast = { ...state };
+              _lastHeartbeat = now;
+              _lastActivityTime = now;
+              channel.send({ type: 'broadcast', event: 'player_move', payload: { id: playerId, ...state } });
+            }
+            // Idle heartbeat every 10s — keeps remotePlayers entry alive on others
+            if (now - _lastHeartbeat >= 10000) {
+              _lastHeartbeat = now;
+              channel.send({ type: 'broadcast', event: 'player_heartbeat', payload: { id: playerId } });
+            }
+            // AFK prompt after 60s of no input
+            if (!_afkVisible && now - _lastActivityTime >= 60000) _showAfk();
+          }, 100);
         });
-      })
-      .on('broadcast', { event: 'player_snapshot' }, ({ payload }) => {
-        if (!payload || payload.id === playerId) return;
-        const existing = remotePlayers.get(payload.id) || {};
-        const now = Date.now();
-        const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
-        const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
-        const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
-        remotePlayers.set(payload.id, Object.assign(existing, {
-          name: payload.name, skin: payload.skin,
-          x: payload.x, y: payload.y,
-          facing: payload.facing, animFrame: payload.animFrame,
-          _lastSeen: now,
-          _fromX: fromX, _fromY: fromY,
-          _targetX: payload.x, _targetY: payload.y,
-          _interpStart: now,
-        }));
-      })
-      .on('broadcast', { event: 'player_move' }, ({ payload }) => {
-        if (!payload || payload.id === playerId) return;
-        const existing = remotePlayers.get(payload.id) || {};
-        const now = Date.now();
-        const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
-        const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
-        const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
-        remotePlayers.set(payload.id, Object.assign(existing, {
-          x: payload.x, y: payload.y,
-          facing: payload.facing, animFrame: payload.animFrame,
-          _lastSeen: now,
-          _fromX: fromX, _fromY: fromY,
-          _targetX: payload.x, _targetY: payload.y,
-          _interpStart: now,
-        }));
-      })
-      .on('broadcast', { event: 'player_heartbeat' }, ({ payload }) => {
-        if (!payload || payload.id === playerId) return;
-        const rp = remotePlayers.get(payload.id);
-        if (rp) rp._lastSeen = Date.now();
-      })
-      .on('broadcast', { event: 'player_leave' }, ({ payload }) => {
-        if (!payload || payload.id === playerId) return;
-        remotePlayers.delete(payload.id);
+      // Immediate leave only on actual tab close
+      window.addEventListener('beforeunload', () => {
+        channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
+      });
+    }; // end joinWorld
+
+    // ── Bouncer button handlers ──
+    _bouncerJoin.addEventListener('click', () => {
+      if (!_bouncerJoin.disabled) joinWorld();
+    });
+    _bouncerVip.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      if (_bouncerVip.value === FORCE_PASS) { _isVip = true; joinWorld(); }
+    });
+
+    // ── tana-count presence channel (all players + waiters) ──
+    const countChannel = sb.channel('tana-count');
+    countChannel
+      .on('broadcast', { event: 'presence_ping' }, ({ payload }) => {
+        if (!payload || !payload.id || payload.id === playerId) return;
+        presenceMap.set(payload.id, Date.now());
       })
       .subscribe(() => {
-        // Announce identity once on channel join
-        channel.send({
-          type: 'broadcast', event: 'player_join',
-          payload: { id: playerId, name: playerName, skin: playerSkin },
-        });
+        // Announce ourselves immediately
+        countChannel.send({ type: 'broadcast', event: 'presence_ping', payload: { id: playerId } });
 
-        let _lastBroadcast = null;
-        let _lastHeartbeat = 0;
-        let _lastActivityTime = Date.now();
+        // Wait 1500ms to collect pings from players already in the room
+        setTimeout(() => {
+          if (presenceMap.size < ROOM_CAP) {
+            joinWorld();
+          } else {
+            _bouncerOpen = true;
+            _bouncerOverlay.style.display = 'flex';
+            _syncBouncer();
+          }
+        }, 1500);
 
-        // Track any input as "not idle"
-        const _resetActivity = () => { _lastActivityTime = Date.now(); };
-        window.addEventListener('keydown', _resetActivity);
-        window.addEventListener('mousemove', _resetActivity);
-        window.addEventListener('touchstart', _resetActivity, { passive: true });
-
-        // AFK overlay — built once, toggled by display
-        const _afkOverlay = document.createElement('div');
-        _afkOverlay.style.cssText = [
-          'position:fixed;inset:0;z-index:500',
-          'background:rgba(5,5,10,0.95)',
-          "font-family:'Press Start 2P',monospace",
-          'display:none;flex-direction:column;align-items:center;justify-content:center',
-          'gap:24px;text-align:center;padding:20px',
-        ].join(';');
-        _afkOverlay.innerHTML =
-          '<div style="color:#4ecca3;font-size:10px;letter-spacing:3px;text-shadow:0 0 12px rgba(78,204,163,0.7)">STILL THERE?</div>' +
-          '<div id="_afkCount" style="color:#b0b8d0;font-size:8px;letter-spacing:2px"></div>' +
-          '<button id="_afkBtn" style="background:rgba(78,204,163,0.10);border:1px solid #4ecca3;color:#4ecca3;' +
-          "font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:2px;" +
-          'padding:12px 24px;cursor:pointer;outline:none;min-height:44px">YES, I\'M HERE</button>';
-        document.body.appendChild(_afkOverlay);
-
-        let _afkVisible = false;
-        let _afkCountTimer = null;
-
-        const _dismissAfk = () => {
-          _afkVisible = false;
-          _afkOverlay.style.display = 'none';
-          clearInterval(_afkCountTimer);
-          _lastActivityTime = Date.now();
-        };
-        _afkOverlay.querySelector('#_afkBtn').addEventListener('click', _dismissAfk);
-        // Any real input also dismisses
-        window.addEventListener('keydown', _dismissAfk);
-
-        const _showAfk = () => {
-          _afkVisible = true;
-          let _secs = 30;
-          const _countEl = _afkOverlay.querySelector('#_afkCount');
-          _countEl.textContent = 'RETURNING IN ' + _secs + '...';
-          _afkOverlay.style.display = 'flex';
-          _afkCountTimer = setInterval(() => {
-            _secs--;
-            _countEl.textContent = 'RETURNING IN ' + _secs + '...';
-            if (_secs <= 0) {
-              clearInterval(_afkCountTimer);
-              channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
-              location.reload();
-            }
-          }, 1000);
-        };
-
+        // Every 3s: re-ping (non-VIP), prune stale entries, refresh bouncer counter
         setInterval(() => {
+          if (!_isVip) {
+            countChannel.send({ type: 'broadcast', event: 'presence_ping', payload: { id: playerId } });
+          }
           const now = Date.now();
-          // Stale cleanup — 30s covers 3 missed heartbeats
-          for (const [id, p] of remotePlayers) {
-            if (now - p._lastSeen > 30000) remotePlayers.delete(id);
+          for (const [id, ts] of presenceMap) {
+            if (now - ts > 8000) presenceMap.delete(id);
           }
-          // Movement broadcast (on change only)
-          const state = { x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame };
-          if (!_lastBroadcast ||
-              state.x !== _lastBroadcast.x || state.y !== _lastBroadcast.y ||
-              state.facing !== _lastBroadcast.facing || state.animFrame !== _lastBroadcast.animFrame) {
-            _lastBroadcast = { ...state };
-            _lastHeartbeat = now;
-            _lastActivityTime = now;
-            channel.send({ type: 'broadcast', event: 'player_move', payload: { id: playerId, ...state } });
-          }
-          // Idle heartbeat every 10s — keeps remotePlayers entry alive on others
-          if (now - _lastHeartbeat >= 10000) {
-            _lastHeartbeat = now;
-            channel.send({ type: 'broadcast', event: 'player_heartbeat', payload: { id: playerId } });
-          }
-          // AFK prompt after 60s of no input
-          if (!_afkVisible && now - _lastActivityTime >= 60000) _showAfk();
-        }, 100);
+          _syncBouncer();
+        }, 3000);
       });
-    // Immediate leave only on actual tab close
-    window.addEventListener('beforeunload', () => {
-      channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
-    });
+
   } catch (e) {
     console.error('[TANA.EXE] Multiplayer init failed:', e);
   }
