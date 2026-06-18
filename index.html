@@ -291,6 +291,30 @@
     #interact-btn .bkey  { font-size: 16px; color: #f9c74f; line-height: 1; }
     #interact-btn .blbl  { font-size: 5px;  color: rgba(249,199,79,0.55); letter-spacing: 1px; }
 
+    /* chat button — above interact-btn, right-aligned to same center axis */
+    #chat-btn {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 22px + 78px);
+      right:  calc(env(safe-area-inset-right,  0px) + 21px);
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: rgba(78,204,163,0.08);
+      border: 2px solid rgba(78,204,163,0.4);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 2px;
+      pointer-events: all; touch-action: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s, box-shadow 0.08s;
+      font-family: 'Press Start 2P', monospace;
+    }
+    #chat-btn.pressed {
+      background: rgba(78,204,163,0.25);
+      box-shadow: 0 0 18px rgba(78,204,163,0.45);
+    }
+    #chat-btn .cbkey { font-size: 14px; color: #4ecca3; line-height: 1; }
+    #chat-btn .cblbl { font-size: 5px;  color: rgba(78,204,163,0.55); letter-spacing: 1px; }
+
     /* ── Desktop hint ── */
     #hint { display: none; }
     #hint span { color: #4ecca3; }
@@ -637,6 +661,45 @@
   </div>
 </div>
 
+<style>
+#chat-popup {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(5,5,10,0.82);
+  display: none; align-items: center; justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+}
+#chat-card {
+  width: 340px; max-width: calc(100vw - 32px);
+  padding: 20px 20px 16px;
+  background: #07070f;
+  border: 2px solid #4ecca3;
+  box-shadow: 0 0 30px rgba(78,204,163,0.2), inset 0 0 0 1px #0d2218;
+  display: flex; flex-direction: column; gap: 10px;
+  box-sizing: border-box;
+}
+#chat-input {
+  width: 100%; box-sizing: border-box;
+  background: #080818;
+  border: 1px solid #4ecca3;
+  color: #e0e0e0;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 10px 12px;
+  outline: none;
+  text-transform: uppercase;
+  caret-color: #4ecca3;
+}
+#chat-input::placeholder { color: #1a3a2a; }
+#chat-input:focus { border-color: #78ffd0; }
+</style>
+
+<div id="chat-popup">
+  <div id="chat-card">
+    <input id="chat-input" type="text" maxlength="40" placeholder="SAY SOMETHING..." autocomplete="off">
+    <div style="color:#2a3a4a;font-size:6px;letter-spacing:1px;text-align:center">ENTER TO SEND · ESC TO CANCEL</div>
+  </div>
+</div>
+
 <div id="header">★ TANA.EXE ★</div>
 
 <div id="game-container">
@@ -678,6 +741,10 @@
     <div id="joystick-base"></div>
     <div id="joystick-knob"></div>
   </div>
+  <div id="chat-btn">
+    <span class="cbkey">T</span>
+    <span class="cblbl">CHAT</span>
+  </div>
   <div id="interact-btn">
     <span class="bkey">E</span>
     <span class="blbl">ACT</span>
@@ -710,6 +777,9 @@ const remotePlayers  = new Map();
 
 const ROOM_CAP   = 50;
 const FORCE_PASS = 'vip11';
+
+let   chatOpen      = false;
+let   _worldChannel = null;
 
 // ═══════════════════════════════════════════════════════════
 //  ██████╗ ██████╗ ███╗   ██╗███████╗██╗ ██████╗
@@ -1370,7 +1440,8 @@ window.addEventListener('keydown', e => {
    const _t = e.target;
   const _typing = _t && (_t.tagName === 'INPUT' || _t.tagName === 'TEXTAREA');
   if (!_typing && (e.key === 'e' || e.key === 'E')) tryInteract();
-  if (e.key === 'Escape') { closePopup(); }
+  if (!_typing && !chatOpen && (e.key === 't' || e.key === 'T')) openChatPopup();
+  if (e.key === 'Escape') { closePopup(); closeChatPopup(); }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
 });
@@ -1439,6 +1510,50 @@ function tryInteract() {
 }
 
 // ─────────────────────────────────────────────────────────
+//  INPUT — chat button (mobile)
+// ─────────────────────────────────────────────────────────
+const cBtn = document.getElementById('chat-btn');
+cBtn.addEventListener('touchstart', e => {
+  e.preventDefault(); cBtn.classList.add('pressed'); openChatPopup();
+}, { passive: false });
+cBtn.addEventListener('touchend', e => {
+  e.preventDefault(); cBtn.classList.remove('pressed');
+}, { passive: false });
+
+// ─────────────────────────────────────────────────────────
+//  CHAT POPUP — open / close / send
+// ─────────────────────────────────────────────────────────
+const _chatPopup = document.getElementById('chat-popup');
+const _chatInput = document.getElementById('chat-input');
+
+function openChatPopup() {
+  if (chatOpen || nameScreenOpen) return;
+  chatOpen = true;
+  _chatPopup.style.display = 'flex';
+  _chatInput.value = '';
+  _chatInput.focus();
+}
+
+function closeChatPopup() {
+  if (!chatOpen) return;
+  chatOpen = false;
+  _chatPopup.style.display = 'none';
+  _chatInput.blur();
+}
+
+_chatInput.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.stopPropagation(); closeChatPopup(); return; }
+  if (e.key !== 'Enter') return;
+  const text = _chatInput.value.trim().toUpperCase().substring(0, 40);
+  if (text && _worldChannel) {
+    player._chat    = text;
+    player._chatExp = Date.now() + 6000;
+    _worldChannel.send({ type: 'broadcast', event: 'chat_msg', payload: { id: playerId, text } });
+  }
+  closeChatPopup();
+});
+
+// ─────────────────────────────────────────────────────────
 //  PLAQUE — info popup
 // ─────────────────────────────────────────────────────────
 function openPlaqueInfo() {
@@ -1458,7 +1573,7 @@ function openPlaqueInfo() {
 // ─────────────────────────────────────────────────────────
 function update() {
 
-  if (nameScreenOpen || popupOpen) return;
+  if (nameScreenOpen || popupOpen || chatOpen) return;
 
   let vx = 0, vy = 0;
 
@@ -1554,6 +1669,34 @@ function drawBackground() {
 }
 
 // ─────────────────────────────────────────────────────────
+//  DRAW — CHAT BUBBLE
+// ─────────────────────────────────────────────────────────
+function drawChatBubble(cx, sy, text, expiresAt) {
+  const remaining = expiresAt - Date.now();
+  if (remaining <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, remaining / 600);
+  ctx.font = '5px "Press Start 2P"';
+  const tw = ctx.measureText(text).width;
+  const bw = tw + 10;
+  const bh = 13;
+  const by = sy - 32;   // 5px gap above name tag (name tag top = sy-14, height=11)
+  const bx = Math.max(4, Math.min(VIEW_W - bw - 4, cx - bw / 2));
+  ctx.fillStyle = 'rgba(5,5,10,0.88)';
+  roundRect(ctx, bx, by, bw, bh, 3);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(224,224,224,0.35)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, bx, by, bw, bh, 3);
+  ctx.stroke();
+  ctx.fillStyle = '#e0e0e0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, bx + bw / 2, by + bh / 2);
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────
 //  DRAW — PLAYER
 // ─────────────────────────────────────────────────────────
 function drawPlayer() {
@@ -1608,6 +1751,8 @@ function drawPlayer() {
   ctx.font = '5px "Press Start 2P"';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('ME', sx + PW / 2, sy - 9);
+  if (player._chat && Date.now() < player._chatExp)
+    drawChatBubble(sx + PW / 2, sy, player._chat, player._chatExp);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1661,6 +1806,8 @@ function drawRemotePlayer(rp) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, sx + PW / 2, sy - 9);
+  if (rp._chat && Date.now() < rp._chatExp)
+    drawChatBubble(sx + PW / 2, sy, rp._chat, rp._chatExp);
 
   ctx.globalAlpha = 1;
 }
@@ -2048,6 +2195,7 @@ function initMultiplayer() {
       _bouncerOverlay.style.display = 'none';
 
       const channel = sb.channel('tana-world');
+      _worldChannel = channel;
       channel
         .on('broadcast', { event: 'player_join' }, ({ payload }) => {
           if (!payload || payload.id === playerId) return;
@@ -2106,6 +2254,11 @@ function initMultiplayer() {
         .on('broadcast', { event: 'player_leave' }, ({ payload }) => {
           if (!payload || payload.id === playerId) return;
           remotePlayers.delete(payload.id);
+        })
+        .on('broadcast', { event: 'chat_msg' }, ({ payload }) => {
+          if (!payload || !payload.id || !payload.text) return;
+          const rp = remotePlayers.get(payload.id);
+          if (rp) { rp._chat = String(payload.text).substring(0, 40); rp._chatExp = Date.now() + 6000; }
         })
         .subscribe(() => {
           // Announce identity once on channel join
