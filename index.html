@@ -1986,11 +1986,31 @@ function initMultiplayer() {
           name: payload.name, skin: payload.skin,
           _lastSeen: Date.now(),
         }));
-        // FIX 2: snapshot our current state so the new joiner can see us immediately
+        // Send full snapshot (identity + position) so the new joiner sees us correctly
         channel.send({
-          type: 'broadcast', event: 'player_move',
-          payload: { id: playerId, x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame },
+          type: 'broadcast', event: 'player_snapshot',
+          payload: {
+            id: playerId, name: playerName, skin: playerSkin,
+            x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame,
+          },
         });
+      })
+      .on('broadcast', { event: 'player_snapshot' }, ({ payload }) => {
+        if (!payload || payload.id === playerId) return;
+        const existing = remotePlayers.get(payload.id) || {};
+        const now = Date.now();
+        const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
+        const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
+        const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
+        remotePlayers.set(payload.id, Object.assign(existing, {
+          name: payload.name, skin: payload.skin,
+          x: payload.x, y: payload.y,
+          facing: payload.facing, animFrame: payload.animFrame,
+          _lastSeen: now,
+          _fromX: fromX, _fromY: fromY,
+          _targetX: payload.x, _targetY: payload.y,
+          _interpStart: now,
+        }));
       })
       .on('broadcast', { event: 'player_move' }, ({ payload }) => {
         if (!payload || payload.id === playerId) return;
@@ -2008,41 +2028,108 @@ function initMultiplayer() {
           _interpStart: now,
         }));
       })
+      .on('broadcast', { event: 'player_heartbeat' }, ({ payload }) => {
+        if (!payload || payload.id === playerId) return;
+        const rp = remotePlayers.get(payload.id);
+        if (rp) rp._lastSeen = Date.now();
+      })
       .on('broadcast', { event: 'player_leave' }, ({ payload }) => {
         if (!payload || payload.id === playerId) return;
         remotePlayers.delete(payload.id);
       })
       .subscribe(() => {
-        // FIX 1: announce identity once on join
+        // Announce identity once on channel join
         channel.send({
           type: 'broadcast', event: 'player_join',
           payload: { id: playerId, name: playerName, skin: playerSkin },
         });
+
         let _lastBroadcast = null;
+        let _lastHeartbeat = 0;
+        let _lastActivityTime = Date.now();
+
+        // Track any input as "not idle"
+        const _resetActivity = () => { _lastActivityTime = Date.now(); };
+        window.addEventListener('keydown', _resetActivity);
+        window.addEventListener('mousemove', _resetActivity);
+        window.addEventListener('touchstart', _resetActivity, { passive: true });
+
+        // AFK overlay — built once, toggled by display
+        const _afkOverlay = document.createElement('div');
+        _afkOverlay.style.cssText = [
+          'position:fixed;inset:0;z-index:500',
+          'background:rgba(5,5,10,0.95)',
+          "font-family:'Press Start 2P',monospace",
+          'display:none;flex-direction:column;align-items:center;justify-content:center',
+          'gap:24px;text-align:center;padding:20px',
+        ].join(';');
+        _afkOverlay.innerHTML =
+          '<div style="color:#4ecca3;font-size:10px;letter-spacing:3px;text-shadow:0 0 12px rgba(78,204,163,0.7)">STILL THERE?</div>' +
+          '<div id="_afkCount" style="color:#b0b8d0;font-size:8px;letter-spacing:2px"></div>' +
+          '<button id="_afkBtn" style="background:rgba(78,204,163,0.10);border:1px solid #4ecca3;color:#4ecca3;' +
+          "font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:2px;" +
+          'padding:12px 24px;cursor:pointer;outline:none;min-height:44px">YES, I\'M HERE</button>';
+        document.body.appendChild(_afkOverlay);
+
+        let _afkVisible = false;
+        let _afkCountTimer = null;
+
+        const _dismissAfk = () => {
+          _afkVisible = false;
+          _afkOverlay.style.display = 'none';
+          clearInterval(_afkCountTimer);
+          _lastActivityTime = Date.now();
+        };
+        _afkOverlay.querySelector('#_afkBtn').addEventListener('click', _dismissAfk);
+        // Any real input also dismisses
+        window.addEventListener('keydown', _dismissAfk);
+
+        const _showAfk = () => {
+          _afkVisible = true;
+          let _secs = 30;
+          const _countEl = _afkOverlay.querySelector('#_afkCount');
+          _countEl.textContent = 'RETURNING IN ' + _secs + '...';
+          _afkOverlay.style.display = 'flex';
+          _afkCountTimer = setInterval(() => {
+            _secs--;
+            _countEl.textContent = 'RETURNING IN ' + _secs + '...';
+            if (_secs <= 0) {
+              clearInterval(_afkCountTimer);
+              channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
+              location.reload();
+            }
+          }, 1000);
+        };
+
         setInterval(() => {
           const now = Date.now();
+          // Stale cleanup — 30s covers 3 missed heartbeats
           for (const [id, p] of remotePlayers) {
-            if (now - p._lastSeen > 12000) remotePlayers.delete(id);
+            if (now - p._lastSeen > 30000) remotePlayers.delete(id);
           }
-          const state = {
-            x: player.x, y: player.y,
-            facing: player.facing, animFrame: player.animFrame,
-          };
+          // Movement broadcast (on change only)
+          const state = { x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame };
           if (!_lastBroadcast ||
               state.x !== _lastBroadcast.x || state.y !== _lastBroadcast.y ||
               state.facing !== _lastBroadcast.facing || state.animFrame !== _lastBroadcast.animFrame) {
             _lastBroadcast = { ...state };
-            channel.send({
-              type: 'broadcast', event: 'player_move',
-              payload: { id: playerId, ...state },
-            });
+            _lastHeartbeat = now;
+            _lastActivityTime = now;
+            channel.send({ type: 'broadcast', event: 'player_move', payload: { id: playerId, ...state } });
           }
+          // Idle heartbeat every 10s — keeps remotePlayers entry alive on others
+          if (now - _lastHeartbeat >= 10000) {
+            _lastHeartbeat = now;
+            channel.send({ type: 'broadcast', event: 'player_heartbeat', payload: { id: playerId } });
+          }
+          // AFK prompt after 60s of no input
+          if (!_afkVisible && now - _lastActivityTime >= 60000) _showAfk();
         }, 100);
       });
-    // FIX 3: clean exit — broadcast leave on tab close or hide
-    const _sendLeave = () => channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
-    window.addEventListener('beforeunload', _sendLeave);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) _sendLeave(); });
+    // Immediate leave only on actual tab close
+    window.addEventListener('beforeunload', () => {
+      channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
+    });
   } catch (e) {
     console.error('[TANA.EXE] Multiplayer init failed:', e);
   }
