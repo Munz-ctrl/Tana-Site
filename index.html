@@ -719,7 +719,7 @@ let FLOOR_BTM = 590;  // default safe margin — bgImg.onload recalculates both
 let ROOM_L    = 10;
 let ROOM_R    = WORLD_W - 10;
 
-const WELCOME_ZONE = { x: WORLD_W / 2 - 120, y: FLOOR_BTM - 160, w: 240, h: 160 };
+const WELCOME_ZONE = { x: WORLD_W / 2 - 120, y: FLOOR_BTM - 80, w: 240, h: 80 };
 
 // ── Sprite sheet layout: rows = directions, cols = frames ──
 //  row 0=down  1=up  2=left  3=right
@@ -768,7 +768,9 @@ const studioUnpackedImg = loadImg('assets/studio4party.webp');
 
 // Living room
 const couchUnpackedImg  = loadImg('assets/couch_unpacked.png');
-const trunkImg          = loadImg('assets/livingroom_trunk.png');
+const trunkImg          = loadImg('assets/livingroom_trunkrecord.webp');
+const baloonImg         = loadImg('assets/baloon.webp');
+const baloon2Img        = loadImg('assets/baloon2.webp');
 const carpetImg         = loadImg('assets/carpet.png');
 
 // Bedroom
@@ -801,12 +803,12 @@ bgImg.onload = () => {
   FLOOR_TOP = Math.round(WORLD_H * 0.30);
   FLOOR_BTM = Math.round(WORLD_H * 0.96);
 
-  // Respawn player at centre of walkable area if they're out of bounds
+  // Spawn player near the entrance (matches bouncer NPC y)
   player.x = WORLD_W / 2 - PW / 2;
-  player.y = FLOOR_TOP + (FLOOR_BTM - FLOOR_TOP) * 0.7 - PH;
+  player.y = 820;
 
   WELCOME_ZONE.x = WORLD_W / 2 - 120;
-  WELCOME_ZONE.y = FLOOR_BTM - 160;
+  WELCOME_ZONE.y = FLOOR_BTM - 80;
   for (const npc of npcs) { npc.w = PW; npc.h = PH; npc.baseY = npc.y + PH; }
 
   console.log(`[TANA.EXE] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH} | Floor: ${FLOOR_TOP}–${FLOOR_BTM}`);
@@ -1000,6 +1002,28 @@ const sceneObjects = [
     }
   },
 
+  // balloon_left — under wall_mid_left collider
+  {
+    id: 'balloon_left',
+    x: 450, y: 490, w: 70, h: 110,
+    baseY: 530,
+    collision: null,
+    interactable: false,
+    img: baloonImg,
+    draw() {}
+  },
+
+  // balloon_right — under wall_mid_right collider
+  {
+    id: 'balloon_right',
+    x: 1035, y: 490, w: 70, h: 110,
+    baseY: 530,
+    collision: null,
+    interactable: false,
+    img: baloon2Img,
+    draw() {}
+  },
+
 ];
 
 const wallPlaqueObj = {
@@ -1040,7 +1064,10 @@ function applyLivingroomUnpack() {
       x: 690, y: 330, w: 180, h: 120,
       baseY: 430,
       collision: { x: 690, y: 380, w: 180, h: 70 },
-      interactable: false,
+      interactable: true,
+      action: 'external-link',
+      url: 'https://popstar-life.com/me',
+      label: 'STREAM',
       img: trunkImg,
       draw() {}
     });
@@ -1124,7 +1151,7 @@ let npcIdleTick  = 0;
 
 const player = {
   x: WORLD_W / 2 - PW / 2,
-  y: 460,
+  y: 820,
   vx: 0, vy: 0,
   facing: 'down',
   animFrame: 0,
@@ -1476,8 +1503,9 @@ function tryInteract() {
   if (popupOpen) { closePopup(); return; }
   const obj = getNearbyObject();
   if (!obj) return;
-  if (obj.action === 'email')       openEmailPopup();
-  if (obj.action === 'plaque-info') openPlaqueInfo();
+  if (obj.action === 'email')         openEmailPopup();
+  if (obj.action === 'plaque-info')   openPlaqueInfo();
+  if (obj.action === 'external-link') window.open(obj.url, '_blank', 'noopener');
   if (obj.action === 'npc-talk') {
     const phrase = obj.phrases[Math.floor(Math.random() * obj.phrases.length)];
     obj._chat    = phrase;
