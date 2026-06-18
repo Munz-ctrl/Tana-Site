@@ -312,8 +312,28 @@
       background: rgba(78,204,163,0.25);
       box-shadow: 0 0 18px rgba(78,204,163,0.45);
     }
-    #chat-btn .cbkey { font-size: 14px; color: #4ecca3; line-height: 1; }
-    #chat-btn .cblbl { font-size: 5px;  color: rgba(78,204,163,0.55); letter-spacing: 1px; }
+
+    /* desktop-only chat button — fixed bottom-right, hidden on touch */
+    #chat-btn-desktop {
+      position: fixed;
+      bottom: 16px; right: 16px;
+      z-index: 15;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: rgba(78,204,163,0.08);
+      border: 2px solid rgba(78,204,163,0.4);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s, box-shadow 0.08s;
+    }
+    #chat-btn-desktop:hover {
+      background: rgba(78,204,163,0.18);
+      box-shadow: 0 0 14px rgba(78,204,163,0.4);
+    }
+    @media (hover: none) and (pointer: coarse) {
+      #chat-btn-desktop { display: none; }
+    }
 
     /* ── Desktop hint ── */
     #hint { display: none; }
@@ -742,8 +762,10 @@
     <div id="joystick-knob"></div>
   </div>
   <div id="chat-btn">
-    <span class="cbkey">T</span>
-    <span class="cblbl">CHAT</span>
+    <svg width="26" height="26" viewBox="0 0 22 22" fill="#4ecca3" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="20" height="14" rx="3"/>
+      <polygon points="4,15 4,21 10,15"/>
+    </svg>
   </div>
   <div id="interact-btn">
     <span class="bkey">E</span>
@@ -753,6 +775,12 @@
 
 <!-- Background soundtrack -->
 <audio id="bgm" src="assets/scA.m4a" loop preload="auto"></audio>
+<button id="chat-btn-desktop" type="button" aria-label="Chat" title="Chat">
+  <svg width="22" height="22" viewBox="0 0 22 22" fill="#4ecca3" xmlns="http://www.w3.org/2000/svg">
+    <rect x="1" y="1" width="20" height="14" rx="3"/>
+    <polygon points="4,15 4,21 10,15"/>
+  </svg>
+</button>
 <button id="bgm-toggle" type="button" aria-label="Toggle soundtrack" title="Toggle soundtrack (M)">
   <span id="bgm-icon">♪</span>
 </button>
@@ -1440,7 +1468,6 @@ window.addEventListener('keydown', e => {
    const _t = e.target;
   const _typing = _t && (_t.tagName === 'INPUT' || _t.tagName === 'TEXTAREA');
   if (!_typing && (e.key === 'e' || e.key === 'E')) tryInteract();
-  if (!_typing && !chatOpen && (e.key === 't' || e.key === 'T')) openChatPopup();
   if (e.key === 'Escape') { closePopup(); closeChatPopup(); }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
@@ -1523,8 +1550,9 @@ cBtn.addEventListener('touchend', e => {
 // ─────────────────────────────────────────────────────────
 //  CHAT POPUP — open / close / send
 // ─────────────────────────────────────────────────────────
-const _chatPopup = document.getElementById('chat-popup');
-const _chatInput = document.getElementById('chat-input');
+const _chatPopup   = document.getElementById('chat-popup');
+const _chatInput   = document.getElementById('chat-input');
+document.getElementById('chat-btn-desktop').addEventListener('click', openChatPopup);
 
 function openChatPopup() {
   if (chatOpen || nameScreenOpen) return;
