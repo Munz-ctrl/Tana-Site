@@ -2348,7 +2348,10 @@ function initMultiplayer() {
     };
 
     // ── tana-world channel (all existing broadcast logic, now callable) ──
+    let _broadcastInterval = null;
     const joinWorld = () => {
+      if (_broadcastInterval) { clearInterval(_broadcastInterval); _broadcastInterval = null; }
+      remotePlayers.clear();
       _bouncerOpen = false;
       _bouncerOverlay.style.display = 'none';
 
@@ -2417,20 +2420,36 @@ function initMultiplayer() {
         })
         .on('broadcast', { event: 'chat_msg' }, ({ payload }) => {
           if (!payload || !payload.id || !payload.text) return;
-          const rp = remotePlayers.get(payload.id);
-          if (rp) { rp._chat = String(payload.text).substring(0, 40); rp._chatExp = Date.now() + 5000; }
+          let rp = remotePlayers.get(payload.id);
+          if (!rp) {
+            rp = { _lastSeen: Date.now() };
+            remotePlayers.set(payload.id, rp);
+            // Unknown sender — re-announce ourselves so they add us and send a snapshot back
+            channel.send({ type: 'broadcast', event: 'player_join', payload: { id: playerId, name: playerName, skin: playerSkin } });
+          }
+          rp._chat    = String(payload.text).substring(0, 40);
+          rp._chatExp = Date.now() + 5000;
         })
-        .subscribe(() => {
+        .subscribe((status) => {
+          if (status !== 'SUBSCRIBED') {
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+              setTimeout(() => { sb.removeChannel(channel); joinWorld(); }, 3000);
+            }
+            return;
+          }
           // Announce identity once on channel join
           channel.send({
             type: 'broadcast', event: 'player_join',
             payload: { id: playerId, name: playerName, skin: playerSkin },
           });
 
-          let _lastBroadcast = null;
-          let _lastHeartbeat = 0;
-          let _lastSnapshot  = 0;
+          let _lastBroadcast    = null;
+          let _lastHeartbeat    = 0;
+          let _lastSnapshot     = 0;
           let _lastActivityTime = Date.now();
+          let _joinedAt         = Date.now();
+          let _hadPlayers       = false;
+          let _emptyStart       = null;
 
           const _resetActivity = () => { _lastActivityTime = Date.now(); };
           window.addEventListener('keydown', _resetActivity);
@@ -2483,11 +2502,23 @@ function initMultiplayer() {
             }, 1000);
           };
 
-          setInterval(() => {
+          _broadcastInterval = setInterval(() => {
             const now = Date.now();
             // Stale cleanup — 30s covers 3 missed heartbeats
             for (const [id, p] of remotePlayers) {
               if (now - p._lastSeen > 30000) remotePlayers.delete(id);
+            }
+            // Watchdog: if we had players and they all vanished for 20s, silently re-join
+            if (remotePlayers.size > 0) {
+              _hadPlayers = true;
+              _emptyStart = null;
+            } else if (_hadPlayers && now - _joinedAt > 30000 && !_afkVisible) {
+              if (!_emptyStart) { _emptyStart = now; }
+              else if (now - _emptyStart > 20000) {
+                sb.removeChannel(channel);
+                joinWorld();
+                return;
+              }
             }
             // Movement broadcast (on change only)
             const state = { x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame };
