@@ -1,13 +1,11 @@
 {
-   "redirects": [
+  "redirects": [
     {
       "source": "/me",
       "destination": "https://createmusic.fm/me",
       "permanent": false
     }
   ],
-
-
   "rewrites": [
     {
       "source": "/(.*)",

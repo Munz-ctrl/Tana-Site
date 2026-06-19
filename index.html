@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>TANA.EXE</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -134,80 +135,6 @@
     }
     #popup-overlay.active { opacity: 1; pointer-events: all; }
 
-    /* ── Unpack reveal overlay ── */
-    #reveal-overlay {
-      position: fixed; inset: 0;
-      background: rgba(5,5,10,0.0);
-      display: flex; align-items: center; justify-content: center;
-      padding: max(env(safe-area-inset-top, 0px), 12px)
-               max(env(safe-area-inset-right, 0px), 12px)
-               max(env(safe-area-inset-bottom, 0px), 12px)
-               max(env(safe-area-inset-left, 0px), 12px);
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.3s ease, background 0.3s ease;
-      z-index: 32;
-    }
-    #reveal-overlay.active {
-      background: rgba(5,5,10,0.78);
-      opacity: 1; pointer-events: all;
-    }
-    #reveal-card {
-      background: #07070f;
-      border: 2px solid #f9c74f;
-      padding: 22px 24px 18px;
-      text-align: center;
-      font-family: 'Press Start 2P', monospace;
-      box-shadow: 0 0 50px rgba(249,199,79,0.55), inset 0 0 0 1px #2a1f08;
-      transform: scale(0.85);
-      transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
-      max-width: 88%;
-      /* never taller than the safe visible area */
-      max-height: calc(100svh - 40px);
-      max-height: calc(100vh - 40px); /* fallback for older browsers */
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      position: relative;
-    }
-    #reveal-close {
-      position: absolute;
-      top: 0; right: 0;
-      background: transparent;
-      border: none;
-      color: #6a7090;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 10px;
-      cursor: pointer;
-      /* 44×44 minimum tap target */
-      min-width: 44px;
-      min-height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      outline: none;
-      transition: color 0.12s, text-shadow 0.12s;
-    }
-    #reveal-close:hover {
-      color: #f9c74f;
-      text-shadow: 0 0 6px rgba(249,199,79,0.6);
-    }
-    #reveal-overlay.active #reveal-card { transform: scale(1); }
-    #reveal-banner {
-      color: #f9c74f; font-size: 10px; letter-spacing: 4px;
-      margin-bottom: 14px;
-      text-shadow: 0 0 10px rgba(249,199,79,0.7);
-    }
-    #reveal-img {
-      display: block;
-      margin: 0 auto;
-      image-rendering: pixelated;
-      max-width: 220px; max-height: 240px;
-      filter: drop-shadow(0 0 16px rgba(249,199,79,0.55));
-    }
-    #reveal-caption {
-      color: #b0b8d0; font-size: 7px; letter-spacing: 2px;
-      margin-top: 14px;
-    }
-
     #popup-box {
       background: #09091a;
       border: 2px solid #4ecca3;
@@ -296,53 +223,6 @@
     }
 
     /* ────────────────────────────────────────
-       TV VIDEO OVERLAY
-    ──────────────────────────────────────── */
-    #tv-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.94);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 14px;
-      padding: max(env(safe-area-inset-top, 0px), 12px)
-               max(env(safe-area-inset-right, 0px), 12px)
-               max(env(safe-area-inset-bottom, 0px), 12px)
-               max(env(safe-area-inset-left, 0px), 12px);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.15s ease;
-      z-index: 35;
-    }
-    #tv-overlay.active { opacity: 1; pointer-events: all; }
-
-    #tv-frame-wrap {
-      width: min(640px, 92%);
-      /* cap height so the close button is never pushed off-screen */
-      max-height: calc(100svh - 80px);
-      max-height: calc(100vh - 80px); /* fallback */
-      aspect-ratio: 16/9;
-      border: 2px solid #4ecca3;
-      box-shadow: 0 0 40px rgba(78,204,163,0.35);
-      background: #000;
-    }
-    #tv-frame-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
-
-    #tv-close-btn {
-      font-family: 'Press Start 2P', monospace;
-      font-size: 7px; color: #4ecca3;
-      background: rgba(78,204,163,0.06);
-      border: 1px solid rgba(78,204,163,0.4);
-      padding: 10px 24px; cursor: pointer;
-      /* ensure a comfortable tap target */
-      min-height: 44px;
-      transition: background 0.1s;
-    }
-    #tv-close-btn:hover { background: rgba(78,204,163,0.2); }
-
-    /* ────────────────────────────────────────
        TOUCH CONTROLS  (body-level fixed overlay)
        Sits at viewport edges so controls land in the
        side gutters left/right of the 2:1 game container
@@ -354,7 +234,7 @@
       inset: 0;
       pointer-events: none;
       display: none;        /* hidden on desktop */
-      z-index: 15;          /* below popup (30) and tv (35) so modals cover controls */
+      z-index: 15;          /* below popup (30) so modals cover controls */
     }
     @media (hover: none) and (pointer: coarse) {
       #touch-ui { display: block; }
@@ -411,6 +291,50 @@
     #interact-btn .bkey  { font-size: 16px; color: #f9c74f; line-height: 1; }
     #interact-btn .blbl  { font-size: 5px;  color: rgba(249,199,79,0.55); letter-spacing: 1px; }
 
+    /* chat button — above interact-btn, right-aligned to same center axis */
+    #chat-btn {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 22px + 78px);
+      right:  calc(env(safe-area-inset-right,  0px) + 21px);
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: rgba(78,204,163,0.08);
+      border: 2px solid rgba(78,204,163,0.4);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 2px;
+      pointer-events: all; touch-action: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s, box-shadow 0.08s;
+      font-family: 'Press Start 2P', monospace;
+    }
+    #chat-btn.pressed {
+      background: rgba(78,204,163,0.25);
+      box-shadow: 0 0 18px rgba(78,204,163,0.45);
+    }
+
+    /* desktop-only chat button — fixed bottom-right, hidden on touch */
+    #chat-btn-desktop {
+      position: fixed;
+      bottom: 16px; right: 16px;
+      z-index: 15;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: rgba(78,204,163,0.08);
+      border: 2px solid rgba(78,204,163,0.4);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s, box-shadow 0.08s;
+    }
+    #chat-btn-desktop:hover {
+      background: rgba(78,204,163,0.18);
+      box-shadow: 0 0 14px rgba(78,204,163,0.4);
+    }
+    @media (hover: none) and (pointer: coarse) {
+      #chat-btn-desktop { display: none; }
+    }
+
     /* ── Desktop hint ── */
     #hint { display: none; }
     #hint span { color: #4ecca3; }
@@ -447,207 +371,208 @@
 
 
 
-<!-- Password gate -->
-<!--
-<div id="pw-gate" style="
-  position:fixed;inset:0;z-index:9999;
-  background:#05050a;
-  display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
-  gap:20px;font-family:'Press Start 2P',monospace;
-">
-  <div style="color:#4ecca3;font-size:13px;letter-spacing:3px;text-shadow:0 0 12px rgba(78,204,163,0.7);">★ TANA.EXE ★</div>
-  <div style="color:#e0e0e0;font-size:8px;letter-spacing:2px;">ENTER PASSWORD</div>
-  <input id="pw-input" type="password" autocomplete="off" maxlength="32" style="
-    background:#0a0a14;border:2px solid #4ecca3;color:#4ecca3;
-    font-family:'Press Start 2P',monospace;font-size:10px;
-    padding:10px 14px;outline:none;width:220px;text-align:center;
-    box-shadow:0 0 18px rgba(78,204,163,0.3);
-    caret-color:#4ecca3;
-  ">
-  <div id="pw-err" style="color:#ff4466;font-size:7px;letter-spacing:1px;min-height:14px;"></div>
-</div>
-
-<script>
-(function(){
-  var gate = document.getElementById('pw-gate');
-  var inp  = document.getElementById('pw-input');
-  var err  = document.getElementById('pw-err');
-  if (sessionStorage.getItem('tana_auth') === '1') { gate.remove(); return; }
-  inp.focus();
-  function attempt() {
-    if (inp.value === 'pain11') {
-      sessionStorage.setItem('tana_auth', '1');
-      gate.remove();
-    } else {
-      err.textContent = 'ACCESS DENIED';
-      inp.value = '';
-      inp.focus();
-      setTimeout(function(){ err.textContent = ''; }, 1500);
-    }
-  }
-  inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') attempt(); });
-})();
-</script>
--->
+<!-- Password gate disabled on multiplayer branch -->
 
 
-<!-- ═══════════════════════════════════════════════════════════
-     INTRO SCREEN  ── self-contained block ─────────────────────
-     To remove the intro entirely later, delete:
-       1) the <style id="intro-screen-css"> block below
-       2) the <div id="intro-screen"> markup
-       3) the <script id="intro-screen-script"> block
-     The password gate above is fully independent of this block.
-     ═══════════════════════════════════════════════════════════ -->
-<style id="intro-screen-css">
-  #intro-screen {
-    position: fixed; inset: 0; z-index: 100;
-    background: rgba(5,5,10,0.96);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'Press Start 2P', monospace;
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.35s ease;
-    padding: max(env(safe-area-inset-top, 0px), 20px)
-             max(env(safe-area-inset-right, 0px), 20px)
-             max(env(safe-area-inset-bottom, 0px), 20px)
-             max(env(safe-area-inset-left, 0px), 20px);
-  }
-  #intro-screen.active { opacity: 1; pointer-events: all; }
-
-  #intro-card {
-    max-width: 460px; width: 100%;
-    padding: 30px 26px;
-    background: #07070f;
-    border: 2px solid #4ecca3;
-    box-shadow: 0 0 40px rgba(78,204,163,0.25), inset 0 0 0 1px #0d2218;
-    text-align: center;
-    transform: translateY(10px);
-    transition: transform 0.35s ease;
-    box-sizing: border-box;
-    max-height: calc(100svh - 40px);
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  #intro-screen.active #intro-card { transform: translateY(0); }
-
-  .intro-title {
-    color: #4ecca3; font-size: 13px; letter-spacing: 4px;
-    text-shadow: 0 0 12px rgba(78,204,163,0.7);
-    margin-bottom: 22px;
-  }
-  .intro-welcome {
-    color: #e0e0e0; font-size: 9px; letter-spacing: 1px;
-    line-height: 1.9; margin-bottom: 18px;
-  }
-  #intro-link {
-    color: #f9c74f; text-decoration: none;
-    border-bottom: 1px dotted #f9c74f;
-    transition: color 0.12s, border-color 0.12s, text-shadow 0.12s;
-  }
-  #intro-link:hover {
-    color: #ffe27a; border-bottom-color: #ffe27a;
-    text-shadow: 0 0 8px rgba(249,199,79,0.6);
-  }
-  .intro-tagline {
-    color: #b0b8d0; font-size: 8px; letter-spacing: 1px;
-    line-height: 1.9; margin-bottom: 12px;
-  }
-  .intro-sub {
-    color: #6a7090; font-size: 7px; letter-spacing: 1px;
-    line-height: 1.9; margin-bottom: 26px;
-  }
-  #intro-enter {
-    background: rgba(78,204,163,0.10);
-    border: 1px solid #4ecca3;
-    color: #4ecca3;
-    font-family: 'Press Start 2P', monospace;
-    font-size: 8px; letter-spacing: 2px;
-    padding: 12px 24px;
-    cursor: pointer; outline: none;
-    transition: background 0.12s, box-shadow 0.12s;
-  }
-  #intro-enter:hover {
-    background: rgba(78,204,163,0.22);
-    box-shadow: 0 0 18px rgba(78,204,163,0.35);
-  }
-  .intro-hint {
-    margin-top: 16px;
-    color: #2a2a44; font-size: 6px; letter-spacing: 1px;
-  }
+<!-- ── ENTRY SCREEN — unified intro + name/skin picker ── -->
+<style>
+#entry-screen {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(5,5,10,0.97);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  padding: max(env(safe-area-inset-top,0px),20px)
+           max(env(safe-area-inset-right,0px),20px)
+           max(env(safe-area-inset-bottom,0px),20px)
+           max(env(safe-area-inset-left,0px),20px);
+}
+#entry-card {
+  max-width: 420px; width: 100%;
+  padding: 30px 26px;
+  background: #07070f;
+  border: 2px solid #4ecca3;
+  box-shadow: 0 0 40px rgba(78,204,163,0.25), inset 0 0 0 1px #0d2218;
+  text-align: center;
+  box-sizing: border-box;
+  max-height: calc(100svh - 40px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.entry-title {
+  color: #4ecca3; font-size: 13px; letter-spacing: 4px;
+  text-shadow: 0 0 14px rgba(78,204,163,0.75);
+  margin-bottom: 18px;
+}
+#entry-link {
+  display: inline-block;
+  color: #f9c74f; font-size: 7px; letter-spacing: 2px;
+  text-decoration: none; border-bottom: 1px dotted #f9c74f;
+  margin-bottom: 18px;
+  transition: color 0.12s, text-shadow 0.12s;
+}
+#entry-link:hover { color: #ffe27a; text-shadow: 0 0 8px rgba(249,199,79,0.6); }
+.entry-body {
+  color: #b0b8d0; font-size: 7px; letter-spacing: 1px;
+  line-height: 2.1; margin-bottom: 22px;
+}
+.entry-divider {
+  border: none; border-top: 1px solid rgba(78,204,163,0.15);
+  margin: 0 0 22px;
+}
+.name-skin-label {
+  color: #b0b8d0; font-size: 7px; letter-spacing: 2px;
+  margin-bottom: 12px;
+}
+.name-skin-row {
+  display: flex; gap: 10px; justify-content: center;
+  margin-bottom: 24px;
+}
+.skin-btn {
+  background: rgba(78,204,163,0.06);
+  border: 2px solid rgba(78,204,163,0.25);
+  padding: 4px;
+  cursor: pointer; flex-shrink: 0; line-height: 0;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+.skin-btn.active {
+  border-color: #4ecca3;
+  box-shadow: 0 0 12px rgba(78,204,163,0.45);
+}
+.skin-btn:hover { border-color: rgba(78,204,163,0.6); }
+.skin-thumb {
+  display: block; width: 64px; height: 64px;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+}
+#mp-name-input {
+  width: 100%; box-sizing: border-box;
+  background: #080818;
+  border: 1px solid #4ecca3;
+  color: #4ecca3;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 10px 12px;
+  margin-bottom: 20px;
+  outline: none; text-align: center; text-transform: uppercase;
+  caret-color: #4ecca3;
+}
+#mp-name-input::placeholder { color: #1a3a2a; }
+#mp-name-input:focus { border-color: #78ffd0; }
+#entry-confirm {
+  width: 100%;
+  background: rgba(78,204,163,0.10);
+  border: 1px solid #4ecca3;
+  color: #4ecca3;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px; letter-spacing: 2px;
+  padding: 12px 24px;
+  cursor: pointer; outline: none; min-height: 44px;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+#entry-confirm:hover {
+  background: rgba(78,204,163,0.22);
+  box-shadow: 0 0 18px rgba(78,204,163,0.35);
+}
 </style>
 
-<div id="intro-screen">
-  <div id="intro-card">
-    <div class="intro-title">★ WELCOME ★</div>
-    <div class="intro-welcome">
-      to <a id="intro-link" href="http://Popstar-Life.com" target="_blank" rel="noopener">Popstar-Life.com</a>
+<div id="entry-screen">
+  <div id="entry-card">
+    <div class="entry-title">★ ALBUM OUT ★</div>
+    <a id="entry-link" href="https://Popstar-Life.com" target="_blank" rel="noopener">POPSTAR-LIFE.COM</a>
+    <div class="entry-body">RELEASE PARTY FOR 'TANA — ME' .<br>JOIN Us Now!</div>
+    <hr class="entry-divider">
+    <div class="name-skin-label">ENTER YOUR NAME</div>
+    <input id="mp-name-input" type="text" maxlength="12" placeholder="PLAYER" autocomplete="off">
+    <div class="name-skin-label">CHOOSE YOUR SKIN</div>
+    <div class="name-skin-row">
+      <button class="skin-btn active" data-skin="0"><img class="skin-thumb" src="assets/spritetestf2PRV.png" alt="Skin 0"></button>
+      <button class="skin-btn" data-skin="1"><img class="skin-thumb" src="assets/girlspritePRV.png" alt="Skin 1"></button>
+      <button class="skin-btn" data-skin="2"><img class="skin-thumb" src="assets/mascotspritePRV.png" alt="Skin 2"></button>
     </div>
-    <div class="intro-tagline">An all new Popstar experience.</div>
-    <div class="intro-sub">Explore the world as me for now.</div>
-    <button id="intro-enter" type="button">ENTER →</button>
-    <div class="intro-hint">[ press ENTER or click ]</div>
+    <button id="entry-confirm">ENTER THE PARTY →</button>
   </div>
 </div>
 
-<script id="intro-screen-script">
-(function(){
-  var intro = document.getElementById('intro-screen');
-  if (!intro) return;
+<style>
+#bouncer-overlay {
+  position: fixed; inset: 0; z-index: 250;
+  background: rgba(5,5,10,0.97);
+  display: none; align-items: center; justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  padding: max(env(safe-area-inset-top,0px),20px)
+           max(env(safe-area-inset-right,0px),20px)
+           max(env(safe-area-inset-bottom,0px),20px)
+           max(env(safe-area-inset-left,0px),20px);
+}
+#bouncer-card {
+  max-width: 380px; width: 100%;
+  padding: 30px 26px;
+  background: #07070f;
+  border: 2px solid #e94560;
+  box-shadow: 0 0 40px rgba(233,69,96,0.3), inset 0 0 0 1px #220a10;
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  box-sizing: border-box;
+  max-height: calc(100svh - 40px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+#bouncer-join { transition: opacity 0.2s, box-shadow 0.2s; }
+#bouncer-vip::placeholder { color: #1a3a2a; }
+#bouncer-vip:focus { border-color: #4ecca3; }
+</style>
 
-  // Skip if already seen this session. Delete this block to show every load.
-  if (sessionStorage.getItem('tana_intro_seen') === '1') {
-    intro.remove();
-    return;
-  }
+<div id="bouncer-overlay">
+  <div id="bouncer-card">
+    <img src="assets/bouncerQfull.webp" width="96" style="image-rendering:pixelated;image-rendering:crisp-edges;display:block" alt="">
+    <div style="color:#e94560;font-size:12px;letter-spacing:3px;text-shadow:0 0 14px rgba(233,69,96,0.8)">ROOM FULL</div>
+    <div id="bouncer-count" style="color:#4ecca3;font-size:9px;letter-spacing:2px">— / 50 PLAYERS</div>
+    <div style="color:#b0b8d0;font-size:7px;letter-spacing:2px;line-height:1.8">YOU'RE ON THE LIST — HANG TIGHT</div>
+    <button id="bouncer-join" disabled
+      style="width:100%;background:rgba(78,204,163,0.10);border:1px solid #4ecca3;color:#4ecca3;font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:2px;padding:12px 24px;cursor:pointer;outline:none;min-height:44px;opacity:0.35">JOIN →</button>
+    <input id="bouncer-vip" type="password" placeholder="VIP ACCESS" autocomplete="off"
+      style="width:100%;box-sizing:border-box;background:#080818;border:1px solid rgba(78,204,163,0.3);color:#4ecca3;font-family:'Press Start 2P',monospace;font-size:7px;padding:10px 12px;outline:none;text-align:center;text-transform:uppercase;caret-color:#4ecca3">
+  </div>
+</div>
 
-  // Defer the fade-in until the password gate is gone, so the user
-  // actually sees the appear animation. Polls cheaply at 80ms.
-  function activate() { intro.classList.add('active'); }
-  if (document.getElementById('pw-gate')) {
-    var poll = setInterval(function(){
-      if (!document.getElementById('pw-gate')) {
-        clearInterval(poll);
-        requestAnimationFrame(activate);
-      }
-    }, 80);
-  } else {
-    requestAnimationFrame(activate);
-  }
+<style>
+#chat-popup {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(5,5,10,0.82);
+  display: none; align-items: center; justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+}
+#chat-card {
+  width: 340px; max-width: calc(100vw - 32px);
+  padding: 20px 20px 16px;
+  background: #07070f;
+  border: 2px solid #4ecca3;
+  box-shadow: 0 0 30px rgba(78,204,163,0.2), inset 0 0 0 1px #0d2218;
+  display: flex; flex-direction: column; gap: 10px;
+  box-sizing: border-box;
+}
+#chat-input {
+  width: 100%; box-sizing: border-box;
+  background: #080818;
+  border: 1px solid #4ecca3;
+  color: #e0e0e0;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 10px 12px;
+  outline: none;
+  text-transform: uppercase;
+  caret-color: #4ecca3;
+}
+#chat-input::placeholder { color: #1a3a2a; }
+#chat-input:focus { border-color: #78ffd0; }
+</style>
 
-  function dismiss() {
-    intro.classList.remove('active');
-    sessionStorage.setItem('tana_intro_seen', '1');
-    setTimeout(function(){ if (intro && intro.parentNode) intro.remove(); }, 380);
-  }
-
-  document.getElementById('intro-enter').addEventListener('click', dismiss);
-
-  // Click backdrop (but not the card itself) dismisses too
-  intro.addEventListener('click', function(e){
-    if (e.target === intro) dismiss();
-  });
-
-  // Enter key dismisses — but ignore while password gate is still up
-  // (so its Enter-to-submit doesn't bleed into ours), and ignore while
-  // the user is typing into any input/textarea.
-  document.addEventListener('keydown', function onKey(e){
-    if (e.key !== 'Enter') return;
-    if (document.getElementById('pw-gate')) return;
-    var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-    dismiss();
-    document.removeEventListener('keydown', onKey);
-  });
-})();
-</script>
-<!-- ═══════════════════════════════════════════════════════════
-     END INTRO SCREEN block
-     ═══════════════════════════════════════════════════════════ -->
-
+<div id="chat-popup">
+  <div id="chat-card">
+    <input id="chat-input" type="text" maxlength="40" placeholder="SAY SOMETHING..." autocomplete="off">
+    <div style="color:#2a3a4a;font-size:6px;letter-spacing:1px;text-align:center">ENTER TO SEND · ESC TO CANCEL</div>
+  </div>
+</div>
 
 <div id="header">★ TANA.EXE ★</div>
 
@@ -681,25 +606,6 @@
     </div>
   </div>
 
-  <!-- Reveal overlay — used by unpack (auto-close) and the wall plaque (manual close) -->
-  <div id="reveal-overlay">
-    <div id="reveal-card">
-      <button id="reveal-close" type="button" aria-label="Close">✕</button>
-      <div id="reveal-banner">★ UNPACKED ★</div>
-      <img id="reveal-img" alt="reveal">
-      <div id="reveal-caption">GOLD RECORD</div>
-    </div>
-  </div>
-
-  <!-- TV video overlay -->
-  <div id="tv-overlay">
-    <div id="tv-frame-wrap">
-      <iframe id="tv-iframe" src="" allowfullscreen
-        allow="autoplay; encrypted-media; picture-in-picture"></iframe>
-    </div>
-    <button id="tv-close-btn">✕  CLOSE</button>
-  </div>
-
 
 </div>
 
@@ -709,6 +615,12 @@
     <div id="joystick-base"></div>
     <div id="joystick-knob"></div>
   </div>
+  <div id="chat-btn">
+    <svg width="26" height="26" viewBox="0 0 22 22" fill="#4ecca3" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="20" height="14" rx="3"/>
+      <polygon points="4,15 4,21 10,15"/>
+    </svg>
+  </div>
   <div id="interact-btn">
     <span class="bkey">E</span>
     <span class="blbl">ACT</span>
@@ -717,6 +629,12 @@
 
 <!-- Background soundtrack -->
 <audio id="bgm" src="assets/scA.m4a" loop preload="auto"></audio>
+<button id="chat-btn-desktop" type="button" aria-label="Chat" title="Chat">
+  <svg width="22" height="22" viewBox="0 0 22 22" fill="#4ecca3" xmlns="http://www.w3.org/2000/svg">
+    <rect x="1" y="1" width="20" height="14" rx="3"/>
+    <polygon points="4,15 4,21 10,15"/>
+  </svg>
+</button>
 <button id="bgm-toggle" type="button" aria-label="Toggle soundtrack" title="Toggle soundtrack (M)">
   <span id="bgm-icon">♪</span>
 </button>
@@ -731,6 +649,19 @@
 
 <script>
 'use strict';
+
+// ── Multiplayer state ──
+const playerId    = crypto.randomUUID();
+let   playerName  = 'ANON';
+let   playerSkin  = 0;
+let   nameScreenOpen = true;
+const remotePlayers  = new Map();
+
+const ROOM_CAP   = 50;
+const FORCE_PASS = 'vip11';
+
+let   chatOpen      = false;
+let   _worldChannel = null;
 
 // ═══════════════════════════════════════════════════════════
 //  ██████╗ ██████╗ ███╗   ██╗███████╗██╗ ██████╗
@@ -788,6 +719,8 @@ let FLOOR_BTM = 590;  // default safe margin — bgImg.onload recalculates both
 let ROOM_L    = 10;
 let ROOM_R    = WORLD_W - 10;
 
+const WELCOME_ZONE = { x: WORLD_W / 2 - 120, y: FLOOR_BTM - 80, w: 240, h: 80 };
+
 // ── Sprite sheet layout: rows = directions, cols = frames ──
 //  row 0=down  1=up  2=left  3=right
 //  col 0=idle  1=walkA
@@ -816,47 +749,39 @@ function loadImg(src) {
   return img;
 }
 
-const bgImg             = loadImg('assets/base_newfr.png');
-const spriteImg         = loadImg('assets/spritetestf2.png');
+const bgImg             = loadImg('assets/base_party.webp');
+const skinImgs = [
+  loadImg('assets/spritetestf2.png'),
+  loadImg('assets/girlsprite.png'),
+  loadImg('assets/mascotsprite.png')
+];
+
+const chrisSpriteImg  = loadImg('assets/chrissprite.webp');
+const bouncerNpcImg   = loadImg('assets/bouncernpc.webp');
+const speakerRightImg = loadImg('assets/spkrsprite.webp');
+const speakerLeftImg  = loadImg('assets/spkrspriteLEFT.webp');
 
 
 
-const tvImg         = loadImg('assets/tvloop.gif');
 // Studio
-const studioPackedImg   = loadImg('assets/studio_packed.png');
-const studioUnpackedImg = loadImg('assets/studio_unpacked.png');
-const studioBoxImg      = loadImg('assets/studioBox.png');
+const studioUnpackedImg = loadImg('assets/studio4party2.webp');
 
 // Living room
-const couchPackedImg    = loadImg('assets/couch_packed.png');
 const couchUnpackedImg  = loadImg('assets/couch_unpacked.png');
-const livingroomBoxImg  = loadImg('assets/boxes.png');   // boxes.png used as LR trigger visual
-const trunkImg          = loadImg('assets/livingroom_trunk.png');
+const trunkImg          = loadImg('assets/livingroom_trunkrecord.webp');
+const baloonImg         = loadImg('assets/baloon.webp');
+const baloon2Img        = loadImg('assets/baloon2.webp');
 const carpetImg         = loadImg('assets/carpet.png');
 
 // Bedroom
-const bedPackedImg      = loadImg('assets/bed_packed.png');
 const bedUnpackedImg    = loadImg('assets/bed_unpacked.png');
-const shoeshelfPackedImg   = loadImg('assets/shoeshelf_packed.png');
 const shoeshelfUnpackedImg = loadImg('assets/shoeshelf_unpacked.png');
-const rackAPackedImg    = loadImg('assets/rack_A_packed.png');
 const rackAUnpackedImg  = loadImg('assets/rack_A_unpacked.png');
-const rackBPackedImg    = loadImg('assets/rack_B_packed.png');
 const rackBUnpackedImg  = loadImg('assets/rack_B_unpacked.png');
-const bedroomBoxImg     = loadImg('assets/bedroombox.png');
 
-// Plaque (unchanged)
+// Plaque
 const plaqImg           = loadImg('assets/plaq.png');
-const packedPlaqImg     = loadImg('assets/plaque_unpacked.png');
 
-
-// ── TV loop video ──
-const tvVideo = document.createElement('video');
-tvVideo.src = 'assets/tvloop.webm';
-tvVideo.loop = true;
-tvVideo.muted = true;
-tvVideo.playsInline = true;
-tvVideo.play();
 
 // ── Auto-size world to image ──────────────────────────────
 //  Once base.png loads, world coordinates = image pixel coordinates.
@@ -878,9 +803,13 @@ bgImg.onload = () => {
   FLOOR_TOP = Math.round(WORLD_H * 0.30);
   FLOOR_BTM = Math.round(WORLD_H * 0.96);
 
-  // Respawn player at centre of walkable area if they're out of bounds
+  // Spawn player at entrance, same Y as bouncer NPC
   player.x = WORLD_W / 2 - PW / 2;
-  player.y = FLOOR_TOP + (FLOOR_BTM - FLOOR_TOP) * 0.7 - PH;
+  player.y = 614;
+
+  WELCOME_ZONE.x = WORLD_W / 2 - 120;
+  WELCOME_ZONE.y = FLOOR_BTM - 80;
+  for (const npc of npcs) { npc.w = PW; npc.h = PH; npc.baseY = npc.y + PH; }
 
   console.log(`[TANA.EXE] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH} | Floor: ${FLOOR_TOP}–${FLOOR_BTM}`);
 };
@@ -943,25 +872,6 @@ function wy(worldY) { return Math.round(worldY - cam.y); }
 // ─────────────────────────────────────────────────────────
 const sceneObjects = [
 
-  // ── TV (wall-mounted, always visible, interactable) ──
-  {
-    id: 'tv',
-    x: 640, y: 50, w: 245, h: 161,
-    baseY: 200, collision: null,
-    interactable: true, action: 'video',
-    label: 'PLAY VIDEO',
-    videoId: 'ZjRhoTnFpZE',
-    img: null,
-    draw(ctx, sx, sy) {
-   if (tvVideo.readyState >= 2) {
-    ctx.drawImage(tvVideo, sx, sy, this.w, this.h);
-   } else {
-     ctx.fillStyle = '#040d0a';
-     ctx.fillRect(sx, sy, this.w, this.h);
-   }
-  }
-  },
-
   // ── STUDIO — main desk visual (packed by default) ──
   {
     id: 'studio_desk',
@@ -972,20 +882,7 @@ const sceneObjects = [
     collision: { x: 1040, y: 150, w: 460, h: 250 },
     interactable: true, action: 'email',
     label: 'JOIN LIST',
-    img: studioPackedImg,
-    draw() {}
-  },
-
-  // ── STUDIO BOXES — unpack trigger (removed after unpack) ──
-  {
-    id: 'studio_boxes',
-    x: 1350, y: 600, w: 148, h: 100,
-    baseY: 700,
-    collision: { x: 1350, y: 650, w: 148, h: 50 },
-    interactable: true, action: 'unpack-zone',
-    zoneId: 'studio',
-    label: 'UNPACK',
-    img: studioBoxImg,
+    img: studioUnpackedImg,
     draw() {}
   },
 
@@ -1006,28 +903,15 @@ const sceneObjects = [
   },
 
   // ── LIVING ROOM — couch (packed by default) ──
-  {
-    id: 'couch',
-    x: 530, y: 250, w: 119, h: 293,
-    baseY: 543,
-    collision: { x: 530, y: 306, w: 105, h: 233 },
-    interactable: false,
-    img: couchPackedImg,
-    draw() {}
-  },
-
-  // ── LIVING ROOM BOXES — unpack trigger (removed after unpack, becomes trunk) ──
-  {
-    id: 'livingroom_boxes',
-    x: 690, y: 350, w: 167, h: 116,
-    baseY: 440,
-    collision: { x: 690, y: 380, w: 167, h: 85 },
-    interactable: true, action: 'unpack-zone',
-    zoneId: 'livingroom',
-    label: 'UNPACK',
-    img: livingroomBoxImg,
-    draw() {}
-  },
+  // {
+  //   id: 'couch',
+  //   x: 530, y: 250, w: 119, h: 293,
+  //   baseY: 543,
+  //   collision: { x: 530, y: 306, w: 105, h: 233 },
+  //   interactable: false,
+  //   img: couchUnpackedImg,
+  //   draw() {}
+  // },
 
   // ── BEDROOM — shoe shelf (packed by default) ──
   {
@@ -1036,7 +920,7 @@ const sceneObjects = [
     baseY: 260,
     collision: { x: 420, y: 130, w: 57, h: 229 },
     interactable: false,
-    img: shoeshelfPackedImg,
+    img: shoeshelfUnpackedImg,
     draw() {}
   },
 
@@ -1049,42 +933,29 @@ const sceneObjects = [
     baseY: 576,
     collision: { x: 30, y: 530, w: 162, h: 46 },
     interactable: false,
-    img: rackAPackedImg,
+    img: rackAUnpackedImg,
     draw() {}
   },
 
-  // ── BEDROOM — clothing rack B (packed by default) ──
+  // ── BEDROOM — clothing rack B ──
   {
     id: 'rack_B',
     x: 70, y: 600, w: 162, h: 146,
     baseY: 746,
     collision: { x: 70, y: 700, w: 162, h: 46 },
     interactable: false,
-    img: rackBPackedImg,
+    img: rackBUnpackedImg,
     draw() {}
   },
 
-  // ── BEDROOM — bed (packed by default) ──
+  // ── BEDROOM — bed ──
   {
     id: 'bed',
     x: 8, y: 255, w: 252, h: 227,
     baseY: 330,
     collision: { x: 8, y: 315, w: 222, h: 167 },
     interactable: false,
-    img: bedPackedImg,
-    draw() {}
-  },
-
-  // ── BEDROOM BOX — unpack trigger (removed after unpack) ──
-  {
-    id: 'bedroom_box',
-    x: 280, y: 490, w: 120, h: 90,
-    baseY: 570,
-    collision: { x: 280, y: 520, w: 120, h: 50 },
-    interactable: true, action: 'unpack-zone',
-    zoneId: 'bedroom',
-    label: 'UNPACK ROOM',
-    img: bedroomBoxImg,
+    img: bedUnpackedImg,
     draw() {}
   },
 
@@ -1097,222 +968,178 @@ const sceneObjects = [
     interactable: false, img: null, draw() {}
   },
 
+  // speaker_right
+  // {
+  //   id: 'speaker_right',
+  //   x: 935, y: 410, w: 120, h: 150,
+  //   baseY: 590,
+  //   collision: null,
+  //   interactable: false,
+  //   img: null,
+  //   draw(ctx, sx, sy) {
+  //     ctx.imageSmoothingEnabled = false;
+  //     const img = speakerRightImg;
+  //     if (img.complete && img.naturalWidth > 0) {
+  //       ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+  //     }
+  //   }
+  // },
+
+// speaker_right
+  {
+    id: 'speaker_right2',
+    x: 890, y: 90, w: 168, h: 226,
+    baseY: 290,
+    collision: null,
+    interactable: false,
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerRightImg;
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      }
+    }
+  },
+
+
+  // speaker_left
+  {
+    id: 'speaker_left',
+    x: 460, y: 390, w: 168, h: 226,
+    baseY: 590,
+    collision: null,
+    interactable: false,
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerLeftImg;
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      }
+    }
+  },
+
+  // speaker_left
+  {
+    id: 'speaker_left2',
+    x: 500, y: 120, w: 120, h: 150,
+    baseY: 200,
+    collision: null,
+    interactable: false,
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerLeftImg;
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      }
+    }
+  },
+
+  // balloon_left — under wall_mid_left collider
+  {
+    id: 'balloon_left',
+    x: 400, y: 300, w: 140, h: 260,
+    baseY: 550,
+    collision: null,
+    interactable: false,
+    img: baloonImg,
+    draw() {}
+  },
+
+  // balloon_left — under wall_mid_left collider
+  {
+    id: 'balloon_left2',
+    x: 20, y: 400, w: 140, h: 260,
+    baseY: 650,
+    collision: null,
+    interactable: false,
+    img: baloon2Img,
+    draw() {}
+  },
+
+  // balloon_right — under wall_mid_right collider
+  {
+    id: 'balloon_right',
+    x: 935, y: 300, w: 140, h: 260,
+    baseY: 550,
+    collision: null,
+    interactable: false,
+    img: baloon2Img,
+    draw() {}
+  },
+
 ];
-
-// ─────────────────────────────────────────────────────────
-//  PLAQUE STATE  (packed → unpacked, irreversible per session)
-//  • Initial state: packed box visible on the bed.
-//  • After "unpack": the wall plaque replaces it for the rest
-//    of this tab's session — resets when the tab closes.
-//  • Persistence: sessionStorage (matches the password gate's
-//    lifecycle). Swap to localStorage if you want unpacks to
-//    survive tab close / browser restart.
-// ─────────────────────────────────────────────────────────
-const PLAQUE_STORAGE_KEY = 'tana_plaque_unpacked';
-let plaqueUnpacked = false;
-try { plaqueUnpacked = (sessionStorage.getItem(PLAQUE_STORAGE_KEY) === '1'); } catch (_) {}
-
-// Tunable positions — open debug overlay (`) to see boxes & adjust.
-const packedPlaqueObj = {
-  id: 'packed_plaque',
-  x: 200, y: 245,
-  w: 149, h: 99,
-  baseY: 240,             // depth-sorts just in front of the bed
-  collision: null,        // bed already blocks this area
-  interactable: true,
-  action: 'unpack',
-  label: 'UNPACK',
-  img: packedPlaqImg,
-  draw() {}
-};
 
 const wallPlaqueObj = {
   id: 'wall_plaque',
   x: 250, y: 40,
   w: 108, h: 162,
-  baseY: 200,             // low like TV → always renders behind player
-  interactY: 380,         // pull interaction zone down to floor so the
-                          // player can reach it from in front of the bed
-  collision: null,        // wall-mounted; nothing to block
+  baseY: 200,
+  interactY: 380,
+  collision: null,
   interactable: true,
   action: 'plaque-info',
   label: 'GOLD RECORD',
-  img: plaqImg,
+  img: null,
   draw() {}
 };
 
-// Exactly one of the two objects is in the scene at a time.
-sceneObjects.push(plaqueUnpacked ? wallPlaqueObj : packedPlaqueObj);
+sceneObjects.push(wallPlaqueObj);
 
 
-// ─────────────────────────────────────────────────────────
-//  ZONE UNPACK STATES
-//  Three irreversible zones: studio, livingroom, bedroom.
-//  Each persists to sessionStorage. On page load, zones
-//  that were already unpacked restore immediately.
-//  Plaque system is completely separate — do not mix.
-// ─────────────────────────────────────────────────────────
-
-const zoneUnpacked = {
-  studio:     false,
-  livingroom: false,
-  bedroom:    false,
-};
-
-// Restore from session on load
-try {
-  if (sessionStorage.getItem('tana_studio_unpacked')     === '1') zoneUnpacked.studio     = true;
-  if (sessionStorage.getItem('tana_livingroom_unpacked') === '1') zoneUnpacked.livingroom = true;
-  if (sessionStorage.getItem('tana_bedroom_unpacked')    === '1') zoneUnpacked.bedroom    = true;
-} catch(_) {}
-
-// Apply restored states immediately before first render
-(function restoreZones() {
-  if (zoneUnpacked.studio)     applyStudioUnpack(false);
-  if (zoneUnpacked.livingroom) applyLivingroomUnpack(false);
-  if (zoneUnpacked.bedroom)    applyBedroomUnpack(false);
-})();
+applyStudioUnpack(false);
+applyLivingroomUnpack(false);
+applyBedroomUnpack(false);
 
 // ── Zone apply functions ──
 // play=false on restore (no animation/sfx), play=true on first unpack
 
-function applyStudioUnpack(play) {
-  // Swap studio desk to unpacked visual
+function applyStudioUnpack() {
   const desk = sceneObjects.find(o => o.id === 'studio_desk');
   if (desk) desk.img = studioUnpackedImg;
-  // Remove studio boxes trigger
-  const idx = sceneObjects.findIndex(o => o.id === 'studio_boxes');
-  if (idx !== -1) sceneObjects.splice(idx, 1);
-  if (play) playUnpackSfx();
 }
 
-function applyLivingroomUnpack(play) {
-  // Swap couch to unpacked
+function applyLivingroomUnpack() {
   const couch = sceneObjects.find(o => o.id === 'couch');
   if (couch) couch.img = couchUnpackedImg;
-  // Replace livingroom_boxes with trunk
-  const lrIdx = sceneObjects.findIndex(o => o.id === 'livingroom_boxes');
-  if (lrIdx !== -1) sceneObjects.splice(lrIdx, 1);
-  // Add trunk if not already there
   if (!sceneObjects.find(o => o.id === 'trunk')) {
     sceneObjects.push({
       id: 'trunk',
-      x: 690, y: 330, w: 180, h: 120,
-      baseY: 430,
-      collision: { x: 690, y: 380, w: 180, h: 70 },
-      interactable: false,
+      x: 670, y: 230, w: 180, h: 120,
+      baseY: 330,
+      collision: { x: 670, y: 280, w: 180, h: 70 },
+      interactable: true,
+      action: 'external-link',
+      url: 'https://popstar-life.com/me',
+      label: 'STREAM',
       img: trunkImg,
       draw() {}
     });
   }
-  // Add carpet if not already there (always renders under everything)
   if (!sceneObjects.find(o => o.id === 'carpet')) {
     sceneObjects.push({
       id: 'carpet',
       x: 560, y: 280, w: 408, h: 264,
-      baseY: 1,   // lowest possible — always renders first, under player
+      baseY: 1,
       collision: null,
       interactable: false,
       img: carpetImg,
       draw() {}
     });
   }
-  if (play) playUnpackSfx();
 }
 
-function applyBedroomUnpack(play) {
-  // Swap bed
+function applyBedroomUnpack() {
   const bed = sceneObjects.find(o => o.id === 'bed');
   if (bed) bed.img = bedUnpackedImg;
-  // Swap shoe shelf
   const shelf = sceneObjects.find(o => o.id === 'sneaker_shelf');
   if (shelf) shelf.img = shoeshelfUnpackedImg;
-  // Swap rack A
   const rackA = sceneObjects.find(o => o.id === 'rack_A');
   if (rackA) rackA.img = rackAUnpackedImg;
-  // Swap rack B
   const rackB = sceneObjects.find(o => o.id === 'rack_B');
   if (rackB) rackB.img = rackBUnpackedImg;
-  // Remove bedroom box trigger
-  const bIdx = sceneObjects.findIndex(o => o.id === 'bedroom_box');
-  if (bIdx !== -1) sceneObjects.splice(bIdx, 1);
-  if (play) playUnpackSfx();
-}
-
-function playUnpackSfx() {
-  try { new Audio('assets/unpack.mp3').play().catch(()=>{}); } catch(_) {}
-}
-
-
-
-// ── Loading bar state ──
-const unpackBar = {
-  active:  false,
-  zoneId:  null,
-  t:       0,          // 0 → 1 over UNPACK_DURATION ms
-  worldX:  0,          // world-space centre X of bar
-  worldY:  0,          // world-space Y of bar (above trigger)
-};
-const UNPACK_DURATION = 1500; // ms
-let   unpackLastTime  = 0;
-
-function startUnpackBar(zoneId, worldCX, worldCY) {
-  if (unpackBar.active) return;           // one at a time
-  if (zoneUnpacked[zoneId]) return;       // already done
-  unpackBar.active = true;
-  unpackBar.zoneId = zoneId;
-  unpackBar.t      = 0;
-  unpackBar.worldX = worldCX;
-  unpackBar.worldY = worldCY - 30;       // float above trigger
-  unpackLastTime   = performance.now();
-}
-
-function tickUnpackBar(now) {
-  if (!unpackBar.active) return;
-  const dt = now - unpackLastTime;
-  unpackLastTime = now;
-  unpackBar.t = Math.min(1, unpackBar.t + dt / UNPACK_DURATION);
-  if (unpackBar.t >= 1) {
-    unpackBar.active = false;
-    const zId = unpackBar.zoneId;
-    zoneUnpacked[zId] = true;
-    try { sessionStorage.setItem(`tana_${zId}_unpacked`, '1'); } catch(_) {}
-    if (zId === 'studio')     applyStudioUnpack(true);
-    if (zId === 'livingroom') applyLivingroomUnpack(true);
-    if (zId === 'bedroom')    applyBedroomUnpack(true);
-  }
-}
-
-function drawUnpackBar() {
-  if (!unpackBar.active) return;
-  const sx = wx(unpackBar.worldX);
-  const sy = wy(unpackBar.worldY);
-  const barW = 90, barH = 9, r = 4;
-
-  // Background pill
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
-  roundRect(ctx, sx - barW/2 - 2, sy - barH/2 - 2, barW + 4, barH + 4, r + 1);
-  ctx.fill();
-
-  // Track
-  ctx.fillStyle = '#1a1a2e';
-  roundRect(ctx, sx - barW/2, sy - barH/2, barW, barH, r);
-  ctx.fill();
-
-  // Fill
-  const fillW = Math.round(barW * unpackBar.t);
-  if (fillW > 0) {
-    ctx.fillStyle = '#f9c74f';
-    roundRect(ctx, sx - barW/2, sy - barH/2, fillW, barH, r);
-    ctx.fill();
-  }
-
-  // Label above bar
-  ctx.fillStyle = 'rgba(249,199,79,0.8)';
-  ctx.font = '5px "Press Start 2P"';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText('UNPACKING...', sx, sy - barH/2 - 4);
 }
 
 
@@ -1320,15 +1147,59 @@ function drawUnpackBar() {
 
 
 
+
+
+
+
+// ── NPCs — tune x/y in debug mode (` backtick) ──
+const npcs = [
+
+  // chris
+  {
+    id: 'chris',
+    x: 989, y: 480,
+    w: PW, h: PH,
+    baseY: 480 + PH,
+    img: chrisSpriteImg,
+    label: 'CHRIS SKYLARK',
+    action: 'npc-talk',
+    phrases: [
+      'Whats your favorite song on #me?',
+      'Glad you made it !',
+      'CHECK THE STUDIO. SOMETHING NEW IS IN THERE.',
+      'Go bump that new TANA !!!',
+      'NEW ALBUM OUT NOW!',
+      'OUR YEAR.',
+      "Bang!"
+    ],
+    _idleFrame: 0
+  },
+
+  // bouncer_npc
+  {
+    id: 'bouncer_npc',
+    x: 602, y: 634,
+    w: PW, h: PH,
+    baseY: 634 + PH,
+    img: bouncerNpcImg,
+    label: null,
+    action: null,
+    phrases: null,
+    _idleFrame: 0
+  },
+
+];
 
 // ─────────────────────────────────────────────────────────
 //  PLAYER
 // ─────────────────────────────────────────────────────────
-let lastAxis = 'x';
+let lastAxis     = 'x';
+let speakerFrame = 0;
+let npcIdleTick  = 0;
 
 const player = {
   x: WORLD_W / 2 - PW / 2,
-  y: 460,
+  y: 614,
   vx: 0, vy: 0,
   facing: 'down',
   animFrame: 0,
@@ -1389,6 +1260,12 @@ function getNearbyObject() {
     // objects can be reached from the floor without breaking rendering.
     const ocy = (obj.interactY != null) ? obj.interactY : obj.baseY;
     if (Math.hypot(px - ocx, py - ocy) < INTERACT_RANGE) return obj;
+  }
+  for (const npc of npcs) {
+    if (!npc.action) continue;
+    const ocx = npc.x + npc.w / 2;
+    const ocy = npc.baseY;
+    if (Math.hypot(px - ocx, py - ocy) < INTERACT_RANGE) return npc;
   }
   return null;
 }
@@ -1514,33 +1391,11 @@ let debugOn = false;
 window.addEventListener('keydown', e => {
   if (e.key === '`' || e.key === '~') debugOn = !debugOn;
 });
-const tvOverlay = document.getElementById('tv-overlay');
-const tvIframe  = document.getElementById('tv-iframe');
-let tvOpen = false;
-
-function openTV(videoId) {
-  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
-  tvOverlay.classList.add('active');
-  tvOpen = true;
-  if (proxAudio) setProxGain(0); // mute ambient while video plays
-  duckBGMForTV();                // fade soundtrack out under YouTube
-}
-
-function closeTV() {
-  tvIframe.src = '';
-  tvOverlay.classList.remove('active');
-  tvOpen = false;
-  unduckBGMFromTV();             // fade soundtrack back in
-}
-
-document.getElementById('tv-close-btn').addEventListener('click', closeTV);
-
 // ─────────────────────────────────────────────────────────
 //  BACKGROUND SOUNDTRACK
 //  • Tries to autoplay on load. If the browser blocks it
 //    (most do on first visit), arms a one-shot listener
 //    that starts playback on the user's first interaction.
-//  • Fades out under the YouTube TV so the two don't fight.
 //  • Mute toggle persists to localStorage. 'M' is a shortcut.
 // ─────────────────────────────────────────────────────────
 const bgm        = document.getElementById('bgm');
@@ -1574,7 +1429,7 @@ function fadeBGM(toVol, durMs) {
 }
 
 function tryStartBGM() {
-  if (bgmStarted || userMuted || tvOpen) return;
+  if (bgmStarted || userMuted) return;
   const p = bgm.play();
   if (p && typeof p.then === 'function') {
     p.then(() => {
@@ -1611,7 +1466,7 @@ bgmToggle.addEventListener('click', () => {
   } else {
     if (!bgmStarted) { tryStartBGM(); return; }
     bgm.play().catch(() => {});
-    if (!tvOpen) fadeBGM(BGM_VOLUME, BGM_FADE);
+    fadeBGM(BGM_VOLUME, BGM_FADE);
   }
 });
 
@@ -1623,86 +1478,16 @@ window.addEventListener('keydown', e => {
   bgmToggle.click();
 });
 
-// Two state flags fight each other otherwise:
-//   userMuted        → user clicked mute; stay silent regardless of TV
-//   bgmDuckedForTV   → temporary, restored when TV closes (unless userMuted)
-function duckBGMForTV() {
-  if (userMuted || !bgmStarted) return;
-  fadeBGM(0, BGM_FADE);
-  setTimeout(() => { if (tvOpen) bgm.pause(); }, BGM_FADE + 30);
-}
-function unduckBGMFromTV() {
-  if (userMuted) return;
-  if (!bgmStarted) { tryStartBGM(); return; }
-  bgm.play().catch(() => {});
-  fadeBGM(BGM_VOLUME, BGM_FADE);
-}
-
-// ─────────────────────────────────────────────────────────
-//  PROXIMITY AUDIO  (ambient TV glow sound)
-//
-//  ▸ To enable: set AMBIENT_AUDIO_SRC to a hosted audio file path.
-//    e.g.  const AMBIENT_AUDIO_SRC = '/apps/tanapixelgame/assets/ambient.mp3';
-//  ▸ Volume scales from 0 → MAX_VOL as player approaches TV.
-// ─────────────────────────────────────────────────────────
-const AMBIENT_AUDIO_SRC = null;   // ← swap in your audio file path
-const PROX_MAX_DIST     = 380;    // world px — silent beyond this
-const PROX_MAX_VOL      = 0.75;
-
-let proxAudio = null;
-
-function initProxAudio() {
-  if (!AMBIENT_AUDIO_SRC) return;
-  try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    const ctx2 = new AC();
-    const gainNode = ctx2.createGain();
-    gainNode.gain.value = 0;
-    gainNode.connect(ctx2.destination);
-    const el = new Audio(AMBIENT_AUDIO_SRC);
-    el.loop = true;
-    const src = ctx2.createMediaElementSource(el);
-    src.connect(gainNode);
-    el.play().catch(() => {});
-    proxAudio = { ctx: ctx2, gainNode };
-  } catch(e) { console.warn('ProxAudio init failed:', e); }
-}
-
-function setProxGain(v) {
-  if (!proxAudio) return;
-  proxAudio.gainNode.gain.setTargetAtTime(v, proxAudio.ctx.currentTime, 0.4);
-}
-
-function updateProxAudio() {
-  if (!proxAudio || tvOpen) return;
-  const tvObj = sceneObjects.find(o => o.id === 'tv');
-  if (!tvObj) return;
-  const dx = (player.x + PW/2) - (tvObj.x + tvObj.w/2);
-  const dy = (player.y + FEET_OY) - tvObj.baseY;
-  const dist = Math.hypot(dx, dy);
-  setProxGain(Math.max(0, 1 - dist / PROX_MAX_DIST) * PROX_MAX_VOL);
-}
-
-// Init audio on first user gesture
-let _audioInited = false;
-function tryInitAudio() {
-  if (_audioInited) return;
-  _audioInited = true;
-  initProxAudio();
-}
-window.addEventListener('keydown', tryInitAudio);
-canvas.addEventListener('touchstart', tryInitAudio);
-
 // ─────────────────────────────────────────────────────────
 //  INPUT — keyboard
 // ─────────────────────────────────────────────────────────
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
-  const _t = e.target;
+   const _t = e.target;
   const _typing = _t && (_t.tagName === 'INPUT' || _t.tagName === 'TEXTAREA');
   if (!_typing && (e.key === 'e' || e.key === 'E')) tryInteract();
-  if (e.key === 'Escape') { closePopup(); closeTV(); closeReveal(); }
+  if (e.key === 'Escape') { closePopup(); closeChatPopup(); }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
 });
@@ -1763,91 +1548,77 @@ iBtn.addEventListener('touchend', e => {
 }, { passive:false });
 
 function tryInteract() {
-  if (popupOpen)  { closePopup();  return; }
-  if (tvOpen)     { closeTV();     return; }
-  if (revealOpen) { closeReveal(); return; }
+  if (popupOpen) { closePopup(); return; }
   const obj = getNearbyObject();
   if (!obj) return;
-  if (obj.action === 'video')        openTV(obj.videoId);
-  if (obj.action === 'email')        openEmailPopup();
-  if (obj.action === 'unpack')       doUnpack(obj);
-  if (obj.action === 'plaque-info')  openPlaqueInfo();
-
-  if (obj.action === 'unpack-zone') {
-  if (!zoneUnpacked[obj.zoneId] && !unpackBar.active) {
-    const cx = obj.x + obj.w / 2;
-    const cy = obj.y;
-    startUnpackBar(obj.zoneId, cx, cy);
+  if (obj.action === 'email')         openEmailPopup();
+  if (obj.action === 'plaque-info')   openPlaqueInfo();
+  if (obj.action === 'external-link') window.open(obj.url, '_blank', 'noopener');
+  if (obj.action === 'npc-talk') {
+    const phrase = obj.phrases[Math.floor(Math.random() * obj.phrases.length)];
+    obj._chat    = phrase;
+    obj._chatExp = Date.now() + 5000;
   }
 }
 
+// ─────────────────────────────────────────────────────────
+//  INPUT — chat button (mobile)
+// ─────────────────────────────────────────────────────────
+const cBtn = document.getElementById('chat-btn');
+cBtn.addEventListener('touchstart', e => {
+  e.preventDefault(); cBtn.classList.add('pressed'); openChatPopup();
+}, { passive: false });
+cBtn.addEventListener('touchend', e => {
+  e.preventDefault(); cBtn.classList.remove('pressed');
+}, { passive: false });
 
+// ─────────────────────────────────────────────────────────
+//  CHAT POPUP — open / close / send
+// ─────────────────────────────────────────────────────────
+const _chatPopup   = document.getElementById('chat-popup');
+const _chatInput   = document.getElementById('chat-input');
+document.getElementById('chat-btn-desktop').addEventListener('click', openChatPopup);
+
+function openChatPopup() {
+  if (chatOpen || nameScreenOpen) return;
+  chatOpen = true;
+  _chatPopup.style.display = 'flex';
+  _chatInput.value = '';
+  _chatInput.focus();
 }
 
-// ─────────────────────────────────────────────────────────
-//  PLAQUE — unpack reveal + info popup
-// ─────────────────────────────────────────────────────────
-const revealOverlay = document.getElementById('reveal-overlay');
-const revealImg     = document.getElementById('reveal-img');
-const revealBanner  = document.getElementById('reveal-banner');
-const revealCaption = document.getElementById('reveal-caption');
-let revealOpen      = false;
-let revealAutoCloseT = null;
+function closeChatPopup() {
+  if (!chatOpen) return;
+  chatOpen = false;
+  _chatPopup.style.display = 'none';
+  _chatInput.blur();
+}
 
-function openReveal({ src, banner, caption, autoCloseMs }) {
-  revealImg.src           = src;
-  revealBanner.textContent = banner  || '★ UNPACKED ★';
-  revealCaption.textContent = caption || '';
-  revealOverlay.classList.add('active');
-  revealOpen = true;
-  if (revealAutoCloseT) clearTimeout(revealAutoCloseT);
-  if (autoCloseMs && autoCloseMs > 0) {
-    revealAutoCloseT = setTimeout(closeReveal, autoCloseMs);
+_chatInput.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.stopPropagation(); closeChatPopup(); return; }
+  if (e.key !== 'Enter') return;
+  const text = _chatInput.value.trim().toUpperCase().substring(0, 40);
+  if (text && _worldChannel) {
+    player._chat    = text;
+    player._chatExp = Date.now() + 5000;
+    _worldChannel.send({ type: 'broadcast', event: 'chat_msg', payload: { id: playerId, text } });
   }
-}
-
-function closeReveal() {
-  revealOverlay.classList.remove('active');
-  revealOpen = false;
-  if (revealAutoCloseT) { clearTimeout(revealAutoCloseT); revealAutoCloseT = null; }
-}
-
-// Click backdrop, click ✕, or press ESC closes early. ESC is wired below.
-revealOverlay.addEventListener('click', e => {
-  if (e.target === revealOverlay) closeReveal();
+  closeChatPopup();
 });
-document.getElementById('reveal-close').addEventListener('click', closeReveal);
 
-function doUnpack(obj) {
-  if (plaqueUnpacked) return; // safety — already unpacked
-
-  // 1) Show the reveal popup with plaq.png
-  openReveal({
-    src: 'assets/plaq.png',
-    banner: '★ UNPACKED ★',
-    caption: 'GOLD RECORD',
-    autoCloseMs: 3000
-  });
-
-  // 2) Swap scene objects: remove packed box, add wall plaque
-  const idx = sceneObjects.indexOf(obj);
-  if (idx !== -1) sceneObjects.splice(idx, 1);
-  if (sceneObjects.indexOf(wallPlaqueObj) === -1) sceneObjects.push(wallPlaqueObj);
-
-  // 3) Persist for the rest of this tab session — irreversible until tab close
-  plaqueUnpacked = true;
-  try { sessionStorage.setItem(PLAQUE_STORAGE_KEY, '1'); } catch (_) {}
-}
-
+// ─────────────────────────────────────────────────────────
+//  PLAQUE — info popup
+// ─────────────────────────────────────────────────────────
 function openPlaqueInfo() {
-  // Same visual reveal as the unpack moment — but no auto-close,
-  // user dismisses via the ✕, the backdrop, or ESC.
-  openReveal({
-    src: 'assets/plaq.png',
-    banner: '★ GOLD RECORD ★',
-    caption: 'RIAA-CERTIFIED',
-    autoCloseMs: 0
-  });
+  popupIcon.textContent  = '★';
+  popupTitle.textContent = 'GOLD RECORD';
+  popupBody.innerHTML    = `
+    <span style="color:#f9c74f">RIAA-CERTIFIED</span><br><br>
+    A gold record. The real deal.
+  `;
+  emailWrap.style.display = 'none';
+  popupOverlay.classList.add('active');
+  popupOpen = true;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1855,11 +1626,7 @@ function openPlaqueInfo() {
 // ─────────────────────────────────────────────────────────
 function update() {
 
-  const now = performance.now();
-  tickUnpackBar(now);   // always tick — bar runs independently of popups
-
-
-  if (popupOpen || tvOpen || revealOpen) return;
+  if (nameScreenOpen || popupOpen || chatOpen) return;
 
   let vx = 0, vy = 0;
 
@@ -1907,8 +1674,22 @@ if (moving) {
   if (++player.idleTick >= 30) { player.idleTick = 0; player.idleFrame ^= 1; }
 }
 
+  // Bouncer welcome zone — reactively set _idleFrame based on player proximity
+  const _bouncerNpc = npcs.find(n => n.id === 'bouncer_npc');
+  if (_bouncerNpc) {
+    let _anyInZone = rectsOverlap(playerFeetRect(), WELCOME_ZONE);
+    if (!_anyInZone) {
+      for (const rp of remotePlayers.values()) {
+        const _t  = rp._interpStart !== undefined ? Math.min(1, (Date.now() - rp._interpStart) / 150) : 1;
+        const _rx = rp._fromX !== undefined ? rp._fromX + (rp._targetX - rp._fromX) * _t : rp.x;
+        const _ry = rp._fromY !== undefined ? rp._fromY + (rp._targetY - rp._fromY) * _t : rp.y;
+        if (rectsOverlap(playerFeetRect(_rx, _ry), WELCOME_ZONE)) { _anyInZone = true; break; }
+      }
+    }
+    _bouncerNpc._idleFrame = _anyInZone ? 1 : 0;
+  }
+
   updateCamera();
-  updateProxAudio();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1956,6 +1737,48 @@ function drawBackground() {
 }
 
 // ─────────────────────────────────────────────────────────
+//  DRAW — CHAT BUBBLE
+// ─────────────────────────────────────────────────────────
+function drawChatBubble(cx, sy, text, expiresAt) {
+  const HOLD  = 2000;
+  const RISE  = 3000;
+  const remaining = expiresAt - Date.now();
+  if (remaining <= 0) return;
+
+  const elapsed = (HOLD + RISE) - remaining;
+  let alpha, floatY;
+  if (elapsed < HOLD) {
+    alpha  = 1;
+    floatY = 0;
+  } else {
+    const t = (elapsed - HOLD) / RISE;   // 0 → 1 over the rise phase
+    alpha  = 1 - t;
+    floatY = t * 28;                      // drift up 28px
+  }
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = '8px "Press Start 2P"';
+  const tw = ctx.measureText(text).width;
+  const bw = tw + 12;
+  const bh = 16;
+  const by = sy - 44 - floatY;
+  const bx = Math.max(4, Math.min(VIEW_W - bw - 4, cx - bw / 2));
+  ctx.fillStyle = 'rgba(5,5,10,0.88)';
+  roundRect(ctx, bx, by, bw, bh, 3);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(224,224,224,0.35)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, bx, by, bw, bh, 3);
+  ctx.stroke();
+  ctx.fillStyle = '#e0e0e0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, bx + bw / 2, by + bh / 2);
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────
 //  DRAW — PLAYER
 // ─────────────────────────────────────────────────────────
 function drawPlayer() {
@@ -1973,7 +1796,8 @@ function drawPlayer() {
 
   ctx.imageSmoothingEnabled = false;
 
-  if (spriteImg.complete && spriteImg.naturalWidth > 0) {
+  const _sImg = skinImgs[playerSkin];
+  if (_sImg.complete && _sImg.naturalWidth > 0) {
     const moving = player.moving ?? false;
 
     // Column selection:
@@ -1990,7 +1814,7 @@ function drawPlayer() {
     ctx.beginPath();
     ctx.rect(sx, sy, PW, PH);
     ctx.clip();
-    ctx.drawImage(spriteImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+    ctx.drawImage(_sImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
     ctx.restore();
 
   } else {
@@ -2003,12 +1827,144 @@ function drawPlayer() {
 
   // Name tag
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  roundRect(ctx, sx + PW / 2 - 20, sy - 14, 40, 11, 2);
+  roundRect(ctx, sx + PW / 2 - 22, sy - 22, 44, 16, 2);
   ctx.fill();
   ctx.fillStyle = '#4ecca3';
-  ctx.font = '5px "Press Start 2P"';
+  ctx.font = '8px "Press Start 2P"';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('ME', sx + PW / 2, sy - 9);
+  ctx.fillText('ME', sx + PW / 2, sy - 14);
+  if (player._chat && Date.now() < player._chatExp)
+    drawChatBubble(sx + PW / 2, sy, player._chat, player._chatExp);
+}
+
+// ─────────────────────────────────────────────────────────
+//  DRAW — REMOTE PLAYER
+// ─────────────────────────────────────────────────────────
+function drawRemotePlayer(rp) {
+  const t = rp._interpStart !== undefined ? Math.min(1, (Date.now() - rp._interpStart) / 150) : 1;
+  const drawX = rp._fromX !== undefined ? rp._fromX + (rp._targetX - rp._fromX) * t : rp.x;
+  const drawY = rp._fromY !== undefined ? rp._fromY + (rp._targetY - rp._fromY) * t : rp.y;
+  const sx = wx(drawX);
+  const sy = wy(drawY);
+  if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;
+
+  ctx.globalAlpha = 1;
+  ctx.imageSmoothingEnabled = false;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath();
+  ctx.ellipse(sx + PW / 2, sy + PH - 6, PW / 3.2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const _rsImg = skinImgs[rp.skin ?? 0];
+  if (_rsImg.complete && _rsImg.naturalWidth > 0) {
+    const dir  = (rp.facing && DIR_ROW[rp.facing] !== undefined) ? rp.facing : 'down';
+    const col  = rp.animFrame ? 1 : (rp._idleFrame ? 2 : 0);
+    const srcX = col * FRAME_W;
+    const srcY = DIR_ROW[dir] * FRAME_H;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(sx, sy, PW, PH);
+    ctx.clip();
+    ctx.drawImage(_rsImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#4ecca3';
+    ctx.fillRect(sx + 8, sy, PW - 16, PH * 0.35);
+    ctx.fillStyle = '#e0e0e0';
+    ctx.fillRect(sx + 4, sy + PH * 0.35, PW - 8, PH * 0.65);
+  }
+
+  // Name tag
+  const label = String(rp.name || 'ANON').substring(0, 12).toUpperCase();
+  ctx.font = '8px "Press Start 2P"';
+  const tw   = ctx.measureText(label).width;
+  const tagW = Math.max(tw + 12, 32);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  roundRect(ctx, sx + PW / 2 - tagW / 2, sy - 22, tagW, 16, 2);
+  ctx.fill();
+  ctx.fillStyle = '#4ecca3';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, sx + PW / 2, sy - 14);
+  if (rp._chat && Date.now() < rp._chatExp)
+    drawChatBubble(sx + PW / 2, sy, rp._chat, rp._chatExp);
+
+  ctx.globalAlpha = 1;
+}
+
+// ─────────────────────────────────────────────────────────
+//  DRAW — NPC
+// ─────────────────────────────────────────────────────────
+function drawNPC(npc) {
+  const sx = wx(npc.x);
+  const sy = wy(npc.y);
+  if (sx + npc.w < 0 || sx > VIEW_W || sy + npc.h < 0 || sy > VIEW_H) return;
+
+  const shadowCY = sy + npc.h - 6;
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath();
+  ctx.ellipse(sx + npc.w / 2, shadowCY, npc.w / 3.2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.imageSmoothingEnabled = false;
+
+  if (npc.img && npc.img.complete && npc.img.naturalWidth > 0) {
+    const srcX = npc._idleFrame === 1 ? 512 : 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(sx, sy, npc.w, npc.h);
+    ctx.clip();
+    ctx.drawImage(npc.img, srcX, 0, FRAME_W, FRAME_H, sx, sy, npc.w, npc.h);
+    ctx.restore();
+  }
+
+  if (npc.label) {
+    ctx.font = '8px "Press Start 2P"';
+    const tw   = ctx.measureText(npc.label).width;
+    const tagW = Math.max(tw + 12, 32);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    roundRect(ctx, sx + npc.w / 2 - tagW / 2, sy - 22, tagW, 16, 2);
+    ctx.fill();
+    ctx.fillStyle = '#f9c74f';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(npc.label, sx + npc.w / 2, sy - 14);
+  }
+
+  if (npc._chat && Date.now() < npc._chatExp) {
+    const HOLD = 2000, RISE = 3000;
+    const remaining = npc._chatExp - Date.now();
+    const elapsed   = (HOLD + RISE) - remaining;
+    let alpha = 1, floatY = 0;
+    if (elapsed >= HOLD) {
+      const t = (elapsed - HOLD) / RISE;
+      alpha   = 1 - t;
+      floatY  = t * 28;
+    }
+    const bcx = sx + npc.w / 2;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = '8px "Press Start 2P"';
+    const tw  = ctx.measureText(npc._chat).width;
+    const bw  = tw + 12;
+    const bh  = 16;
+    const by  = sy - 44 - floatY;
+    const bx  = Math.max(4, Math.min(VIEW_W - bw - 4, bcx - bw / 2));
+    ctx.fillStyle = 'rgba(5,5,10,0.88)';
+    roundRect(ctx, bx, by, bw, bh, 3);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(249,199,79,0.6)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, bx, by, bw, bh, 3);
+    ctx.stroke();
+    ctx.fillStyle = '#f9c74f';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(npc._chat, bx + bw / 2, by + bh / 2);
+    ctx.restore();
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2022,7 +1978,7 @@ function drawInteractPrompt(obj, t) {
   const sy = wy((obj.promptY != null ? obj.promptY : obj.y) - 8);
   const time = Date.now();
 
-  ctx.font = '6px "Press Start 2P"';
+  ctx.font = '9px "Press Start 2P"';
   const label = `[E] ${obj.label}`;
   const fullW = ctx.measureText(label).width + 18;
   const fullH = 14;
@@ -2108,17 +2064,19 @@ function drawHUD() {
   ctx.fillStyle = 'rgba(5,5,10,0)';
   ctx.fillRect(0, CROP_TOP, VIEW_W, 20);
   ctx.fillStyle = '#4ecca3';
-  ctx.font = '6px "Press Start 2P"';
+  ctx.font = '9px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillText('▸ TANA ROOM', 8, CROP_TOP + 10);
+  ctx.textAlign = 'right';
+  ctx.fillText('ONLINE: ' + (remotePlayers.size + 1), VIEW_W - 8, CROP_TOP + 10);
 
   // Bottom action hint
   const near = getNearbyObject();
-  if (near && !popupOpen && !tvOpen && !revealOpen) {
+  if (near && !popupOpen) {
     ctx.fillStyle = 'rgba(5,5,10,0.72)';
     ctx.fillRect(0, screenBtm - 20, VIEW_W, 20);
     ctx.fillStyle = '#f9c74f';
-    ctx.font = '6px "Press Start 2P"';
+    ctx.font = '9px "Press Start 2P"';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(`[E]  →  ${near.label}`, VIEW_W / 2, screenBtm - 10);
   }
@@ -2140,6 +2098,26 @@ function drawHUD() {
 function render() {
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.imageSmoothingEnabled = false;
+
+  // Advance NPC idle animation tick and speaker frame
+  npcIdleTick++;
+  if (npcIdleTick >= 30) {
+    npcIdleTick = 0;
+    speakerFrame ^= 1;
+    for (const npc of npcs) {
+      if (npc.id === 'bouncer_npc') continue;
+      npc._idleFrame ^= 1;
+    }
+  }
+
+  for (const rp of remotePlayers.values()) {
+    if (!rp.animFrame) {
+      rp._idleTick = (rp._idleTick || 0) + 1;
+      if (rp._idleTick >= 60) { rp._idleTick = 0; rp._idleFrame = (rp._idleFrame || 0) ^ 1; }
+    } else {
+      rp._idleTick = 0; rp._idleFrame = 0;
+    }
+  }
 
   drawBackground();
 
@@ -2167,7 +2145,7 @@ function render() {
 
         // Interaction prompt — minimized pip always shown for interactables,
         // expands into full [E] Label badge as the player approaches.
-        if (obj.interactable && !popupOpen && !tvOpen && !revealOpen) {
+        if (obj.interactable && !popupOpen) {
           if (obj.promptT === undefined) obj.promptT = 0;
           const target = (obj === nearby) ? 1 : 0;
           obj.promptT += (target - obj.promptT) * 0.18;
@@ -2180,6 +2158,15 @@ function render() {
 
   // Add player to sort list
   renderList.push({ baseY: playerBaseY(), fn: drawPlayer });
+
+  for (const rp of remotePlayers.values()) {
+    const rpBaseY = rp.y + FEET_OY + FEET_H;
+    renderList.push({ baseY: rpBaseY, fn: () => drawRemotePlayer(rp) });
+  }
+
+  for (const npc of npcs) {
+    renderList.push({ baseY: npc.baseY, fn: () => drawNPC(npc) });
+  }
 
   // Sort by Y depth
   renderList.sort((a, b) => a.baseY - b.baseY);
@@ -2250,10 +2237,6 @@ function render() {
   }
 
 
-  drawUnpackBar();
-
-
-
   drawHUD();
 }
 
@@ -2307,6 +2290,275 @@ if (window.visualViewport) {
 }
 resizeGame();
 setTimeout(resizeGame, 100);
+
+// ─────────────────────────────────────────────────────────
+//  ENTRY SCREEN — name, skin, and game launch
+// ─────────────────────────────────────────────────────────
+(function() {
+  const screen     = document.getElementById('entry-screen');
+  const inp        = document.getElementById('mp-name-input');
+  const confirmBtn = document.getElementById('entry-confirm');
+  const skinBtns   = document.querySelectorAll('.skin-btn');
+
+  skinBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      skinBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      playerSkin = parseInt(btn.dataset.skin, 10);
+    });
+  });
+
+  function confirm() {
+    const raw = inp.value.trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase();
+    playerName = raw || 'ANON';
+    nameScreenOpen = false;
+    screen.remove();
+    initMultiplayer();
+  }
+
+  confirmBtn.addEventListener('click', confirm);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') confirm(); });
+  inp.focus();
+})();
+
+function initMultiplayer() {
+  try {
+    const sb = supabase.createClient(
+      'https://bqhltjtktpaoctymmjrc.supabase.co',
+      'sb_publishable_75Z_fkmYckjBRFmI2jol6A_Czi0estn'
+    );
+
+    // ── Room presence ──
+    const presenceMap  = new Map();
+    let   _isVip       = false;
+    let   _bouncerOpen = false;
+
+    const _bouncerOverlay = document.getElementById('bouncer-overlay');
+    const _bouncerCount   = document.getElementById('bouncer-count');
+    const _bouncerJoin    = document.getElementById('bouncer-join');
+    const _bouncerVip     = document.getElementById('bouncer-vip');
+
+    const _syncBouncer = () => {
+      if (!_bouncerOpen) return;
+      _bouncerCount.textContent = presenceMap.size + ' / 50 PLAYERS';
+      const full = presenceMap.size >= ROOM_CAP;
+      _bouncerJoin.disabled = full;
+      _bouncerJoin.style.opacity = full ? '0.35' : '1';
+      _bouncerJoin.style.boxShadow = full ? 'none' : '0 0 18px rgba(78,204,163,0.35)';
+    };
+
+    // ── tana-world channel (all existing broadcast logic, now callable) ──
+    const joinWorld = () => {
+      _bouncerOpen = false;
+      _bouncerOverlay.style.display = 'none';
+
+      const channel = sb.channel('tana-world');
+      _worldChannel = channel;
+      channel
+        .on('broadcast', { event: 'player_join' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          const existing = remotePlayers.get(payload.id) || {};
+          remotePlayers.set(payload.id, Object.assign(existing, {
+            name: payload.name, skin: payload.skin,
+            _lastSeen: Date.now(),
+          }));
+          // Send full snapshot (identity + position) so the new joiner sees us correctly
+          channel.send({
+            type: 'broadcast', event: 'player_snapshot',
+            payload: {
+              id: playerId, name: playerName, skin: playerSkin,
+              x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame,
+            },
+          });
+        })
+        .on('broadcast', { event: 'player_snapshot' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          const existing = remotePlayers.get(payload.id) || {};
+          const now = Date.now();
+          const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
+          const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
+          const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
+          remotePlayers.set(payload.id, Object.assign(existing, {
+            name: payload.name, skin: payload.skin,
+            x: payload.x, y: payload.y,
+            facing: payload.facing, animFrame: payload.animFrame,
+            _lastSeen: now,
+            _fromX: fromX, _fromY: fromY,
+            _targetX: payload.x, _targetY: payload.y,
+            _interpStart: now,
+          }));
+        })
+        .on('broadcast', { event: 'player_move' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          const existing = remotePlayers.get(payload.id) || {};
+          const now = Date.now();
+          const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
+          const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
+          const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
+          remotePlayers.set(payload.id, Object.assign(existing, {
+            x: payload.x, y: payload.y,
+            facing: payload.facing, animFrame: payload.animFrame,
+            _lastSeen: now,
+            _fromX: fromX, _fromY: fromY,
+            _targetX: payload.x, _targetY: payload.y,
+            _interpStart: now,
+          }));
+        })
+        .on('broadcast', { event: 'player_heartbeat' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          const rp = remotePlayers.get(payload.id);
+          if (rp) rp._lastSeen = Date.now();
+        })
+        .on('broadcast', { event: 'player_leave' }, ({ payload }) => {
+          if (!payload || payload.id === playerId) return;
+          remotePlayers.delete(payload.id);
+        })
+        .on('broadcast', { event: 'chat_msg' }, ({ payload }) => {
+          if (!payload || !payload.id || !payload.text) return;
+          const rp = remotePlayers.get(payload.id);
+          if (rp) { rp._chat = String(payload.text).substring(0, 40); rp._chatExp = Date.now() + 5000; }
+        })
+        .subscribe(() => {
+          // Announce identity once on channel join
+          channel.send({
+            type: 'broadcast', event: 'player_join',
+            payload: { id: playerId, name: playerName, skin: playerSkin },
+          });
+
+          let _lastBroadcast = null;
+          let _lastHeartbeat = 0;
+          let _lastActivityTime = Date.now();
+
+          const _resetActivity = () => { _lastActivityTime = Date.now(); };
+          window.addEventListener('keydown', _resetActivity);
+          window.addEventListener('mousemove', _resetActivity);
+          window.addEventListener('touchstart', _resetActivity, { passive: true });
+
+          // AFK overlay — built once, toggled by display
+          const _afkOverlay = document.createElement('div');
+          _afkOverlay.style.cssText = [
+            'position:fixed;inset:0;z-index:500',
+            'background:rgba(5,5,10,0.95)',
+            "font-family:'Press Start 2P',monospace",
+            'display:none;flex-direction:column;align-items:center;justify-content:center',
+            'gap:24px;text-align:center;padding:20px',
+          ].join(';');
+          _afkOverlay.innerHTML =
+            '<div style="color:#4ecca3;font-size:10px;letter-spacing:3px;text-shadow:0 0 12px rgba(78,204,163,0.7)">STILL THERE?</div>' +
+            '<div id="_afkCount" style="color:#b0b8d0;font-size:8px;letter-spacing:2px"></div>' +
+            '<button id="_afkBtn" style="background:rgba(78,204,163,0.10);border:1px solid #4ecca3;color:#4ecca3;' +
+            "font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:2px;" +
+            'padding:12px 24px;cursor:pointer;outline:none;min-height:44px">YES, I\'M HERE</button>';
+          document.body.appendChild(_afkOverlay);
+
+          let _afkVisible = false;
+          let _afkCountTimer = null;
+
+          const _dismissAfk = () => {
+            _afkVisible = false;
+            _afkOverlay.style.display = 'none';
+            clearInterval(_afkCountTimer);
+            _lastActivityTime = Date.now();
+          };
+          _afkOverlay.querySelector('#_afkBtn').addEventListener('click', _dismissAfk);
+          window.addEventListener('keydown', _dismissAfk);
+
+          const _showAfk = () => {
+            _afkVisible = true;
+            let _secs = 30;
+            const _countEl = _afkOverlay.querySelector('#_afkCount');
+            _countEl.textContent = 'RETURNING IN ' + _secs + '...';
+            _afkOverlay.style.display = 'flex';
+            _afkCountTimer = setInterval(() => {
+              _secs--;
+              _countEl.textContent = 'RETURNING IN ' + _secs + '...';
+              if (_secs <= 0) {
+                clearInterval(_afkCountTimer);
+                channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
+                location.reload();
+              }
+            }, 1000);
+          };
+
+          setInterval(() => {
+            const now = Date.now();
+            // Stale cleanup — 30s covers 3 missed heartbeats
+            for (const [id, p] of remotePlayers) {
+              if (now - p._lastSeen > 30000) remotePlayers.delete(id);
+            }
+            // Movement broadcast (on change only)
+            const state = { x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame };
+            if (!_lastBroadcast ||
+                state.x !== _lastBroadcast.x || state.y !== _lastBroadcast.y ||
+                state.facing !== _lastBroadcast.facing || state.animFrame !== _lastBroadcast.animFrame) {
+              _lastBroadcast = { ...state };
+              _lastHeartbeat = now;
+              _lastActivityTime = now;
+              channel.send({ type: 'broadcast', event: 'player_move', payload: { id: playerId, ...state } });
+            }
+            // Idle heartbeat every 10s — keeps remotePlayers entry alive on others
+            if (now - _lastHeartbeat >= 10000) {
+              _lastHeartbeat = now;
+              channel.send({ type: 'broadcast', event: 'player_heartbeat', payload: { id: playerId } });
+            }
+            // AFK prompt after 60s of no input
+            if (!_afkVisible && now - _lastActivityTime >= 60000) _showAfk();
+          }, 100);
+        });
+      // Immediate leave only on actual tab close
+      window.addEventListener('beforeunload', () => {
+        channel.send({ type: 'broadcast', event: 'player_leave', payload: { id: playerId } });
+      });
+    }; // end joinWorld
+
+    // ── Bouncer button handlers ──
+    _bouncerJoin.addEventListener('click', () => {
+      if (!_bouncerJoin.disabled) joinWorld();
+    });
+    _bouncerVip.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      if (_bouncerVip.value === FORCE_PASS) { _isVip = true; joinWorld(); }
+    });
+
+    // ── tana-count presence channel (all players + waiters) ──
+    const countChannel = sb.channel('tana-count');
+    countChannel
+      .on('broadcast', { event: 'presence_ping' }, ({ payload }) => {
+        if (!payload || !payload.id || payload.id === playerId) return;
+        presenceMap.set(payload.id, Date.now());
+      })
+      .subscribe(() => {
+        // Announce ourselves immediately
+        countChannel.send({ type: 'broadcast', event: 'presence_ping', payload: { id: playerId } });
+
+        // Wait 1500ms to collect pings from players already in the room
+        setTimeout(() => {
+          if (presenceMap.size < ROOM_CAP) {
+            joinWorld();
+          } else {
+            _bouncerOpen = true;
+            _bouncerOverlay.style.display = 'flex';
+            _syncBouncer();
+          }
+        }, 1500);
+
+        // Every 3s: re-ping (non-VIP), prune stale entries, refresh bouncer counter
+        setInterval(() => {
+          if (!_isVip) {
+            countChannel.send({ type: 'broadcast', event: 'presence_ping', payload: { id: playerId } });
+          }
+          const now = Date.now();
+          for (const [id, ts] of presenceMap) {
+            if (now - ts > 8000) presenceMap.delete(id);
+          }
+          _syncBouncer();
+        }, 3000);
+      });
+
+  } catch (e) {
+    console.error('[TANA.EXE] Multiplayer init failed:', e);
+  }
+}
 
 // ─────────────────────────────────────────────────────────
 //  GAME LOOP
