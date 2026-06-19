@@ -969,21 +969,21 @@ const sceneObjects = [
   },
 
   // speaker_right
-  {
-    id: 'speaker_right',
-    x: 935, y: 410, w: 120, h: 150,
-    baseY: 590,
-    collision: null,
-    interactable: false,
-    img: null,
-    draw(ctx, sx, sy) {
-      ctx.imageSmoothingEnabled = false;
-      const img = speakerRightImg;
-      if (img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
-      }
-    }
-  },
+  // {
+  //   id: 'speaker_right',
+  //   x: 935, y: 410, w: 120, h: 150,
+  //   baseY: 590,
+  //   collision: null,
+  //   interactable: false,
+  //   img: null,
+  //   draw(ctx, sx, sy) {
+  //     ctx.imageSmoothingEnabled = false;
+  //     const img = speakerRightImg;
+  //     if (img.complete && img.naturalWidth > 0) {
+  //       ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+  //     }
+  //   }
+  // },
 
 // speaker_right
   {
@@ -1023,7 +1023,7 @@ const sceneObjects = [
   // speaker_left
   {
     id: 'speaker_left2',
-    x: 500, y: 110, w: 120, h: 150,
+    x: 500, y: 120, w: 120, h: 150,
     baseY: 200,
     collision: null,
     interactable: false,
