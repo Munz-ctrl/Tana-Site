@@ -985,10 +985,45 @@ const sceneObjects = [
     }
   },
 
+// speaker_right
+  {
+    id: 'speaker_right2',
+    x: 835, y: 190, w: 168, h: 226,
+    baseY: 590,
+    collision: null,
+    interactable: false,
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerRightImg;
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      }
+    }
+  },
+
+
   // speaker_left
   {
     id: 'speaker_left',
     x: 460, y: 390, w: 168, h: 226,
+    baseY: 590,
+    collision: null,
+    interactable: false,
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerLeftImg;
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      }
+    }
+  },
+
+  // speaker_left
+  {
+    id: 'speaker_left',
+    x: 500, y: 100, w: 168, h: 226,
     baseY: 590,
     collision: null,
     interactable: false,
