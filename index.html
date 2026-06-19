@@ -2351,7 +2351,6 @@ function initMultiplayer() {
     let _broadcastInterval = null;
     const joinWorld = () => {
       if (_broadcastInterval) { clearInterval(_broadcastInterval); _broadcastInterval = null; }
-      remotePlayers.clear();
       _bouncerOpen = false;
       _bouncerOverlay.style.display = 'none';
 
@@ -2523,11 +2522,11 @@ function initMultiplayer() {
             } else {
               _disconnectStart = null;
             }
-            // Watchdog: silent re-join if players vanish after we had some
+            // Watchdog: silent re-join if players vanish OR never appear despite presenceMap showing others
             if (remotePlayers.size > 0) {
               _hadPlayers = true;
               _emptyStart = null;
-            } else if (_hadPlayers && now - _joinedAt > 10000 && !_afkVisible) {
+            } else if ((_hadPlayers || presenceMap.size > 0) && now - _joinedAt > 5000 && !_afkVisible) {
               if (!_emptyStart) { _emptyStart = now; }
               else if (now - _emptyStart > 3000) {
                 sb.removeChannel(channel);
