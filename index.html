@@ -2437,11 +2437,13 @@ function initMultiplayer() {
             }
             return;
           }
-          // Announce identity once on channel join
+          // Re-announce on every (re)connect so rejoining players are visible immediately
           channel.send({
             type: 'broadcast', event: 'player_join',
             payload: { id: playerId, name: playerName, skin: playerSkin },
           });
+          // Only wire up broadcast machinery once — subscribe fires again on reconnect
+          if (_broadcastInterval) return;
 
           let _lastBroadcast    = null;
           let _lastHeartbeat    = 0;
@@ -2450,6 +2452,7 @@ function initMultiplayer() {
           let _joinedAt         = Date.now();
           let _hadPlayers       = false;
           let _emptyStart       = null;
+          let _disconnectStart  = null;
 
           const _resetActivity = () => { _lastActivityTime = Date.now(); };
           window.addEventListener('keydown', _resetActivity);
@@ -2504,17 +2507,29 @@ function initMultiplayer() {
 
           _broadcastInterval = setInterval(() => {
             const now = Date.now();
-            // Stale cleanup — 30s covers 3 missed heartbeats
+            // Stale cleanup — 10s (2 missed snapshots)
             for (const [id, p] of remotePlayers) {
-              if (now - p._lastSeen > 30000) remotePlayers.delete(id);
+              if (now - p._lastSeen > 10000) remotePlayers.delete(id);
             }
-            // Watchdog: if we had players and they all vanished for 20s, silently re-join
+            // Near-instant drop detection via WebSocket state
+            const _cs = sb.realtime.connectionState();
+            if (_cs !== 'open') {
+              if (!_disconnectStart) { _disconnectStart = now; }
+              else if (now - _disconnectStart > 2000) {
+                sb.removeChannel(channel);
+                joinWorld();
+                return;
+              }
+            } else {
+              _disconnectStart = null;
+            }
+            // Watchdog: silent re-join if players vanish after we had some
             if (remotePlayers.size > 0) {
               _hadPlayers = true;
               _emptyStart = null;
-            } else if (_hadPlayers && now - _joinedAt > 30000 && !_afkVisible) {
+            } else if (_hadPlayers && now - _joinedAt > 10000 && !_afkVisible) {
               if (!_emptyStart) { _emptyStart = now; }
-              else if (now - _emptyStart > 20000) {
+              else if (now - _emptyStart > 3000) {
                 sb.removeChannel(channel);
                 joinWorld();
                 return;
@@ -2532,7 +2547,7 @@ function initMultiplayer() {
             }
             // Periodic snapshot every 15s — re-announces identity + position to catch
             // players who missed the initial player_join due to simultaneous joins
-            if (now - _lastSnapshot >= 15000) {
+            if (now - _lastSnapshot >= 5000) {
               _lastSnapshot  = now;
               _lastHeartbeat = now;
               channel.send({
