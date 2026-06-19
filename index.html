@@ -2396,6 +2396,8 @@ function initMultiplayer() {
           const fromX = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
           const fromY = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
           remotePlayers.set(payload.id, Object.assign(existing, {
+            ...(payload.name != null && { name: payload.name }),
+            ...(payload.skin != null && { skin: payload.skin }),
             x: payload.x, y: payload.y,
             facing: payload.facing, animFrame: payload.animFrame,
             _lastSeen: now,
@@ -2427,6 +2429,7 @@ function initMultiplayer() {
 
           let _lastBroadcast = null;
           let _lastHeartbeat = 0;
+          let _lastSnapshot  = 0;
           let _lastActivityTime = Date.now();
 
           const _resetActivity = () => { _lastActivityTime = Date.now(); };
@@ -2494,12 +2497,20 @@ function initMultiplayer() {
               _lastBroadcast = { ...state };
               _lastHeartbeat = now;
               _lastActivityTime = now;
-              channel.send({ type: 'broadcast', event: 'player_move', payload: { id: playerId, ...state } });
+              channel.send({ type: 'broadcast', event: 'player_move', payload: { id: playerId, name: playerName, skin: playerSkin, ...state } });
             }
-            // Idle heartbeat every 10s — keeps remotePlayers entry alive on others
-            if (now - _lastHeartbeat >= 10000) {
+            // Periodic snapshot every 15s — re-announces identity + position to catch
+            // players who missed the initial player_join due to simultaneous joins
+            if (now - _lastSnapshot >= 15000) {
+              _lastSnapshot  = now;
               _lastHeartbeat = now;
-              channel.send({ type: 'broadcast', event: 'player_heartbeat', payload: { id: playerId } });
+              channel.send({
+                type: 'broadcast', event: 'player_snapshot',
+                payload: {
+                  id: playerId, name: playerName, skin: playerSkin,
+                  x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame,
+                },
+              });
             }
             // AFK prompt after 60s of no input
             if (!_afkVisible && now - _lastActivityTime >= 60000) _showAfk();
