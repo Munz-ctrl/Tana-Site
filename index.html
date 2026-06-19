@@ -1624,7 +1624,7 @@ function openPlaqueInfo() {
 // ─────────────────────────────────────────────────────────
 //  UPDATE
 // ─────────────────────────────────────────────────────────
-function update() {
+function update(dt = 1) {
 
   if (nameScreenOpen || popupOpen || chatOpen) return;
 
@@ -1634,8 +1634,8 @@ function update() {
     // Analogue control from joystick — full 360° diagonal movement
     // JOY_SPEED is a boosted speed specifically for mobile/touch
     const mag = Math.min(1, Math.hypot(joy.dx, joy.dy));
-    vx = joy.dx * JOY_SPEED * mag;
-    vy = joy.dy * JOY_SPEED * mag;
+    vx = joy.dx * JOY_SPEED * mag * dt;
+    vy = joy.dy * JOY_SPEED * mag * dt;
   } else {
     // Digital keyboard control — supports diagonal (8-way) movement
     const up    = keys['w'] || keys['W'] || keys['ArrowUp'];
@@ -1646,6 +1646,8 @@ function update() {
     vy = down  ? SPEED : up   ? -SPEED : 0;
     // Normalize diagonal so it isn't faster than cardinal
     if (vx !== 0 && vy !== 0) { vx *= 0.7071; vy *= 0.7071; }
+    vx *= dt;
+    vy *= dt;
   }
 
   // Facing direction
@@ -1667,11 +1669,13 @@ player.moving = moving;   // ← write it to player so drawPlayer can read it
 if (moving) {
   player.idleFrame = 0;
   player.idleTick  = 0;
-  if (++player.animTick >= 10) { player.animTick = 0; player.animFrame ^= 1; }
+  player.animTick += dt;
+  if (player.animTick >= 10) { player.animTick = 0; player.animFrame ^= 1; }
 } else {
   player.animFrame = 0;
   player.animTick  = 0;
-  if (++player.idleTick >= 30) { player.idleTick = 0; player.idleFrame ^= 1; }
+  player.idleTick += dt;
+  if (player.idleTick >= 30) { player.idleTick = 0; player.idleFrame ^= 1; }
 }
 
   // Bouncer welcome zone — reactively set _idleFrame based on player proximity
@@ -2360,11 +2364,21 @@ function initMultiplayer() {
         .on('broadcast', { event: 'player_join' }, ({ payload }) => {
           if (!payload || payload.id === playerId) return;
           const existing = remotePlayers.get(payload.id) || {};
-          remotePlayers.set(payload.id, Object.assign(existing, {
-            name: payload.name, skin: payload.skin,
-            _lastSeen: Date.now(),
-          }));
-          // Send full snapshot (identity + position) so the new joiner sees us correctly
+          const now = Date.now();
+          const update = { name: payload.name, skin: payload.skin, _lastSeen: now };
+          if (payload.x != null) {
+            const t = existing._interpStart !== undefined ? Math.min(1, (now - existing._interpStart) / 150) : 1;
+            update._fromX      = existing._fromX !== undefined ? existing._fromX + (existing._targetX - existing._fromX) * t : (existing.x ?? payload.x);
+            update._fromY      = existing._fromY !== undefined ? existing._fromY + (existing._targetY - existing._fromY) * t : (existing.y ?? payload.y);
+            update.x           = payload.x;
+            update.y           = payload.y;
+            update.facing      = payload.facing;
+            update.animFrame   = payload.animFrame;
+            update._targetX    = payload.x;
+            update._targetY    = payload.y;
+            update._interpStart = now;
+          }
+          remotePlayers.set(payload.id, Object.assign(existing, update));
           channel.send({
             type: 'broadcast', event: 'player_snapshot',
             payload: {
@@ -2424,7 +2438,7 @@ function initMultiplayer() {
             rp = { _lastSeen: Date.now() };
             remotePlayers.set(payload.id, rp);
             // Unknown sender — re-announce ourselves so they add us and send a snapshot back
-            channel.send({ type: 'broadcast', event: 'player_join', payload: { id: playerId, name: playerName, skin: playerSkin } });
+            channel.send({ type: 'broadcast', event: 'player_join', payload: { id: playerId, name: playerName, skin: playerSkin, x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame } });
           }
           rp._chat    = String(payload.text).substring(0, 40);
           rp._chatExp = Date.now() + 5000;
@@ -2439,7 +2453,7 @@ function initMultiplayer() {
           // Re-announce on every (re)connect so rejoining players are visible immediately
           channel.send({
             type: 'broadcast', event: 'player_join',
-            payload: { id: playerId, name: playerName, skin: playerSkin },
+            payload: { id: playerId, name: playerName, skin: playerSkin, x: player.x, y: player.y, facing: player.facing, animFrame: player.animFrame },
           });
           // Only wire up broadcast machinery once — subscribe fires again on reconnect
           if (_broadcastInterval) return;
@@ -2544,8 +2558,7 @@ function initMultiplayer() {
               _lastActivityTime = now;
               channel.send({ type: 'broadcast', event: 'player_move', payload: { id: playerId, name: playerName, skin: playerSkin, ...state } });
             }
-            // Periodic snapshot every 15s — re-announces identity + position to catch
-            // players who missed the initial player_join due to simultaneous joins
+            // Periodic snapshot every 5s — re-announces identity + position
             if (now - _lastSnapshot >= 5000) {
               _lastSnapshot  = now;
               _lastHeartbeat = now;
@@ -2619,8 +2632,11 @@ function initMultiplayer() {
 // ─────────────────────────────────────────────────────────
 //  GAME LOOP
 // ─────────────────────────────────────────────────────────
-(function loop() {
-  update();
+let _lastFrameTime = 0;
+(function loop(ts) {
+  const dt = _lastFrameTime ? Math.min((ts - _lastFrameTime) / 16.667, 3) : 1;
+  _lastFrameTime = ts;
+  update(dt);
   render();
   requestAnimationFrame(loop);
 })();
