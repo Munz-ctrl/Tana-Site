@@ -1488,7 +1488,7 @@ window.addEventListener('keydown', e => {
   const _typing = _t && (_t.tagName === 'INPUT' || _t.tagName === 'TEXTAREA');
   if (!_typing && (e.key === 'e' || e.key === 'E')) tryInteract();
   if (e.key === 'Escape') { closePopup(); closeChatPopup(); }
-  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
+  if (!_typing && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.key] = false; });
