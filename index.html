@@ -223,6 +223,53 @@
     }
 
     /* ────────────────────────────────────────
+       TV VIDEO OVERLAY
+    ──────────────────────────────────────── */
+    #tv-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.94);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+      padding: max(env(safe-area-inset-top, 0px), 12px)
+               max(env(safe-area-inset-right, 0px), 12px)
+               max(env(safe-area-inset-bottom, 0px), 12px)
+               max(env(safe-area-inset-left, 0px), 12px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+      z-index: 35;
+    }
+    #tv-overlay.active { opacity: 1; pointer-events: all; }
+
+    #tv-frame-wrap {
+      width: min(640px, 92%);
+      /* cap height so the close button is never pushed off-screen */
+      max-height: calc(100svh - 80px);
+      max-height: calc(100vh - 80px); /* fallback */
+      aspect-ratio: 16/9;
+      border: 2px solid #4ecca3;
+      box-shadow: 0 0 40px rgba(78,204,163,0.35);
+      background: #000;
+    }
+    #tv-frame-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
+
+    #tv-close-btn {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 7px; color: #4ecca3;
+      background: rgba(78,204,163,0.06);
+      border: 1px solid rgba(78,204,163,0.4);
+      padding: 10px 24px; cursor: pointer;
+      /* ensure a comfortable tap target */
+      min-height: 44px;
+      transition: background 0.1s;
+    }
+    #tv-close-btn:hover { background: rgba(78,204,163,0.2); }
+
+    /* ────────────────────────────────────────
        TOUCH CONTROLS  (body-level fixed overlay)
        Sits at viewport edges so controls land in the
        side gutters left/right of the 2:1 game container
@@ -234,7 +281,7 @@
       inset: 0;
       pointer-events: none;
       display: none;        /* hidden on desktop */
-      z-index: 15;          /* below popup (30) so modals cover controls */
+      z-index: 15;          /* below popup (30) and tv (35) so modals cover controls */
     }
     @media (hover: none) and (pointer: coarse) {
       #touch-ui { display: block; }
@@ -477,9 +524,9 @@
 
 <div id="entry-screen">
   <div id="entry-card">
-    <div class="entry-title">★ ALBUM OUT ★</div>
+    <div class="entry-title">★ WELCOME ★</div>
     <a id="entry-link" href="https://Popstar-Life.com" target="_blank" rel="noopener">POPSTAR-LIFE.COM</a>
-    <div class="entry-body">RELEASE PARTY FOR 'TANA — ME' .<br>JOIN Us Now!</div>
+    <div class="entry-body">AN ALL-NEW POPSTAR EXPERIENCE.<br>EXPLORE THE WORLD AS ME.</div>
     <hr class="entry-divider">
     <div class="name-skin-label">ENTER YOUR NAME</div>
     <input id="mp-name-input" type="text" maxlength="12" placeholder="PLAYER" autocomplete="off">
@@ -489,7 +536,7 @@
       <button class="skin-btn" data-skin="1"><img class="skin-thumb" src="assets/girlspritePRV.png" alt="Skin 1"></button>
       <button class="skin-btn" data-skin="2"><img class="skin-thumb" src="assets/mascotspritePRV.png" alt="Skin 2"></button>
     </div>
-    <button id="entry-confirm">ENTER THE PARTY →</button>
+    <button id="entry-confirm">ENTER →</button>
   </div>
 </div>
 
@@ -527,10 +574,10 @@
     <img src="assets/bouncerQfull.webp" width="96" style="image-rendering:pixelated;image-rendering:crisp-edges;display:block" alt="">
     <div style="color:#e94560;font-size:12px;letter-spacing:3px;text-shadow:0 0 14px rgba(233,69,96,0.8)">ROOM FULL</div>
     <div id="bouncer-count" style="color:#4ecca3;font-size:9px;letter-spacing:2px">— / 50 PLAYERS</div>
-    <div style="color:#b0b8d0;font-size:7px;letter-spacing:2px;line-height:1.8">YOU'RE ON THE LIST — HANG TIGHT</div>
+    <div style="color:#b0b8d0;font-size:7px;letter-spacing:2px;line-height:1.8">QUEUED FOR ENTRY — HANG TIGHT</div>
     <button id="bouncer-join" disabled
       style="width:100%;background:rgba(78,204,163,0.10);border:1px solid #4ecca3;color:#4ecca3;font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:2px;padding:12px 24px;cursor:pointer;outline:none;min-height:44px;opacity:0.35">JOIN →</button>
-    <input id="bouncer-vip" type="password" placeholder="VIP ACCESS" autocomplete="off"
+    <input id="bouncer-vip" type="password" placeholder="ACCESS CODE" autocomplete="off"
       style="width:100%;box-sizing:border-box;background:#080818;border:1px solid rgba(78,204,163,0.3);color:#4ecca3;font-family:'Press Start 2P',monospace;font-size:7px;padding:10px 12px;outline:none;text-align:center;text-transform:uppercase;caret-color:#4ecca3">
   </div>
 </div>
@@ -604,6 +651,15 @@
       </div>
       <div id="popup-hint">[ tap ✕ or press ESC to close ]</div>
     </div>
+  </div>
+
+  <!-- TV video overlay -->
+  <div id="tv-overlay">
+    <div id="tv-frame-wrap">
+      <iframe id="tv-iframe" src="" allowfullscreen
+        allow="autoplay; encrypted-media; picture-in-picture"></iframe>
+    </div>
+    <button id="tv-close-btn">✕  CLOSE</button>
   </div>
 
 
@@ -758,7 +814,6 @@ const skinImgs = [
 
 const chrisSpriteImg  = loadImg('assets/chrissprite.webp');
 const bouncerNpcImg   = loadImg('assets/bouncernpc.webp');
-const speakerRightImg = loadImg('assets/spkrsprite.webp');
 const speakerLeftImg  = loadImg('assets/spkrspriteLEFT.webp');
 
 
@@ -769,9 +824,15 @@ const studioUnpackedImg = loadImg('assets/studioo.png');
 // Living room
 const couchUnpackedImg  = loadImg('assets/couch_unpacked.png');
 const trunkImg          = loadImg('assets/livingroom_trunkrecord.webp');
-const baloonImg         = loadImg('assets/baloon.webp');
-const baloon2Img        = loadImg('assets/baloon2.webp');
 const carpetImg         = loadImg('assets/carpet.png');
+
+// ── TV loop video — sampled straight onto the canvas by the TV object's draw() ──
+const tvVideo = document.createElement('video');
+tvVideo.src = 'assets/tvloop.webm';
+tvVideo.loop = true;
+tvVideo.muted = true;
+tvVideo.playsInline = true;
+tvVideo.play();
 
 // Bedroom
 const bedUnpackedImg    = loadImg('assets/bed_unpacked.png');
@@ -872,6 +933,27 @@ function wy(worldY) { return Math.round(worldY - cam.y); }
 // ─────────────────────────────────────────────────────────
 const sceneObjects = [
 
+  // ── TV (wall-mounted, always visible, interactable) ──
+  //  Opens a YouTube video overlay on [E]. Draw() samples the looping
+  //  tvVideo element straight onto the canvas each frame.
+  {
+    id: 'tv',
+    x: 640, y: 50, w: 245, h: 161,
+    baseY: 200, collision: null,
+    interactable: true, action: 'video',
+    label: 'PLAY VIDEO',
+    videoId: 'ZjRhoTnFpZE',
+    img: null,
+    draw(ctx, sx, sy) {
+      if (tvVideo.readyState >= 2) {
+        ctx.drawImage(tvVideo, sx, sy, this.w, this.h);
+      } else {
+        ctx.fillStyle = '#040d0a';
+        ctx.fillRect(sx, sy, this.w, this.h);
+      }
+    }
+  },
+
   // ── STUDIO — main desk visual (packed by default) ──
   {
     id: 'studio_desk',
@@ -902,16 +984,16 @@ const sceneObjects = [
     interactable: false, img: null, draw() {}
   },
 
-  // ── LIVING ROOM — couch (packed by default) ──
-  // {
-  //   id: 'couch',
-  //   x: 530, y: 250, w: 119, h: 293,
-  //   baseY: 543,
-  //   collision: { x: 530, y: 306, w: 105, h: 233 },
-  //   interactable: false,
-  //   img: couchUnpackedImg,
-  //   draw() {}
-  // },
+  // ── LIVING ROOM — couch (original room, already unpacked) ──
+  {
+    id: 'couch',
+    x: 530, y: 250, w: 119, h: 293,
+    baseY: 543,
+    collision: { x: 530, y: 306, w: 105, h: 233 },
+    interactable: false,
+    img: couchUnpackedImg,
+    draw() {}
+  },
 
   // ── BEDROOM — shoe shelf (packed by default) ──
   {
@@ -968,42 +1050,8 @@ const sceneObjects = [
     interactable: false, img: null, draw() {}
   },
 
-  // speaker_right
-  // {
-  //   id: 'speaker_right',
-  //   x: 935, y: 410, w: 120, h: 150,
-  //   baseY: 590,
-  //   collision: null,
-  //   interactable: false,
-  //   img: null,
-  //   draw(ctx, sx, sy) {
-  //     ctx.imageSmoothingEnabled = false;
-  //     const img = speakerRightImg;
-  //     if (img.complete && img.naturalWidth > 0) {
-  //       ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
-  //     }
-  //   }
-  // },
-
-// speaker_right
-  {
-    id: 'speaker_right2',
-    x: 890, y: 90, w: 168, h: 226,
-    baseY: 290,
-    collision: null,
-    interactable: false,
-    img: null,
-    draw(ctx, sx, sy) {
-      ctx.imageSmoothingEnabled = false;
-      const img = speakerRightImg;
-      if (img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
-      }
-    }
-  },
-
-
-  // speaker_left
+  // ── Speaker — floor-standing, mid-left. Animated via speakerFrame.
+  //    (The party pass added a matched set; this is the one kept.)
   {
     id: 'speaker_left',
     x: 460, y: 390, w: 168, h: 226,
@@ -1018,56 +1066,6 @@ const sceneObjects = [
         ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
       }
     }
-  },
-
-  // speaker_left
-  {
-    id: 'speaker_left2',
-    x: 500, y: 120, w: 120, h: 150,
-    baseY: 200,
-    collision: null,
-    interactable: false,
-    img: null,
-    draw(ctx, sx, sy) {
-      ctx.imageSmoothingEnabled = false;
-      const img = speakerLeftImg;
-      if (img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
-      }
-    }
-  },
-
-  // balloon_left — under wall_mid_left collider
-  {
-    id: 'balloon_left',
-    x: 400, y: 300, w: 140, h: 260,
-    baseY: 550,
-    collision: null,
-    interactable: false,
-    img: baloonImg,
-    draw() {}
-  },
-
-  // balloon_left — under wall_mid_left collider
-  {
-    id: 'balloon_left2',
-    x: 20, y: 400, w: 140, h: 260,
-    baseY: 650,
-    collision: null,
-    interactable: false,
-    img: baloon2Img,
-    draw() {}
-  },
-
-  // balloon_right — under wall_mid_right collider
-  {
-    id: 'balloon_right',
-    x: 935, y: 300, w: 140, h: 260,
-    baseY: 550,
-    collision: null,
-    interactable: false,
-    img: baloon2Img,
-    draw() {}
   },
 
 ];
@@ -1169,14 +1167,14 @@ function applyStudioUnpack() {
 }
 
 function applyLivingroomUnpack() {
-  const couch = sceneObjects.find(o => o.id === 'couch');
-  if (couch) couch.img = couchUnpackedImg;
+  // Couch is now a static, already-unpacked scene object — nothing to swap.
   if (!sceneObjects.find(o => o.id === 'trunk')) {
     sceneObjects.push({
       id: 'trunk',
-      x: 670, y: 230, w: 180, h: 120,
-      baseY: 330,
-      collision: { x: 670, y: 280, w: 180, h: 70 },
+      // Position restored to its phase1-solo spot (party layout had moved it).
+      x: 690, y: 330, w: 180, h: 120,
+      baseY: 430,
+      collision: { x: 690, y: 380, w: 180, h: 70 },
       interactable: true,
       action: 'external-link',
       url: 'https://popstar-life.com/me',
@@ -1458,11 +1456,36 @@ let debugOn = false;
 window.addEventListener('keydown', e => {
   if (e.key === '`' || e.key === '~') debugOn = !debugOn;
 });
+
+// ─────────────────────────────────────────────────────────
+//  TV VIDEO OVERLAY  — opens a YouTube embed over the game
+// ─────────────────────────────────────────────────────────
+const tvOverlay = document.getElementById('tv-overlay');
+const tvIframe  = document.getElementById('tv-iframe');
+let tvOpen = false;
+
+function openTV(videoId) {
+  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
+  tvOverlay.classList.add('active');
+  tvOpen = true;
+  duckBGMForTV();                // fade soundtrack out under YouTube
+}
+
+function closeTV() {
+  tvIframe.src = '';
+  tvOverlay.classList.remove('active');
+  tvOpen = false;
+  unduckBGMFromTV();             // fade soundtrack back in
+}
+
+document.getElementById('tv-close-btn').addEventListener('click', closeTV);
+
 // ─────────────────────────────────────────────────────────
 //  BACKGROUND SOUNDTRACK
 //  • Tries to autoplay on load. If the browser blocks it
 //    (most do on first visit), arms a one-shot listener
 //    that starts playback on the user's first interaction.
+//  • Fades out under the YouTube TV so the two don't fight.
 //  • Mute toggle persists to localStorage. 'M' is a shortcut.
 // ─────────────────────────────────────────────────────────
 const bgm        = document.getElementById('bgm');
@@ -1496,7 +1519,7 @@ function fadeBGM(toVol, durMs) {
 }
 
 function tryStartBGM() {
-  if (bgmStarted || userMuted) return;
+  if (bgmStarted || userMuted || tvOpen) return;
   const p = bgm.play();
   if (p && typeof p.then === 'function') {
     p.then(() => {
@@ -1533,9 +1556,24 @@ bgmToggle.addEventListener('click', () => {
   } else {
     if (!bgmStarted) { tryStartBGM(); return; }
     bgm.play().catch(() => {});
-    fadeBGM(BGM_VOLUME, BGM_FADE);
+    if (!tvOpen) fadeBGM(BGM_VOLUME, BGM_FADE);
   }
 });
+
+// Two state flags fight each other otherwise:
+//   userMuted        → user clicked mute; stay silent regardless of TV
+//   ducked-for-TV    → temporary, restored when TV closes (unless userMuted)
+function duckBGMForTV() {
+  if (userMuted || !bgmStarted) return;
+  fadeBGM(0, BGM_FADE);
+  setTimeout(() => { if (tvOpen) bgm.pause(); }, BGM_FADE + 30);
+}
+function unduckBGMFromTV() {
+  if (userMuted) return;
+  if (!bgmStarted) { tryStartBGM(); return; }
+  bgm.play().catch(() => {});
+  fadeBGM(BGM_VOLUME, BGM_FADE);
+}
 
 // 'M' keyboard shortcut. Ignore when typing into inputs.
 window.addEventListener('keydown', e => {
@@ -1554,7 +1592,7 @@ window.addEventListener('keydown', e => {
    const _t = e.target;
   const _typing = _t && (_t.tagName === 'INPUT' || _t.tagName === 'TEXTAREA');
   if (!_typing && (e.key === 'e' || e.key === 'E')) tryInteract();
-  if (e.key === 'Escape') { closePopup(); closeChatPopup(); }
+  if (e.key === 'Escape') { closePopup(); closeChatPopup(); closeTV(); }
   if (!_typing && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))
     e.preventDefault();
 });
@@ -1616,8 +1654,10 @@ iBtn.addEventListener('touchend', e => {
 
 function tryInteract() {
   if (popupOpen) { closePopup(); return; }
+  if (tvOpen)    { closeTV();    return; }
   const obj = getNearbyObject();
   if (!obj) return;
+  if (obj.action === 'video')         openTV(obj.videoId);
   if (obj.action === 'email')         openEmailPopup();
   if (obj.action === 'plaque-info')   openPlaqueInfo();
   if (obj.action === 'external-link') window.open(obj.url, '_blank', 'noopener');
@@ -1693,7 +1733,7 @@ function openPlaqueInfo() {
 // ─────────────────────────────────────────────────────────
 function update(dt = 1) {
 
-  if (nameScreenOpen || popupOpen || chatOpen) return;
+  if (nameScreenOpen || popupOpen || chatOpen || tvOpen) return;
 
   let vx = 0, vy = 0;
 
@@ -2143,7 +2183,7 @@ function drawHUD() {
 
   // Bottom action hint
   const near = getNearbyObject();
-  if (near && !popupOpen) {
+  if (near && !popupOpen && !tvOpen) {
     ctx.fillStyle = 'rgba(5,5,10,0.72)';
     ctx.fillRect(0, screenBtm - 20, VIEW_W, 20);
     ctx.fillStyle = '#f9c74f';
@@ -2219,7 +2259,7 @@ function render() {
 
         // Interaction prompt — minimized pip always shown for interactables,
         // expands into full [E] Label badge as the player approaches.
-        if (obj.interactable && !popupOpen) {
+        if (obj.interactable && !popupOpen && !tvOpen) {
           if (obj.promptT === undefined) obj.promptT = 0;
           const target = (obj === nearby) ? 1 : 0;
           obj.promptT += (target - obj.promptT) * 0.18;
