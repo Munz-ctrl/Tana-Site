@@ -1089,6 +1089,73 @@ const wallPlaqueObj = {
 sceneObjects.push(wallPlaqueObj);
 
 
+// ─────────────────────────────────────────────────────────
+//  SECRET DROP — floating USB stick (links to a hidden SoundCloud album)
+//
+//  ► SPRITE SHEET: assets/USBsprt.png
+//    3 frames laid out left-to-right, each a fixed 142×179.
+//    Drop the finished art in at that exact path — the code below
+//    already slices it at that frame size, no other change needed.
+//
+//  Follows the standard scene-object pattern (position / size / collision /
+//  interaction). Floating decoration, so collision is null — no floor block,
+//  same as the wall-mounted speakers.
+// ─────────────────────────────────────────────────────────
+const usbSpriteImg = loadImg('assets/USBsprt.png');  // ◄ sprite sheet path — art drops in here
+const USB_FRAME_W  = 142;
+const USB_FRAME_H  = 179;
+
+const usbDropObj = {
+  id: 'usb_drop',
+  // Placeholder x/y — fine-tune in-game with the debug overlay (` backtick key).
+  // Sits in the bottom-right, roughly under/near the studio desk.
+  x: 1180, y: 355, w: USB_FRAME_W, h: USB_FRAME_H,
+  baseY: 520,
+  interactY: 540,   // floor level the player stands on to reach it
+  promptY: 360,     // world Y where the [E] prompt floats
+  collision: null,  // floating — no floor collision (same as the TV / speakers)
+  interactable: true,
+  action: 'external-link',
+  url: 'http://soundcloud.com/meyoumagnolia',
+  label: 'SECRET DROP',
+  img: null,        // keep null so the engine calls draw() instead of blitting a static frame
+
+  // ── Frame-cycle state — scoped to this object only ──
+  // Ping-pong through the 3 frames: 1→2→3→2→1→2→3… (never snaps 3→1) so the
+  // motion reads as a continuous gentle float. Paced well below the player's
+  // walk-cycle tick (10) so it idles rather than runs.
+  _frame: 0,        // 0,1,2 = frames 1,2,3
+  _frameDir: 1,     // +1 climbing 1→3, -1 falling 3→1
+  _frameTick: 0,
+  _FRAME_RATE: 42,  // render frames between steps — higher = slower float
+
+  // Advance the ping-pong cycle. Called once per rendered frame from render().
+  tickAnim() {
+    if (++this._frameTick < this._FRAME_RATE) return;
+    this._frameTick = 0;
+    this._frame += this._frameDir;
+    if      (this._frame >= 2) { this._frame = 2; this._frameDir = -1; }
+    else if (this._frame <= 0) { this._frame = 0; this._frameDir =  1; }
+  },
+
+  // Same slicing / drawImage approach as the player's walk animation —
+  // step across the sheet's columns one fixed-width frame at a time.
+  draw(ctx, sx, sy) {
+    ctx.imageSmoothingEnabled = false;
+    const img = usbSpriteImg;
+    if (img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(
+        img,
+        this._frame * USB_FRAME_W, 0, USB_FRAME_W, USB_FRAME_H,
+        sx, sy, this.w, this.h
+      );
+    }
+  }
+};
+
+sceneObjects.push(usbDropObj);
+
+
 applyStudioUnpack(false);
 applyLivingroomUnpack(false);
 applyBedroomUnpack(false);
@@ -2113,6 +2180,9 @@ function render() {
       npc._idleFrame ^= 1;
     }
   }
+
+  // Advance the floating USB drop's own ping-pong frame cycle
+  usbDropObj.tickAnim();
 
   for (const rp of remotePlayers.values()) {
     if (!rp.animFrame) {
