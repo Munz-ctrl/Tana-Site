@@ -199,6 +199,56 @@ const WORLD_MARGIN = 20;
 const NIGHT_TINT_COLOR    = '#141c3a';
 const NIGHT_TINT_STRENGTH = 0.5;   // 0..1
 
+// ─────────────────────────────────────────────────────────
+//  ZOMBIE TIERS — plain constants, hand-tune freely.
+//  A is weakest/slowest, C is strongest/fastest. Contact damage isn't
+//  applied yet (no player HP this pass) but is defined now so combat
+//  can read it directly later.
+// ─────────────────────────────────────────────────────────
+const ZOMBIE_TIERS = {
+  A: { hp: 20, speed: 1.5, damage: 5,  color: '#3a4a34', sheet: 'assets/zombieA.png' },
+  B: { hp: 45, speed: 2.0, damage: 10, color: '#4a3a52', sheet: 'assets/zombieB.png' },
+  C: { hp: 90, speed: 2.6, damage: 18, color: '#5c2020', sheet: 'assets/zombieC.png' },
+};
+
+// Wave at which each tougher tier first becomes eligible to spawn.
+const WAVE_TIER_B_START = 3;
+const WAVE_TIER_C_START = 6;
+
+// Once unlocked, a tier's share of spawns grows this much per wave
+// beyond its unlock wave, capped so tier A never fully disappears.
+const TIER_WEIGHT_GROWTH = 0.15;
+const TIER_WEIGHT_MAX    = 0.6;
+
+// ── Difficulty scaling — formula-driven, not a hand-written table. ──
+const ZOMBIE_COUNT_BASE    = 4;   // zombies in wave 1
+const ZOMBIE_COUNT_GROWTH  = 2;   // additional zombies per wave
+const ZOMBIE_COUNT_MAX     = 40;  // hard cap regardless of wave number
+
+const ZOMBIE_HP_MULT_GROWTH    = 0.08;  // +8% HP per wave beyond 1
+const ZOMBIE_HP_MULT_MAX       = 2.5;
+const ZOMBIE_SPEED_MULT_GROWTH = 0.02;  // +2% speed per wave beyond 1
+const ZOMBIE_SPEED_MULT_MAX    = 1.6;
+
+// Hand overrides for the first few waves — anything not listed here
+// falls through to the ZOMBIE_COUNT_* formula above.
+const WAVE_COUNT_OVERRIDES = {
+  1: 4,
+  2: 6,
+};
+
+const SPAWN_INTERVAL = 900;   // ms between individual zombie spawns during a wave
+
+const WAVE_INTRO_DURATION = 2200; // ms the "WAVE N" banner is shown
+const WAVE_CLEAR_DURATION = 2500; // ms countdown after the last zombie is gone
+
+// Anti-stuck: if a zombie has barely moved for this long despite trying,
+// it's wedged in a concave corner the axis-slide alone can't escape —
+// give it a small perpendicular shove to break free.
+const STUCK_CHECK_INTERVAL = 2000; // ms window to judge "hasn't moved"
+const STUCK_MIN_DISTANCE   = 6;    // px moved within the window to NOT be stuck
+const STUCK_NUDGE          = 14;   // px, perpendicular shove magnitude
+
 // ── Sprite sheet layout — same grid as index.html ──
 //  rows = directions, cols = frames
 const FRAME_W  = 256;
@@ -245,6 +295,17 @@ const skinImgs = [
   loadImg('assets/girlsprite.png'),
   loadImg('assets/mascotsprite.png'),
 ];
+
+// Zombie sheets — tier A exists today; B/C are loaded the same way but may
+// 404 (art not built yet). A failed/incomplete Image still reports
+// complete=true with naturalWidth=0, so the same "complete && naturalWidth"
+// check used everywhere else safely detects both cases and falls back to a
+// placeholder rect — wave testing isn't blocked waiting on that art.
+const zombieImgs = {
+  A: loadImg(ZOMBIE_TIERS.A.sheet),
+  B: loadImg(ZOMBIE_TIERS.B.sheet),
+  C: loadImg(ZOMBIE_TIERS.C.sheet),
+};
 
 // ─────────────────────────────────────────────────────────
 //  SCENE OBJECTS — populated once WORLD_W/WORLD_H are known
@@ -312,6 +373,150 @@ function wouldCollide(px, py) {
   return false;
 }
 
+// ─────────────────────────────────────────────────────────
+//  ZOMBIES
+//  Zombies share the player's exact frame/feet geometry (PW/PH/FEET_*),
+//  so wouldCollide(px,py) — built around playerFeetRect(px,py) — works
+//  unchanged for them too; every call below passes explicit coordinates.
+// ─────────────────────────────────────────────────────────
+const zombies = [];
+
+// Random point along a world edge, retried until it clears every
+// sceneObjects collision rect (i.e. isn't inside a building). Falls back
+// to a known-open spot if repeatedly unlucky.
+function pickSpawnPoint() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const edge = Math.floor(Math.random() * 4); // 0 top, 1 bottom, 2 left, 3 right
+    let x, y;
+    if (edge === 0)      { x = WORLD_MARGIN + Math.random() * (WORLD_W - 2 * WORLD_MARGIN); y = WORLD_MARGIN; }
+    else if (edge === 1) { x = WORLD_MARGIN + Math.random() * (WORLD_W - 2 * WORLD_MARGIN); y = WORLD_H - WORLD_MARGIN - PH; }
+    else if (edge === 2) { x = WORLD_MARGIN; y = WORLD_MARGIN + Math.random() * (WORLD_H - 2 * WORLD_MARGIN); }
+    else                 { x = WORLD_W - WORLD_MARGIN - PW; y = WORLD_MARGIN + Math.random() * (WORLD_H - 2 * WORLD_MARGIN); }
+
+    if (!wouldCollide(x, y)) return { x, y };
+  }
+  return { x: WORLD_W / 2 - PW / 2, y: WORLD_MARGIN }; // known-open middle of the top edge
+}
+
+// Weighted tier pick — A always eligible, B/C phase in from their unlock
+// wave and grow louder each wave after that, capped so A never vanishes.
+function pickTier(wave) {
+  const wA = 1;
+  const wB = wave >= WAVE_TIER_B_START ? Math.min(TIER_WEIGHT_MAX, TIER_WEIGHT_GROWTH * (wave - WAVE_TIER_B_START + 1)) : 0;
+  const wC = wave >= WAVE_TIER_C_START ? Math.min(TIER_WEIGHT_MAX, TIER_WEIGHT_GROWTH * (wave - WAVE_TIER_C_START + 1)) : 0;
+  const r = Math.random() * (wA + wB + wC);
+  if (r < wA) return 'A';
+  if (r < wA + wB) return 'B';
+  return 'C';
+}
+
+function spawnZombie(tier, wave) {
+  const base = ZOMBIE_TIERS[tier];
+  const hpMult    = Math.min(ZOMBIE_HP_MULT_MAX,    1 + ZOMBIE_HP_MULT_GROWTH    * (wave - 1));
+  const speedMult = Math.min(ZOMBIE_SPEED_MULT_MAX, 1 + ZOMBIE_SPEED_MULT_GROWTH * (wave - 1));
+  const spawn = pickSpawnPoint();
+  const hp = base.hp * hpMult;
+  return {
+    tier,
+    x: spawn.x, y: spawn.y,
+    hp, maxHp: hp,
+    speed: base.speed * speedMult,
+    damage: base.damage,
+    facing: 'down',
+    animFrame: 0, animTick: 0,
+    _stuckX: spawn.x, _stuckY: spawn.y, _stuckSince: performance.now(),
+  };
+}
+
+function zombieBaseY(z) { return z.y + FEET_OY + FEET_H; }
+
+function updateZombie(z, dt) {
+  const dx = player.x - z.x, dy = player.y - z.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const vx = (dx / dist) * z.speed * dt;
+  const vy = (dy / dist) * z.speed * dt;
+
+  if (Math.abs(dx) > Math.abs(dy)) z.facing = dx > 0 ? 'right' : 'left';
+  else                             z.facing = dy > 0 ? 'down'  : 'up';
+
+  // Axis-separated movement — same slide-along-the-wall behavior as the
+  // player, with no real pathfinding.
+  if (!wouldCollide(z.x + vx, z.y)) z.x += vx;
+  if (!wouldCollide(z.x, z.y + vy)) z.y += vy;
+
+  // Anti-stuck: wedged in a concave corner the axis-slide can't resolve —
+  // shove it perpendicular to its approach direction to break free.
+  const now = performance.now();
+  const movedSinceCheck = Math.hypot(z.x - z._stuckX, z.y - z._stuckY);
+  if (movedSinceCheck > STUCK_MIN_DISTANCE) {
+    z._stuckX = z.x; z._stuckY = z.y; z._stuckSince = now;
+  } else if (now - z._stuckSince > STUCK_CHECK_INTERVAL) {
+    const sign = Math.random() < 0.5 ? 1 : -1;
+    const nx = (-dy / dist) * STUCK_NUDGE * sign;
+    const ny = (dx / dist) * STUCK_NUDGE * sign;
+    if (!wouldCollide(z.x + nx, z.y)) z.x += nx;
+    if (!wouldCollide(z.x, z.y + ny)) z.y += ny;
+    z._stuckX = z.x; z._stuckY = z.y; z._stuckSince = now;
+  }
+
+  z.animTick += dt;
+  if (z.animTick >= 14) { z.animTick = 0; z.animFrame ^= 1; }
+}
+
+// ─────────────────────────────────────────────────────────
+//  WAVE STATE MACHINE
+//  WAVE_INTRO (banner) → WAVE_ACTIVE (spawns trickle in, zombies roam)
+//  → WAVE_CLEAR (countdown once the wave's zombies are all gone) → next.
+//  There's no combat yet, so the ACTIVE→CLEAR transition normally can't
+//  fire on its own — the 'K' debug key clears the current wave's zombies
+//  so the state machine can be exercised end to end.
+// ─────────────────────────────────────────────────────────
+let waveNumber       = 1;
+let waveState        = 'INTRO';
+let waveStateSince   = 0;
+let waveTotalCount   = 0;
+let waveSpawnedCount = 0;
+let lastSpawnTime    = 0;
+
+function waveZombieCount(wave) {
+  if (WAVE_COUNT_OVERRIDES[wave] != null) return WAVE_COUNT_OVERRIDES[wave];
+  return Math.min(ZOMBIE_COUNT_MAX, Math.round(ZOMBIE_COUNT_BASE + ZOMBIE_COUNT_GROWTH * (wave - 1)));
+}
+
+function startWave(n) {
+  waveNumber       = n;
+  waveState        = 'INTRO';
+  waveStateSince   = performance.now();
+  waveTotalCount   = waveZombieCount(n);
+  waveSpawnedCount = 0;
+  lastSpawnTime    = 0;
+}
+
+function updateWave() {
+  const now = performance.now();
+
+  if (waveState === 'INTRO') {
+    if (now - waveStateSince >= WAVE_INTRO_DURATION) {
+      waveState = 'ACTIVE';
+      waveStateSince = now;
+    }
+  } else if (waveState === 'ACTIVE') {
+    if (waveSpawnedCount < waveTotalCount && now - lastSpawnTime >= SPAWN_INTERVAL) {
+      zombies.push(spawnZombie(pickTier(waveNumber), waveNumber));
+      waveSpawnedCount++;
+      lastSpawnTime = now;
+    }
+    if (waveSpawnedCount >= waveTotalCount && zombies.length === 0) {
+      waveState = 'CLEAR';
+      waveStateSince = now;
+    }
+  } else if (waveState === 'CLEAR') {
+    if (now - waveStateSince >= WAVE_CLEAR_DURATION) {
+      startWave(waveNumber + 1);
+    }
+  }
+}
+
 // ── Auto-size world to image, then lay out the street + buildings ──
 bgImg.onload = () => {
   WORLD_W = bgImg.naturalWidth;
@@ -337,6 +542,8 @@ bgImg.onload = () => {
   );
 
   console.log(`[ZOMBIE STREET] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH}`);
+
+  startWave(1);
 
   // Wait two frames so the loop has actually painted this world/background
   // before snapshotting it for the intro dissolve.
@@ -371,6 +578,13 @@ let debugOn = false;
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
   if (e.key === '`') debugOn = !debugOn;
+  // DEBUG — instantly clear the current wave (kills all active zombies and
+  // marks the wave fully spawned so WAVE_ACTIVE's normal check advances it
+  // to WAVE_CLEAR next tick). No combat exists yet to trigger this for real.
+  if (e.key === 'k' || e.key === 'K') {
+    zombies.length = 0;
+    waveSpawnedCount = waveTotalCount;
+  }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
 window.addEventListener('keyup', e => { keys[e.key] = false; });
@@ -467,6 +681,9 @@ function update(dt = 1) {
   }
 
   updateCamera();
+
+  updateWave();
+  for (const z of zombies) updateZombie(z, dt);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -573,6 +790,67 @@ function drawPlayer() {
 }
 
 // ─────────────────────────────────────────────────────────
+//  DRAW — ZOMBIE
+//  Tier A has real art; B/C fall back to a tier-tinted placeholder rect
+//  (same "complete && naturalWidth" pattern room 1's scene objects use)
+//  until their sheets exist.
+// ─────────────────────────────────────────────────────────
+function drawZombie(z) {
+  const sx = wx(z.x), sy = wy(z.y);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath();
+  ctx.ellipse(sx + PW / 2, sy + PH - 6, PW / 3.2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.imageSmoothingEnabled = false;
+
+  const img = zombieImgs[z.tier];
+  if (img.complete && img.naturalWidth > 0) {
+    const srcX = z.animFrame * FRAME_W;
+    const srcY = DIR_ROW[z.facing] * FRAME_H;
+    drawNightTinted(img, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+  } else {
+    ctx.fillStyle = ZOMBIE_TIERS[z.tier].color;
+    ctx.fillRect(sx + 10, sy + 6, PW - 20, PH - 24);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(z.tier, sx + PW / 2, sy + PH / 2);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+//  DRAW — WAVE BANNER
+// ─────────────────────────────────────────────────────────
+function drawWaveBanner() {
+  const cx = VIEW_W / 2, cy = CROP_TOP + VIEW_H_DYN / 2;
+
+  if (waveState === 'INTRO') {
+    const t = (performance.now() - waveStateSince) / WAVE_INTRO_DURATION;
+    const alpha = t < 0.15 ? t / 0.15 : t > 0.8 ? (1 - t) / 0.2 : 1;
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.fillStyle = 'rgba(5,5,10,0.4)';
+    ctx.fillRect(0, cy - 40, VIEW_W, 80);
+    ctx.fillStyle = '#e94560';
+    ctx.font = '22px "Press Start 2P"';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(`WAVE ${waveNumber}`, cx, cy);
+    ctx.globalAlpha = 1;
+  } else if (waveState === 'CLEAR') {
+    const remain = Math.max(0, WAVE_CLEAR_DURATION - (performance.now() - waveStateSince));
+    ctx.fillStyle = 'rgba(5,5,10,0.4)';
+    ctx.fillRect(0, cy - 30, VIEW_W, 60);
+    ctx.fillStyle = '#4ecca3';
+    ctx.font = '14px "Press Start 2P"';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(`WAVE ${waveNumber} CLEARED`, cx, cy - 12);
+    ctx.font = '9px "Press Start 2P"';
+    ctx.fillText(`NEXT WAVE IN ${Math.ceil(remain / 1000)}...`, cx, cy + 12);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 //  DRAW — HUD
 // ─────────────────────────────────────────────────────────
 function drawHUD() {
@@ -583,6 +861,12 @@ function drawHUD() {
   ctx.font = '9px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillText('▸ ZOMBIE STREET', 8, CROP_TOP + 10);
+
+  ctx.textAlign = 'right';
+  const remaining = zombies.length + Math.max(0, waveTotalCount - waveSpawnedCount);
+  ctx.fillText(`WAVE ${waveNumber}  ·  ${remaining} LEFT`, VIEW_W - 8, CROP_TOP + 10);
+
+  drawWaveBanner();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -611,6 +895,9 @@ function render() {
     });
   }
   renderList.push({ baseY: playerBaseY(), fn: drawPlayer });
+  for (const z of zombies) {
+    renderList.push({ baseY: zombieBaseY(z), fn: () => drawZombie(z) });
+  }
   renderList.sort((a, b) => a.baseY - b.baseY);
   for (const item of renderList) item.fn();
 
@@ -647,6 +934,15 @@ function render() {
     ctx.strokeRect(wx(pf.x), wy(pf.y), pf.w, pf.h);
     ctx.fillStyle = '#4ecca3'; ctx.font = '11px monospace'; ctx.textAlign = 'left';
     ctx.fillText(`WORLD ${WORLD_W}x${WORLD_H}  PLAYER (${Math.round(player.x)},${Math.round(player.y)})`, 6, 24);
+    ctx.fillText(`WAVE state=${waveState} spawned=${waveSpawnedCount}/${waveTotalCount} zombies=${zombies.length}  [K]=clear wave`, 6, 38);
+
+    for (const z of zombies) {
+      const zsx = wx(z.x), zsy = wy(z.y);
+      ctx.strokeStyle = 'rgba(255,150,0,0.8)'; ctx.lineWidth = 1;
+      ctx.strokeRect(zsx + FEET_MARGIN, zsy + FEET_OY, PW - FEET_MARGIN * 2, FEET_H);
+      ctx.fillStyle = '#ff9600'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(z.tier, zsx + PW / 2, zsy - 6);
+    }
   }
 
   drawHUD();
