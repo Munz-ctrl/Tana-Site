@@ -100,6 +100,14 @@
       image-rendering: crisp-edges;
     }
 
+    /* Retro pixelation transition — covers the game while it dissolves into
+       a growing blocky mosaic before navigating to room 2. */
+    #transitionCanvas {
+      z-index: 90;
+      opacity: 0;
+      pointer-events: none;
+    }
+
     /* CRT scanlines */
     #game-container::after {
       content: '';
@@ -633,6 +641,7 @@
   </div>
 
   <canvas id="gameCanvas"></canvas>
+  <canvas id="transitionCanvas"></canvas>
 
   <!-- Info / Email popup -->
   <div id="popup-overlay">
@@ -871,6 +880,12 @@ bgImg.onload = () => {
   WELCOME_ZONE.x = WORLD_W / 2 - 120;
   WELCOME_ZONE.y = FLOOR_BTM - 80;
   for (const npc of npcs) { npc.w = PW; npc.h = PH; npc.baseY = npc.y + PH; }
+
+  // Room 2 exit decal — bottom-middle of the walkable floor
+  room2ExitObj.x = WORLD_W / 2 - room2ExitObj.w / 2;
+  room2ExitObj.y = FLOOR_BTM - room2ExitObj.h;
+  room2ExitObj.interactY = FLOOR_BTM - room2ExitObj.h * 0.2;
+  room2ExitObj.promptY   = room2ExitObj.y - 10;
 
   console.log(`[TANA.EXE] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH} | Floor: ${FLOOR_TOP}–${FLOOR_BTM}`);
 };
@@ -1152,6 +1167,62 @@ const usbDropObj = {
 };
 
 sceneObjects.push(usbDropObj);
+
+
+// ─────────────────────────────────────────────────────────
+//  ROOM 2 EXIT — glowing floor decal at the bottom-middle of the room.
+//  No sprite needed; drawn procedurally like the other overlay cues.
+//  Position is finalized in bgImg.onload once WORLD_W/FLOOR_BTM are known.
+// ─────────────────────────────────────────────────────────
+const room2ExitObj = {
+  id: 'room2_exit',
+  x: 0, y: 0, w: 220, h: 70,
+  baseY: 1,          // always draws under the player, like a floor decal
+  interactY: 0,
+  promptY: 0,
+  collision: null,   // floating cue — doesn't block movement
+  interactable: true,
+  action: 'room-exit',
+  label: 'ENTER THE STREET',
+  img: null,
+  draw(ctx, sx, sy) {
+    const t = Date.now() / 500;
+    const pulse = 0.5 + 0.5 * Math.sin(t);
+    const cx = sx + this.w / 2;
+    const cy = sy + this.h * 0.8;
+    const rx = this.w * 0.46;
+    const ry = this.h * 0.32;
+
+    ctx.save();
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+    grad.addColorStop(0, `rgba(78,204,163,${0.32 + 0.16 * pulse})`);
+    grad.addColorStop(1, 'rgba(78,204,163,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(78,204,163,${0.45 + 0.3 * pulse})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx * 0.68, ry * 0.68, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Bobbing chevron pointing down at the decal
+    const bob = Math.sin(t * 1.6) * 4;
+    const ay  = cy - ry - 16 + bob;
+    ctx.fillStyle = `rgba(78,204,163,${0.7 + 0.3 * pulse})`;
+    ctx.beginPath();
+    ctx.moveTo(cx, ay + 8);
+    ctx.lineTo(cx - 9, ay - 4);
+    ctx.lineTo(cx + 9, ay - 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+};
+
+sceneObjects.push(room2ExitObj);
 
 
 applyStudioUnpack(false);
@@ -1481,6 +1552,81 @@ function closeTV() {
 document.getElementById('tv-close-btn').addEventListener('click', closeTV);
 
 // ─────────────────────────────────────────────────────────
+//  ROOM 2 TRANSITION — retro pixelation dissolve
+//  Captures the current frame, then over ~500ms progressively redraws it
+//  onto a shrinking offscreen canvas (fewer effective pixels each step)
+//  and scales that back up with smoothing disabled, so the screen
+//  dissolves into a growing blocky mosaic before navigating to /zombies.
+// ─────────────────────────────────────────────────────────
+let roomTransitioning = false;
+const transitionCanvas = document.getElementById('transitionCanvas');
+const tCtx             = transitionCanvas.getContext('2d');
+
+function startRoomTransition() {
+  if (roomTransitioning) return;
+  roomTransitioning = true;
+
+  const w = canvas.width, h = canvas.height;
+
+  // Freeze the current frame
+  const snapshot = document.createElement('canvas');
+  snapshot.width = w; snapshot.height = h;
+  snapshot.getContext('2d').drawImage(canvas, 0, 0);
+
+  // Line the transition canvas up exactly over the game canvas
+  transitionCanvas.width       = w;
+  transitionCanvas.height      = h;
+  transitionCanvas.style.width  = canvas.style.width;
+  transitionCanvas.style.height = canvas.style.height;
+  transitionCanvas.style.left   = canvas.style.left;
+  transitionCanvas.style.top    = canvas.style.top;
+  transitionCanvas.style.opacity = '1';
+
+  const offscreen = document.createElement('canvas');
+  const offCtx    = offscreen.getContext('2d');
+
+  const DURATION   = 520;  // ms — within the 400-600ms target window
+  const START_MULT = 1;    // effectively full resolution at the start
+  const END_MULT   = 46;   // very blocky by the end
+  const OVERSCAN   = 24;   // px padding so jitter never reveals an edge
+  const startTime  = performance.now();
+
+  function step(now) {
+    const t = Math.min(1, (now - startTime) / DURATION);
+
+    // Shrink the offscreen canvas each step — fewer effective pixels
+    const mult  = START_MULT + (END_MULT - START_MULT) * t;
+    const downW = Math.max(1, Math.round(w / mult));
+    const downH = Math.max(1, Math.round(h / mult));
+    offscreen.width  = downW;
+    offscreen.height = downH;
+    offCtx.imageSmoothingEnabled = false;
+    offCtx.drawImage(snapshot, 0, 0, downW, downH);
+
+    // Slight random jitter — grows with t — so it reads as unstable/bobbly
+    // rather than a clean mechanical zoom.
+    const jitterMag = 8 * t;
+    const jx = (Math.random() - 0.5) * jitterMag;
+    const jy = (Math.random() - 0.5) * jitterMag;
+
+    // Scale back up with smoothing disabled — this is the blocky mosaic look
+    tCtx.imageSmoothingEnabled = false;
+    tCtx.clearRect(0, 0, w, h);
+    tCtx.drawImage(
+      offscreen, 0, 0, downW, downH,
+      -OVERSCAN / 2 + jx, -OVERSCAN / 2 + jy, w + OVERSCAN, h + OVERSCAN
+    );
+
+    if (t < 1) {
+      requestAnimationFrame(step);
+    } else {
+      window.location.href = '/zombies';
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// ─────────────────────────────────────────────────────────
 //  BACKGROUND SOUNDTRACK
 //  • Tries to autoplay on load. If the browser blocks it
 //    (most do on first visit), arms a one-shot listener
@@ -1653,6 +1799,7 @@ iBtn.addEventListener('touchend', e => {
 }, { passive:false });
 
 function tryInteract() {
+  if (roomTransitioning) return;
   if (popupOpen) { closePopup(); return; }
   if (tvOpen)    { closeTV();    return; }
   const obj = getNearbyObject();
@@ -1661,6 +1808,7 @@ function tryInteract() {
   if (obj.action === 'email')         openEmailPopup();
   if (obj.action === 'plaque-info')   openPlaqueInfo();
   if (obj.action === 'external-link') window.open(obj.url, '_blank', 'noopener');
+  if (obj.action === 'room-exit')     startRoomTransition();
   if (obj.action === 'npc-talk') {
     const phrase = obj.phrases[Math.floor(Math.random() * obj.phrases.length)];
     obj._chat    = phrase;
@@ -1733,7 +1881,7 @@ function openPlaqueInfo() {
 // ─────────────────────────────────────────────────────────
 function update(dt = 1) {
 
-  if (nameScreenOpen || popupOpen || chatOpen || tvOpen) return;
+  if (nameScreenOpen || popupOpen || chatOpen || tvOpen || roomTransitioning) return;
 
   let vx = 0, vy = 0;
 
@@ -2425,6 +2573,11 @@ setTimeout(resizeGame, 100);
   function confirm() {
     const raw = inp.value.trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase();
     playerName = raw || 'ANON';
+    // Persist so a second page (e.g. room 2) can read the chosen identity.
+    try {
+      localStorage.setItem('tana-player-name', playerName);
+      localStorage.setItem('tana-player-skin', String(playerSkin));
+    } catch (_) {}
     nameScreenOpen = false;
     screen.remove();
     initMultiplayer();
