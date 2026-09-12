@@ -8,6 +8,10 @@
   ],
   "rewrites": [
     {
+      "source": "/zombies",
+      "destination": "/zombies.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
