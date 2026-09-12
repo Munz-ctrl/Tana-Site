@@ -8,142 +8,760 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    html, body {
-      height: 100%;
-      overflow: hidden;
-      background: #0a0505;
-    }
+    html { height: 100%; overflow: hidden; }
 
     body {
+      background: #05050a;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      overflow: hidden;
       font-family: 'Press Start 2P', monospace;
       color: #e0e0e0;
-      padding: max(env(safe-area-inset-top,0px),20px)
-               max(env(safe-area-inset-right,0px),20px)
-               max(env(safe-area-inset-bottom,0px),20px)
-               max(env(safe-area-inset-left,0px),20px);
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
     }
 
-    /* Faint scanline texture to match room 1's CRT feel */
-    body::after {
+    /* ── GAME CONTAINER — fills the full viewport edge to edge ── */
+    #game-container {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      background: #05050a;
+    }
+
+    /* ── Rotate prompt (portrait mobile only) ── */
+    #rotate-screen {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: #05050a;
+      z-index: 999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+    #rotate-icon { font-size: 48px; animation: spin 2s ease-in-out infinite; }
+    @keyframes spin {
+      0%,100% { transform: rotate(0deg); }
+      50%      { transform: rotate(90deg); }
+    }
+    #rotate-msg { font-size: 10px; color: #e94560; letter-spacing: 3px; }
+    #rotate-sub { font-size: 6px; color: #333355; letter-spacing: 1px; }
+    @media (hover: none) and (pointer: coarse) and (orientation: portrait) {
+      #rotate-screen { display: flex; }
+    }
+
+    canvas {
+      display: block;
+      position: absolute;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    /* Retro pixelation transition — the reverse of room 1's exit dissolve.
+       Covers the game on load and animates away as the scene resolves
+       into focus. */
+    #transitionCanvas {
+      z-index: 90;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* CRT scanlines — same texture as room 1 */
+    #game-container::after {
       content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 2px,
+        rgba(0,0,0,0.05) 2px, rgba(0,0,0,0.05) 4px
+      );
+      pointer-events: none;
+      z-index: 50;
+    }
+
+    /* ────────────────────────────────────────
+       TOUCH CONTROLS  (body-level fixed overlay)
+    ──────────────────────────────────────── */
+    #touch-ui {
       position: fixed;
       inset: 0;
       pointer-events: none;
-      background: repeating-linear-gradient(
-        0deg, transparent, transparent 2px,
-        rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px
-      );
+      display: none;
+      z-index: 15;
+    }
+    @media (hover: none) and (pointer: coarse) {
+      #touch-ui { display: block; }
     }
 
-    #card {
-      max-width: 420px;
-      width: 100%;
-      background: #120707;
-      border: 2px solid #b23b3b;
-      box-shadow: 0 0 40px rgba(178,59,59,0.35), inset 0 0 0 1px #1a0a0a;
-      padding: 28px 24px;
-      text-align: center;
+    #joystick-zone {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+      left:   calc(env(safe-area-inset-left,   0px) + 14px);
+      width: 100px; height: 100px;
+      pointer-events: all;
+      touch-action: none;
     }
-
-    h1 {
-      font-size: 15px;
-      letter-spacing: 3px;
-      color: #e94560;
-      text-shadow: 0 0 14px rgba(233,69,96,0.7);
-      animation: flicker 2.4s infinite;
+    #joystick-base {
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      background: rgba(233,69,96,0.08);
+      border: 2px solid rgba(233,69,96,0.35);
+      box-shadow: 0 0 18px rgba(233,69,96,0.18);
     }
-
-    @keyframes flicker {
-      0%, 96%, 100% { opacity: 1; }
-      97% { opacity: 0.55; }
-      98% { opacity: 1; }
-      99% { opacity: 0.7; }
+    #joystick-knob {
+      position: absolute;
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #e94560, #5c1a28);
+      border: 2px solid rgba(233,69,96,0.9);
+      box-shadow: 0 0 14px rgba(233,69,96,0.5);
+      top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      pointer-events: none;
     }
-
-    #sub {
-      margin-top: 12px;
-      font-size: 8px;
-      letter-spacing: 2px;
-      color: #8a8a8a;
-      line-height: 1.8;
-    }
-
-    #skinThumb {
-      width: 72px;
-      height: 72px;
-      object-fit: contain;
-      image-rendering: pixelated;
-      margin: 20px auto 10px;
-      display: block;
-      filter: drop-shadow(0 0 10px rgba(233,69,96,0.5));
-    }
-
-    #welcome {
-      margin-top: 6px;
-      font-size: 9px;
-      letter-spacing: 2px;
-      color: #4ecca3;
-    }
-
-    #status {
-      margin-top: 22px;
-      font-size: 8px;
-      letter-spacing: 2px;
-      color: #b23b3b;
-    }
-
-    #back {
-      display: inline-block;
-      margin-top: 26px;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 7px;
-      letter-spacing: 2px;
-      color: #4ecca3;
-      background: rgba(78,204,163,0.08);
-      border: 1px solid #4ecca3;
-      padding: 10px 14px;
-      text-decoration: none;
-      cursor: pointer;
-    }
-    #back:hover { background: rgba(78,204,163,0.18); }
   </style>
 </head>
 <body>
 
-  <div id="card">
-    <h1>ZOMBIE STREET</h1>
-    <div id="sub">ROOM 2</div>
-    <img id="skinThumb" src="" alt="Your skin" style="display:none">
-    <div id="welcome"></div>
-    <div id="status">THE STREET IS QUIET... FOR NOW</div>
-    <a id="back" href="/">← BACK TO TANA ROOM</a>
+<div id="game-container">
+
+  <div id="rotate-screen">
+    <div id="rotate-icon">⟳</div>
+    <div id="rotate-msg">ROTATE DEVICE</div>
+    <div id="rotate-sub">this game is landscape only</div>
   </div>
 
+  <canvas id="gameCanvas"></canvas>
+  <canvas id="transitionCanvas"></canvas>
+
+</div>
+
+<div id="touch-ui">
+  <div id="joystick-zone">
+    <div id="joystick-base"></div>
+    <div id="joystick-knob"></div>
+  </div>
+</div>
+
 <script>
-// Read the identity persisted by room 1 (tana-player-name / tana-player-skin)
-// so this room can greet the same player without re-asking for a name/skin.
-const SKIN_THUMBS = [
-  'assets/spritetestf2PRV.png',
-  'assets/girlspritePRV.png',
-  'assets/mascotspritePRV.png',
+// ─────────────────────────────────────────────────────────
+//  ZOMBIE STREET — Room 2 foundation
+//  Same vanilla Canvas architecture as index.html (room 1): world size
+//  auto-derived from the background image, fixed camera-window
+//  resolution panned across it, sceneObjects + wouldCollide() for
+//  static geometry, Y-sorted rendering, responsive resizeGame().
+//
+//  No zombies, combat, or wave logic yet — this pass only builds the
+//  walkable street and gets the player moving around in it.
+// ─────────────────────────────────────────────────────────
+
+// These get overwritten by bgImg.onload — do not change manually
+let WORLD_W = 3200;   // placeholder — replaced once plt2.png loads
+let WORLD_H = 1600;   // placeholder
+
+// Fixed camera-window resolution — IDENTICAL to index.html's VIEW_W/VIEW_H.
+// The camera pans this same fixed window across the much larger world
+// instead of scaling the window up.
+const VIEW_W = 1537;
+const VIEW_H = 768;
+
+let SCREEN_W = VIEW_W;
+let SCREEN_H = VIEW_H;
+
+// ── Player geometry — hardcoded to the actual on-screen pixel size
+//    index.html renders the player at (NOT a % of this room's much
+//    taller background, which would render ~2x too large). ──
+const PW          = 92;
+const PH          = 123;
+const FEET_OY     = Math.round(PH * 0.77);   // 95
+const FEET_H      = Math.round(PH * 0.23);   // 28
+const FEET_MARGIN = Math.round(PW * 0.28);   // 26
+const SPEED       = 4.5;
+const JOY_SPEED    = 4.5;
+
+// World-bounds margin — keeps the player from walking off the map edge.
+// (Room 1 uses ROOM_L/R + FLOOR_TOP/BTM for an interior floor plan; this
+// is the open-street equivalent — the walkable area is the whole map
+// minus a small edge margin, with buildings as the actual obstacles.)
+const WORLD_MARGIN = 20;
+
+// ── Night tint — shared helper, reused later for zombies + weapon sheets.
+//    Composites a translucent navy multiply-tint over a sprite's own
+//    silhouette so day-lit art reads as night-lit without new art. ──
+const NIGHT_TINT_COLOR    = '#141c3a';
+const NIGHT_TINT_STRENGTH = 0.5;   // 0..1
+
+// ── Sprite sheet layout — same grid as index.html ──
+//  rows = directions, cols = frames
+const FRAME_W  = 256;
+const FRAME_H  = 256;
+const DIR_ROW  = { down:0, up:1, left:2, right:3 };
+
+// ─────────────────────────────────────────────────────────
+//  CANVAS
+// ─────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+canvas.width  = VIEW_W;
+canvas.height = VIEW_H;
+
+// ─────────────────────────────────────────────────────────
+//  IDENTITY — read the name/skin persisted by room 1
+// ─────────────────────────────────────────────────────────
+const SKIN_COUNT = 3;
+let playerName = 'ANON';
+let playerSkin = 0;
+try {
+  playerName = localStorage.getItem('tana-player-name') || 'ANON';
+  const storedSkin = parseInt(localStorage.getItem('tana-player-skin'), 10);
+  if (!isNaN(storedSkin) && storedSkin >= 0 && storedSkin < SKIN_COUNT) playerSkin = storedSkin;
+} catch (_) {}
+
+// ─────────────────────────────────────────────────────────
+//  ASSET LOADING
+// ─────────────────────────────────────────────────────────
+function loadImg(src) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.src = src;
+  return img;
+}
+
+const bgImg = loadImg('assets/plt2.png');
+
+// Same base (no-weapon) skin sheets as room 1 — the chosen skin index
+// picks which one to draw the player with.
+const skinImgs = [
+  loadImg('assets/spritetestf2.png'),
+  loadImg('assets/girlsprite.png'),
+  loadImg('assets/mascotsprite.png'),
 ];
 
-(function() {
-  let name = 'ANON';
-  let skin = 0;
-  try {
-    name = localStorage.getItem('tana-player-name') || 'ANON';
-    skin = parseInt(localStorage.getItem('tana-player-skin'), 10);
-    if (isNaN(skin) || skin < 0 || skin >= SKIN_THUMBS.length) skin = 0;
-  } catch (_) {}
+// ─────────────────────────────────────────────────────────
+//  SCENE OBJECTS — populated once WORLD_W/WORLD_H are known
+// ─────────────────────────────────────────────────────────
+const sceneObjects = [];
 
-  document.getElementById('welcome').textContent = `WELCOME, ${name}`;
-  const thumb = document.getElementById('skinThumb');
-  thumb.src = SKIN_THUMBS[skin];
-  thumb.style.display = 'block';
+// plt2.png already paints the corner buildings into the background art
+// itself — these are invisible colliders (same pattern as room 1's
+// "wall_mid_left") that line up with that art, not drawn geometry.
+function makeBuilding(id, x, y, w, h) {
+  return {
+    id, x, y, w, h,
+    baseY: y + h,
+    collision: { x, y, w, h },
+    interactable: false,
+    img: null,
+    draw() {}
+  };
+}
+
+// ─────────────────────────────────────────────────────────
+//  PLAYER
+// ─────────────────────────────────────────────────────────
+const player = {
+  x: WORLD_W / 2 - PW / 2,
+  y: WORLD_H / 2 - PH / 2,
+  facing: 'down',
+  animFrame: 0,
+  animTick: 0,
+  idleFrame: 0,
+  idleTick: 0,
+};
+
+function playerFeetRect(px, py) {
+  return {
+    x: (px ?? player.x) + FEET_MARGIN,
+    y: (py ?? player.y) + FEET_OY,
+    w: PW - FEET_MARGIN * 2,
+    h: FEET_H,
+  };
+}
+function playerBaseY() { return player.y + FEET_OY + FEET_H; }
+
+// ─────────────────────────────────────────────────────────
+//  COLLISION — same rectsOverlap/wouldCollide pattern as room 1
+// ─────────────────────────────────────────────────────────
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x
+      && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function wouldCollide(px, py) {
+  const feet = playerFeetRect(px, py);
+
+  for (const obj of sceneObjects) {
+    if (!obj.collision) continue;
+    if (rectsOverlap(feet, obj.collision)) return true;
+  }
+
+  if (feet.x < WORLD_MARGIN) return true;
+  if (feet.x + feet.w > WORLD_W - WORLD_MARGIN) return true;
+  if (feet.y < WORLD_MARGIN) return true;
+  if (feet.y + feet.h > WORLD_H - WORLD_MARGIN) return true;
+
+  return false;
+}
+
+// ── Auto-size world to image, then lay out the street + buildings ──
+bgImg.onload = () => {
+  WORLD_W = bgImg.naturalWidth;
+  WORLD_H = bgImg.naturalHeight;
+
+  player.x = WORLD_W / 2 - PW / 2;
+  player.y = WORLD_H / 2 - PH / 2;
+
+  // Cross-shaped street intersection: plt2.png already paints a building
+  // into each corner, fronted by a sidewalk that runs along the street.
+  // These insets were measured directly off the art (sampled pixel bands
+  // of the actual background image) so the invisible colliders sit at
+  // the building line rather than spilling out over the walkable sidewalk.
+  const BUILDING_W = 780;  // building footprint depth inward from left/right edge
+  const BUILDING_H = 240;  // building footprint depth inward from top/bottom edge
+
+  sceneObjects.length = 0;
+  sceneObjects.push(
+    makeBuilding('bldg_tl', 0, 0, BUILDING_W, BUILDING_H),
+    makeBuilding('bldg_tr', WORLD_W - BUILDING_W, 0, BUILDING_W, BUILDING_H),
+    makeBuilding('bldg_bl', 0, WORLD_H - BUILDING_H, BUILDING_W, BUILDING_H),
+    makeBuilding('bldg_br', WORLD_W - BUILDING_W, WORLD_H - BUILDING_H, BUILDING_W, BUILDING_H),
+  );
+
+  console.log(`[ZOMBIE STREET] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH}`);
+
+  // Wait two frames so the loop has actually painted this world/background
+  // before snapshotting it for the intro dissolve.
+  requestAnimationFrame(() => requestAnimationFrame(playIntroPixelation));
+};
+
+// ─────────────────────────────────────────────────────────
+//  CAMERA — same clamped-pan formula as room 1
+// ─────────────────────────────────────────────────────────
+const cam = { x: 0, y: 0 };
+let VIEW_H_DYN = VIEW_H;
+let CROP_TOP   = 0;
+
+function updateCamera() {
+  cam.x = player.x + PW / 2 - VIEW_W / 2;
+  cam.x = Math.max(0, Math.min(WORLD_W - VIEW_W, cam.x));
+
+  cam.y = player.y + PH / 2 - VIEW_H / 2;
+  const camYMin = -CROP_TOP;
+  const camYMax = Math.max(camYMin, WORLD_H - VIEW_H + CROP_TOP);
+  cam.y = Math.max(camYMin, Math.min(camYMax, cam.y));
+}
+
+function wx(worldX) { return Math.round(worldX - cam.x); }
+function wy(worldY) { return Math.round(worldY - cam.y); }
+
+// ─────────────────────────────────────────────────────────
+//  INPUT — keyboard
+// ─────────────────────────────────────────────────────────
+const keys = {};
+let debugOn = false;
+window.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key === '`') debugOn = !debugOn;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+// ─────────────────────────────────────────────────────────
+//  INPUT — virtual joystick (same pattern as room 1)
+// ─────────────────────────────────────────────────────────
+const joy = { dx: 0, dy: 0, active: false };
+const JOY_MAX = 30;
+const jZone = document.getElementById('joystick-zone');
+const jKnob = document.getElementById('joystick-knob');
+let jCX = 0, jCY = 0, jTid = null;
+
+function jStart(e) {
+  e.preventDefault();
+  const t = e.changedTouches[0]; jTid = t.identifier;
+  const r = jZone.getBoundingClientRect();
+  jCX = r.left + r.width / 2; jCY = r.top + r.height / 2;
+  jMove(e);
+}
+function jMove(e) {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier !== jTid) continue;
+    let dx = t.clientX - jCX, dy = t.clientY - jCY;
+    const d = Math.hypot(dx, dy);
+    if (d > JOY_MAX) { dx = dx / d * JOY_MAX; dy = dy / d * JOY_MAX; }
+    jKnob.style.left = `calc(50% + ${dx}px)`;
+    jKnob.style.top  = `calc(50% + ${dy}px)`;
+    jKnob.style.transform = 'translate(-50%,-50%)';
+    joy.dx = dx / JOY_MAX; joy.dy = dy / JOY_MAX; joy.active = true;
+  }
+}
+function jEnd(e) {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier !== jTid) continue;
+    jKnob.style.left = jKnob.style.top = '50%';
+    jKnob.style.transform = 'translate(-50%,-50%)';
+    joy.dx = joy.dy = 0; joy.active = false; jTid = null;
+  }
+}
+jZone.addEventListener('touchstart',  jStart, { passive: false });
+jZone.addEventListener('touchmove',   jMove,  { passive: false });
+jZone.addEventListener('touchend',    jEnd,   { passive: false });
+jZone.addEventListener('touchcancel', jEnd,   { passive: false });
+
+// ─────────────────────────────────────────────────────────
+//  UPDATE
+// ─────────────────────────────────────────────────────────
+function update(dt = 1) {
+  let vx = 0, vy = 0;
+
+  if (joy.active) {
+    const mag = Math.min(1, Math.hypot(joy.dx, joy.dy));
+    vx = joy.dx * JOY_SPEED * mag * dt;
+    vy = joy.dy * JOY_SPEED * mag * dt;
+  } else {
+    const up    = keys['w'] || keys['W'] || keys['ArrowUp'];
+    const down  = keys['s'] || keys['S'] || keys['ArrowDown'];
+    const left  = keys['a'] || keys['A'] || keys['ArrowLeft'];
+    const right = keys['d'] || keys['D'] || keys['ArrowRight'];
+    vx = right ? SPEED : left ? -SPEED : 0;
+    vy = down  ? SPEED : up   ? -SPEED : 0;
+    if (vx !== 0 && vy !== 0) { vx *= 0.7071; vy *= 0.7071; }
+    vx *= dt; vy *= dt;
+  }
+
+  if (Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1) {
+    const ax = Math.abs(vx), ay = Math.abs(vy);
+    if      (ax >= ay && vx > 0) player.facing = 'right';
+    else if (ax >= ay && vx < 0) player.facing = 'left';
+    else if (vy > 0)             player.facing = 'down';
+    else                         player.facing = 'up';
+  }
+
+  // Axis-separated movement — slides along a building's edge instead of
+  // stopping dead when moving diagonally into it.
+  if (vx !== 0 && !wouldCollide(player.x + vx, player.y)) player.x += vx;
+  if (vy !== 0 && !wouldCollide(player.x, player.y + vy)) player.y += vy;
+
+  const moving = Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1;
+  player.moving = moving;
+  if (moving) {
+    player.idleFrame = 0;
+    player.idleTick  = 0;
+    player.animTick += dt;
+    if (player.animTick >= 10) { player.animTick = 0; player.animFrame ^= 1; }
+  } else {
+    player.animFrame = 0;
+    player.animTick  = 0;
+    player.idleTick += dt;
+    if (player.idleTick >= 30) { player.idleTick = 0; player.idleFrame ^= 1; }
+  }
+
+  updateCamera();
+}
+
+// ─────────────────────────────────────────────────────────
+//  NIGHT TINT — shared helper (see constants above)
+//  Draws a sprite frame then composites a translucent navy multiply-tint
+//  clipped back to the sprite's own alpha so day-lit art reads as
+//  night-lit. Reused later for zombies and weapon-specific sheets.
+// ─────────────────────────────────────────────────────────
+const _tintCanvas = document.createElement('canvas');
+_tintCanvas.width  = PW;
+_tintCanvas.height = PH;
+const _tintCtx = _tintCanvas.getContext('2d');
+
+function drawNightTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh) {
+  _tintCtx.clearRect(0, 0, dw, dh);
+  _tintCtx.imageSmoothingEnabled = false;
+  _tintCtx.globalCompositeOperation = 'source-over';
+  _tintCtx.drawImage(srcImg, sx0, sy0, sw, sh, 0, 0, dw, dh);
+
+  // Multiply-tint the whole box...
+  _tintCtx.globalCompositeOperation = 'multiply';
+  _tintCtx.globalAlpha = NIGHT_TINT_STRENGTH;
+  _tintCtx.fillStyle = NIGHT_TINT_COLOR;
+  _tintCtx.fillRect(0, 0, dw, dh);
+  _tintCtx.globalAlpha = 1;
+
+  // ...then re-clip to the sprite's own silhouette so the tint doesn't
+  // paint a visible box over the transparent padding around it.
+  _tintCtx.globalCompositeOperation = 'destination-in';
+  _tintCtx.drawImage(srcImg, sx0, sy0, sw, sh, 0, 0, dw, dh);
+  _tintCtx.globalCompositeOperation = 'source-over';
+
+  ctx.drawImage(_tintCanvas, 0, 0, dw, dh, dx, dy, dw, dh);
+}
+
+// ─────────────────────────────────────────────────────────
+//  DRAW — BACKGROUND
+// ─────────────────────────────────────────────────────────
+function drawBackground() {
+  ctx.imageSmoothingEnabled = false;
+
+  if (bgImg.complete && bgImg.naturalWidth > 0) {
+    const scaleX = bgImg.naturalWidth  / WORLD_W;
+    const scaleY = bgImg.naturalHeight / WORLD_H;
+    ctx.drawImage(
+      bgImg,
+      Math.round(cam.x * scaleX),
+      Math.round(cam.y * scaleY),
+      Math.round(VIEW_W * scaleX),
+      Math.round(VIEW_H * scaleY),
+      0, 0, VIEW_W, VIEW_H
+    );
+  } else {
+    ctx.fillStyle = '#05050a';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+//  DRAW — PLAYER
+// ─────────────────────────────────────────────────────────
+function roundRect(cx, x, y, w, h, r) {
+  cx.beginPath();
+  cx.moveTo(x+r,y); cx.lineTo(x+w-r,y); cx.arcTo(x+w,y,x+w,y+r,r);
+  cx.lineTo(x+w,y+h-r); cx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  cx.lineTo(x+r,y+h); cx.arcTo(x,y+h,x,y+h-r,r);
+  cx.lineTo(x,y+r); cx.arcTo(x,y,x+r,y,r);
+  cx.closePath();
+}
+
+function drawPlayer() {
+  const sx = wx(player.x);
+  const sy = wy(player.y);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath();
+  ctx.ellipse(sx + PW / 2, sy + PH - 6, PW / 3.2, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.imageSmoothingEnabled = false;
+
+  const _sImg = skinImgs[playerSkin];
+  if (_sImg.complete && _sImg.naturalWidth > 0) {
+    const moving = player.moving ?? false;
+    const col  = moving ? player.animFrame : (player.idleFrame === 1 ? 2 : 0);
+    const srcX = col * FRAME_W;
+    const srcY = DIR_ROW[player.facing] * FRAME_H;
+
+    drawNightTinted(_sImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+  } else {
+    ctx.fillStyle = '#e94560';
+    ctx.fillRect(sx + 8, sy, PW - 16, PH * 0.35);
+    ctx.fillStyle = '#141c3a';
+    ctx.fillRect(sx + 4, sy + PH * 0.35, PW - 8, PH * 0.65);
+  }
+
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  roundRect(ctx, sx + PW / 2 - 26, sy - 22, 52, 16, 2);
+  ctx.fill();
+  ctx.fillStyle = '#e94560';
+  ctx.font = '8px "Press Start 2P"';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(playerName, sx + PW / 2, sy - 14);
+}
+
+// ─────────────────────────────────────────────────────────
+//  DRAW — HUD
+// ─────────────────────────────────────────────────────────
+function drawHUD() {
+  const screenBtm = CROP_TOP + VIEW_H_DYN;
+  ctx.fillStyle = 'rgba(5,5,10,0)';
+  ctx.fillRect(0, CROP_TOP, VIEW_W, 20);
+  ctx.fillStyle = '#e94560';
+  ctx.font = '9px "Press Start 2P"';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('▸ ZOMBIE STREET', 8, CROP_TOP + 10);
+}
+
+// ─────────────────────────────────────────────────────────
+//  MAIN RENDER — Y-sort by baseY, same as room 1
+// ─────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+  ctx.imageSmoothingEnabled = false;
+
+  drawBackground();
+
+  const renderList = [];
+  for (const obj of sceneObjects) {
+    renderList.push({
+      baseY: obj.baseY,
+      fn: () => {
+        const sx = wx(obj.x), sy = wy(obj.y);
+        if (sx + obj.w < 0 || sx > VIEW_W || sy + obj.h < 0 || sy > VIEW_H) return;
+        ctx.imageSmoothingEnabled = false;
+        if (obj.img && obj.img.complete && obj.img.naturalWidth > 0) {
+          ctx.drawImage(obj.img, sx, sy, obj.w, obj.h);
+        } else {
+          obj.draw(ctx, sx, sy);
+        }
+      }
+    });
+  }
+  renderList.push({ baseY: playerBaseY(), fn: drawPlayer });
+  renderList.sort((a, b) => a.baseY - b.baseY);
+  for (const item of renderList) item.fn();
+
+  // ── DEBUG OVERLAY (press ` backtick to toggle) — for tuning the
+  // invisible building colliders against the painted background art. ──
+  if (debugOn) {
+    // World-space coordinate grid (every 100px) — for reading off exact
+    // building-edge coordinates against the painted art while tuning.
+    ctx.strokeStyle = 'rgba(255,255,0,0.25)'; ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(255,255,0,0.6)'; ctx.font = '9px monospace';
+    const gStartX = Math.floor(cam.x / 100) * 100;
+    const gStartY = Math.floor(cam.y / 100) * 100;
+    for (let gx = gStartX; gx < cam.x + VIEW_W; gx += 100) {
+      ctx.beginPath(); ctx.moveTo(wx(gx), 0); ctx.lineTo(wx(gx), VIEW_H); ctx.stroke();
+      ctx.fillText(String(gx), wx(gx) + 2, 12);
+    }
+    for (let gy = gStartY; gy < cam.y + VIEW_H; gy += 100) {
+      ctx.beginPath(); ctx.moveTo(0, wy(gy)); ctx.lineTo(VIEW_W, wy(gy)); ctx.stroke();
+      ctx.fillText(String(gy), 2, wy(gy) + 10);
+    }
+    for (const obj of sceneObjects) {
+      if (!obj.collision) continue;
+      const cxp = wx(obj.collision.x), cyp = wy(obj.collision.y);
+      ctx.fillStyle = 'rgba(255,40,40,0.18)';
+      ctx.fillRect(cxp, cyp, obj.collision.w, obj.collision.h);
+      ctx.strokeStyle = 'rgba(255,40,40,0.9)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(cxp, cyp, obj.collision.w, obj.collision.h);
+      ctx.fillStyle = '#39ff14'; ctx.font = '11px monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(obj.id, cxp + 3, cyp + 3);
+    }
+    const pf = playerFeetRect();
+    ctx.strokeStyle = 'cyan'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(wx(pf.x), wy(pf.y), pf.w, pf.h);
+    ctx.fillStyle = '#4ecca3'; ctx.font = '11px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(`WORLD ${WORLD_W}x${WORLD_H}  PLAYER (${Math.round(player.x)},${Math.round(player.y)})`, 6, 24);
+  }
+
+  drawHUD();
+}
+
+// ─────────────────────────────────────────────────────────
+//  ROOM 1 → ROOM 2 INTRO TRANSITION — reverse pixelation dissolve
+//  The other half of room 1's exit effect: starts at maximum block size
+//  and resolves down to full resolution over ~500ms, using the same
+//  downsample/upscale-with-smoothing-off technique.
+// ─────────────────────────────────────────────────────────
+const transitionCanvas = document.getElementById('transitionCanvas');
+const tCtx             = transitionCanvas.getContext('2d');
+
+function playIntroPixelation() {
+  const w = canvas.width, h = canvas.height;
+
+  const snapshot = document.createElement('canvas');
+  snapshot.width = w; snapshot.height = h;
+  snapshot.getContext('2d').drawImage(canvas, 0, 0);
+
+  transitionCanvas.width        = w;
+  transitionCanvas.height       = h;
+  transitionCanvas.style.width  = canvas.style.width;
+  transitionCanvas.style.height = canvas.style.height;
+  transitionCanvas.style.left   = canvas.style.left;
+  transitionCanvas.style.top    = canvas.style.top;
+  transitionCanvas.style.opacity = '1';
+
+  const offscreen = document.createElement('canvas');
+  const offCtx    = offscreen.getContext('2d');
+
+  const DURATION   = 520;  // ms — within the 400-600ms target window
+  const START_MULT = 46;   // begins very blocky
+  const END_MULT   = 1;    // resolves to full resolution
+  const OVERSCAN   = 24;   // px padding so jitter never reveals an edge
+  const startTime  = performance.now();
+
+  function step(now) {
+    const t = Math.min(1, (now - startTime) / DURATION);
+
+    const mult  = START_MULT + (END_MULT - START_MULT) * t;
+    const downW = Math.max(1, Math.round(w / mult));
+    const downH = Math.max(1, Math.round(h / mult));
+    offscreen.width  = downW;
+    offscreen.height = downH;
+    offCtx.imageSmoothingEnabled = false;
+    offCtx.drawImage(snapshot, 0, 0, downW, downH);
+
+    // Jitter fades out as the image resolves, settling instead of
+    // snapping cleanly into focus.
+    const jitterMag = 8 * (1 - t);
+    const jx = (Math.random() - 0.5) * jitterMag;
+    const jy = (Math.random() - 0.5) * jitterMag;
+
+    tCtx.imageSmoothingEnabled = false;
+    tCtx.clearRect(0, 0, w, h);
+    tCtx.drawImage(
+      offscreen, 0, 0, downW, downH,
+      -OVERSCAN / 2 + jx, -OVERSCAN / 2 + jy, w + OVERSCAN, h + OVERSCAN
+    );
+
+    if (t < 1) {
+      requestAnimationFrame(step);
+    } else {
+      transitionCanvas.style.opacity = '0';
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// ─────────────────────────────────────────────────────────
+//  RESPONSIVE SIZING — same approach as index.html's resizeGame()
+// ─────────────────────────────────────────────────────────
+function resizeGame() {
+  const dpr = window.devicePixelRatio || 1;
+  const vp = window.visualViewport;
+  SCREEN_W = vp ? vp.width  : window.innerWidth;
+  SCREEN_H = vp ? vp.height : window.innerHeight;
+
+  const scale = SCREEN_W / VIEW_W;
+  const cssH  = VIEW_H * scale;
+
+  canvas.style.width  = SCREEN_W + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.style.left   = '0';
+  canvas.style.top    = ((SCREEN_H - cssH) / 2) + 'px';
+
+  canvas.width  = Math.round(SCREEN_W * dpr);
+  canvas.height = Math.round(cssH * dpr);
+
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+
+  VIEW_H_DYN = Math.min(VIEW_H, SCREEN_H / scale);
+  CROP_TOP   = (VIEW_H - VIEW_H_DYN) / 2;
+}
+
+window.addEventListener('resize', resizeGame);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resizeGame);
+}
+resizeGame();
+setTimeout(resizeGame, 100);
+
+// ─────────────────────────────────────────────────────────
+//  GAME LOOP
+// ─────────────────────────────────────────────────────────
+let _lastFrameTime = 0;
+(function loop(ts) {
+  const dt = _lastFrameTime ? Math.min((ts - _lastFrameTime) / 16.667, 3) : 1;
+  _lastFrameTime = ts;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
 })();
 </script>
 
