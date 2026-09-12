@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>ZOMBIE STREET</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: #0a0505;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Press Start 2P', monospace;
+      color: #e0e0e0;
+      padding: max(env(safe-area-inset-top,0px),20px)
+               max(env(safe-area-inset-right,0px),20px)
+               max(env(safe-area-inset-bottom,0px),20px)
+               max(env(safe-area-inset-left,0px),20px);
+    }
+
+    /* Faint scanline texture to match room 1's CRT feel */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 2px,
+        rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px
+      );
+    }
+
+    #card {
+      max-width: 420px;
+      width: 100%;
+      background: #120707;
+      border: 2px solid #b23b3b;
+      box-shadow: 0 0 40px rgba(178,59,59,0.35), inset 0 0 0 1px #1a0a0a;
+      padding: 28px 24px;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 15px;
+      letter-spacing: 3px;
+      color: #e94560;
+      text-shadow: 0 0 14px rgba(233,69,96,0.7);
+      animation: flicker 2.4s infinite;
+    }
+
+    @keyframes flicker {
+      0%, 96%, 100% { opacity: 1; }
+      97% { opacity: 0.55; }
+      98% { opacity: 1; }
+      99% { opacity: 0.7; }
+    }
+
+    #sub {
+      margin-top: 12px;
+      font-size: 8px;
+      letter-spacing: 2px;
+      color: #8a8a8a;
+      line-height: 1.8;
+    }
+
+    #skinThumb {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      margin: 20px auto 10px;
+      display: block;
+      filter: drop-shadow(0 0 10px rgba(233,69,96,0.5));
+    }
+
+    #welcome {
+      margin-top: 6px;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: #4ecca3;
+    }
+
+    #status {
+      margin-top: 22px;
+      font-size: 8px;
+      letter-spacing: 2px;
+      color: #b23b3b;
+    }
+
+    #back {
+      display: inline-block;
+      margin-top: 26px;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 7px;
+      letter-spacing: 2px;
+      color: #4ecca3;
+      background: rgba(78,204,163,0.08);
+      border: 1px solid #4ecca3;
+      padding: 10px 14px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    #back:hover { background: rgba(78,204,163,0.18); }
+  </style>
+</head>
+<body>
+
+  <div id="card">
+    <h1>ZOMBIE STREET</h1>
+    <div id="sub">ROOM 2</div>
+    <img id="skinThumb" src="" alt="Your skin" style="display:none">
+    <div id="welcome"></div>
+    <div id="status">THE STREET IS QUIET... FOR NOW</div>
+    <a id="back" href="/">← BACK TO TANA ROOM</a>
+  </div>
+
+<script>
+// Read the identity persisted by room 1 (tana-player-name / tana-player-skin)
+// so this room can greet the same player without re-asking for a name/skin.
+const SKIN_THUMBS = [
+  'assets/spritetestf2PRV.png',
+  'assets/girlspritePRV.png',
+  'assets/mascotspritePRV.png',
+];
+
+(function() {
+  let name = 'ANON';
+  let skin = 0;
+  try {
+    name = localStorage.getItem('tana-player-name') || 'ANON';
+    skin = parseInt(localStorage.getItem('tana-player-skin'), 10);
+    if (isNaN(skin) || skin < 0 || skin >= SKIN_THUMBS.length) skin = 0;
+  } catch (_) {}
+
+  document.getElementById('welcome').textContent = `WELCOME, ${name}`;
+  const thumb = document.getElementById('skinThumb');
+  thumb.src = SKIN_THUMBS[skin];
+  thumb.style.display = 'block';
+})();
+</script>
+
+</body>
+</html>
