@@ -127,6 +127,28 @@
       transform: translate(-50%,-50%);
       pointer-events: none;
     }
+
+    /* fire button — bottom-right of viewport (mirrors room 1's interact
+       button pattern, relabeled with a crosshair for hold-to-fire) */
+    #fire-btn {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+      right:  calc(env(safe-area-inset-right,  0px) + 16px);
+      width: 66px; height: 66px;
+      border-radius: 50%;
+      background: rgba(233,69,96,0.09);
+      border: 2px solid rgba(233,69,96,0.5);
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: all; touch-action: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s, box-shadow 0.08s;
+      font-size: 26px; color: #e94560;
+    }
+    #fire-btn.pressed {
+      background: rgba(233,69,96,0.32);
+      box-shadow: 0 0 22px rgba(233,69,96,0.55);
+    }
   </style>
 </head>
 <body>
@@ -149,6 +171,7 @@
     <div id="joystick-base"></div>
     <div id="joystick-knob"></div>
   </div>
+  <div id="fire-btn">⊕</div>
 </div>
 
 <script>
@@ -249,11 +272,57 @@ const STUCK_CHECK_INTERVAL = 2000; // ms window to judge "hasn't moved"
 const STUCK_MIN_DISTANCE   = 6;    // px moved within the window to NOT be stuck
 const STUCK_NUDGE          = 14;   // px, perpendicular shove magnitude
 
+// ─────────────────────────────────────────────────────────
+//  WEAPONS — plain per-weapon constants, hand-tune freely.
+//  coneDeg is the FULL angle of the hitscan cone (centered on the aim
+//  angle). With 8 aim directions 45° apart, a single-target weapon's
+//  cone must stay well under 45° or two adjacent directions would hit
+//  the same target — the shotgun is the deliberate exception: it's
+//  wide enough to overlap neighboring directions and can multi-hit.
+// ─────────────────────────────────────────────────────────
+const WEAPON_ORDER = ['pistol', 'smg', 'shotgun']; // unlock progression order
+const WEAPONS = {
+  pistol:  { label: 'PISTOL',  damage: 14, fireRate: 380, range: 560, coneDeg: 18, multiHit: false },
+  smg:     { label: 'SMG',     damage: 6,  fireRate: 90,  range: 480, coneDeg: 22, multiHit: false },
+  shotgun: { label: 'SHOTGUN', damage: 9,  fireRate: 650, range: 320, coneDeg: 50, multiHit: true  },
+};
+
+// Wave-clear events that unlock each later weapon (pistol is available
+// from the start). Sits next to the wave-scaling constants above since
+// both drive off the same wave-clear progression.
+const WEAPON_UNLOCK_WAVE = {
+  smg:     4,
+  shotgun: 8,
+};
+
+const WEAPON_UNLOCK_NOTICE_DURATION = 2400; // ms the "WEAPON UNLOCKED" banner shows
+
+// Transient combat FX durations (procedural, no art assets).
+const TRACER_FX_DURATION = 110; // ms a shot's tracer/muzzle-flash is visible
+const DEATH_FX_DURATION  = 420; // ms a zombie's death burst plays
+
 // ── Sprite sheet layout — same grid as index.html ──
 //  rows = directions, cols = frames
 const FRAME_W  = 256;
 const FRAME_H  = 256;
 const DIR_ROW  = { down:0, up:1, left:2, right:3 };
+
+// ── 8-way aim directions — independent of the 4-way walk-facing above.
+//    Index order matches a clockwise sweep starting at "right" so
+//    Math.round(angle / 45°) maps directly onto it (see angleToAimDir). ──
+const AIM_DIRS = [
+  { dx: 1, dy: 0 }, { dx: 1, dy: 1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 1 },
+  { dx: -1, dy: 0 }, { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 },
+].map(d => {
+  const len = Math.hypot(d.dx, d.dy);
+  return { dx: d.dx / len, dy: d.dy / len };
+});
+
+function angleToAimDir(ix, iy) {
+  const angle = Math.atan2(iy, ix);
+  let idx = Math.round(angle / (Math.PI / 4));
+  return ((idx % 8) + 8) % 8;
+}
 
 // ─────────────────────────────────────────────────────────
 //  CANVAS
@@ -307,6 +376,28 @@ const zombieImgs = {
   C: loadImg(ZOMBIE_TIERS.C.sheet),
 };
 
+// Per (skin, weapon) player sheets — same 256×256/4-row layout as the base
+// skin sheets, 2 columns (idle + walk). Filenames follow {Skin}{Weapon}.png,
+// e.g. skinBPistol.png, skinASMG.png — except skin A + pistol, which is
+// already built as the exact file skinApistol.png (lowercase, pre-existing).
+// Every (skin, weapon) pair is preloaded up front; missing ones just 404
+// like zombie B/C above, and drawPlayer() falls back to the base skin sheet.
+const SKIN_LETTERS      = ['A', 'B', 'C'];
+const WEAPON_FILE_NAMES = { pistol: 'Pistol', smg: 'SMG', shotgun: 'Shotgun' };
+
+function weaponSheetPath(skinIdx, weaponKey) {
+  const letter = SKIN_LETTERS[skinIdx] || 'A';
+  if (letter === 'A' && weaponKey === 'pistol') return 'assets/skinApistol.png';
+  return `assets/skin${letter}${WEAPON_FILE_NAMES[weaponKey]}.png`;
+}
+
+const weaponSkinImgs = {};
+for (let s = 0; s < SKIN_LETTERS.length; s++) {
+  for (const wk of WEAPON_ORDER) {
+    weaponSkinImgs[`${s}_${wk}`] = loadImg(weaponSheetPath(s, wk));
+  }
+}
+
 // ─────────────────────────────────────────────────────────
 //  SCENE OBJECTS — populated once WORLD_W/WORLD_H are known
 // ─────────────────────────────────────────────────────────
@@ -337,7 +428,17 @@ const player = {
   animTick: 0,
   idleFrame: 0,
   idleTick: 0,
+  aimDir: 2, // index into AIM_DIRS — starts facing "down", matches `facing`
 };
+
+// ─────────────────────────────────────────────────────────
+//  COMBAT — weapon state
+// ─────────────────────────────────────────────────────────
+let currentWeapon    = 'pistol';
+const unlockedWeapons = new Set(['pistol']);
+let lastFireTime      = 0;
+let fireHeld          = false;
+let weaponUnlockNotice = null; // { label, start } while the banner is shown
 
 function playerFeetRect(px, py) {
   return {
@@ -463,13 +564,109 @@ function updateZombie(z, dt) {
   if (z.animTick >= 14) { z.animTick = 0; z.animFrame ^= 1; }
 }
 
+function damageZombie(z, dmg) {
+  z.hp -= dmg;
+  if (z.hp > 0) return;
+  const idx = zombies.indexOf(z);
+  if (idx === -1) return; // already removed (e.g. a shotgun blast hit it twice)
+  zombies.splice(idx, 1);
+  addEffect({
+    type: 'death',
+    x: z.x + PW / 2, y: z.y + FEET_OY + FEET_H / 2,
+    duration: DEATH_FX_DURATION,
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+//  COMBAT — transient FX (procedural, no art assets)
+// ─────────────────────────────────────────────────────────
+const effects = [];
+
+function addEffect(e) {
+  e.start = performance.now();
+  effects.push(e);
+}
+
+function pruneEffects() {
+  const now = performance.now();
+  for (let i = effects.length - 1; i >= 0; i--) {
+    if (now - effects[i].start > effects[i].duration) effects.splice(i, 1);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+//  COMBAT — aiming + firing
+// ─────────────────────────────────────────────────────────
+
+// Player's raw movement input, read fresh each frame in update() — aim
+// direction is derived from this, independent of collision-adjusted
+// actual movement, so aiming still works even when pressed into a wall.
+function updateAim(ix, iy) {
+  if (ix !== 0 || iy !== 0) player.aimDir = angleToAimDir(ix, iy);
+}
+
+function tryFire(now) {
+  const w = WEAPONS[currentWeapon];
+  if (now - lastFireTime < w.fireRate) return;
+  lastFireTime = now;
+  fireWeapon(w);
+}
+
+function fireWeapon(w) {
+  const dir = AIM_DIRS[player.aimDir];
+  const angle = Math.atan2(dir.dy, dir.dx);
+  const halfCone = (w.coneDeg * Math.PI / 180) / 2;
+  const originX = player.x + PW / 2;
+  const originY = player.y + FEET_OY + FEET_H / 2;
+
+  const hits = [];
+  for (const z of zombies) {
+    const zx = z.x + PW / 2, zy = z.y + FEET_OY + FEET_H / 2;
+    const ddx = zx - originX, ddy = zy - originY;
+    const dist = Math.hypot(ddx, ddy);
+    if (dist < 1 || dist > w.range) continue;
+    let diff = Math.abs(Math.atan2(ddy, ddx) - angle);
+    if (diff > Math.PI) diff = 2 * Math.PI - diff;
+    if (diff <= halfCone) hits.push({ z, dist });
+  }
+  hits.sort((a, b) => a.dist - b.dist);
+
+  if (hits.length) {
+    if (w.multiHit) {
+      for (const h of hits) damageZombie(h.z, w.damage);
+    } else {
+      damageZombie(hits[0].z, w.damage);
+    }
+  }
+
+  // Tracer reaches the nearest hit target, or the weapon's full range on a
+  // miss — visible either way so a miss still reads as feedback.
+  const tracerDist = hits.length ? hits[0].dist : w.range;
+  addEffect({
+    type: 'tracer',
+    x: originX, y: originY, angle, dist: tracerDist,
+    hit: hits.length > 0,
+    duration: TRACER_FX_DURATION,
+  });
+}
+
+function checkWeaponUnlocks(clearedWave) {
+  for (const key of WEAPON_ORDER) {
+    const unlockWave = WEAPON_UNLOCK_WAVE[key];
+    if (unlockWave != null && clearedWave === unlockWave && !unlockedWeapons.has(key)) {
+      unlockedWeapons.add(key);
+      currentWeapon = key;
+      weaponUnlockNotice = { label: WEAPONS[key].label, start: performance.now() };
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────
 //  WAVE STATE MACHINE
 //  WAVE_INTRO (banner) → WAVE_ACTIVE (spawns trickle in, zombies roam)
 //  → WAVE_CLEAR (countdown once the wave's zombies are all gone) → next.
-//  There's no combat yet, so the ACTIVE→CLEAR transition normally can't
-//  fire on its own — the 'K' debug key clears the current wave's zombies
-//  so the state machine can be exercised end to end.
+//  Zombie kills now normally drive the ACTIVE→CLEAR transition; the 'K'
+//  debug key still force-clears a wave instantly for testing.
 // ─────────────────────────────────────────────────────────
 let waveNumber       = 1;
 let waveState        = 'INTRO';
@@ -509,6 +706,7 @@ function updateWave() {
     if (waveSpawnedCount >= waveTotalCount && zombies.length === 0) {
       waveState = 'CLEAR';
       waveStateSince = now;
+      checkWeaponUnlocks(waveNumber);
     }
   } else if (waveState === 'CLEAR') {
     if (now - waveStateSince >= WAVE_CLEAR_DURATION) {
@@ -580,14 +778,35 @@ window.addEventListener('keydown', e => {
   if (e.key === '`') debugOn = !debugOn;
   // DEBUG — instantly clear the current wave (kills all active zombies and
   // marks the wave fully spawned so WAVE_ACTIVE's normal check advances it
-  // to WAVE_CLEAR next tick). No combat exists yet to trigger this for real.
+  // to WAVE_CLEAR next tick). Useful for fast-forwarding to test unlocks.
   if (e.key === 'k' || e.key === 'K') {
     zombies.length = 0;
     waveSpawnedCount = waveTotalCount;
   }
+  if (e.key === ' ') fireHeld = true;
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
-window.addEventListener('keyup', e => { keys[e.key] = false; });
+window.addEventListener('keyup', e => {
+  keys[e.key] = false;
+  if (e.key === ' ') fireHeld = false;
+});
+
+// ─────────────────────────────────────────────────────────
+//  INPUT — fire (desktop: space or left-click; mobile: fire-btn below)
+// ─────────────────────────────────────────────────────────
+canvas.addEventListener('mousedown', e => { if (e.button === 0) fireHeld = true; });
+window.addEventListener('mouseup',   e => { if (e.button === 0) fireHeld = false; });
+
+const fireBtn = document.getElementById('fire-btn');
+fireBtn.addEventListener('touchstart', e => {
+  e.preventDefault(); fireHeld = true; fireBtn.classList.add('pressed');
+}, { passive: false });
+fireBtn.addEventListener('touchend', e => {
+  e.preventDefault(); fireHeld = false; fireBtn.classList.remove('pressed');
+}, { passive: false });
+fireBtn.addEventListener('touchcancel', () => {
+  fireHeld = false; fireBtn.classList.remove('pressed');
+});
 
 // ─────────────────────────────────────────────────────────
 //  INPUT — virtual joystick (same pattern as room 1)
@@ -637,8 +856,10 @@ jZone.addEventListener('touchcancel', jEnd,   { passive: false });
 // ─────────────────────────────────────────────────────────
 function update(dt = 1) {
   let vx = 0, vy = 0;
+  let ix = 0, iy = 0; // raw input direction, undiluted by dt/speed — feeds aim
 
   if (joy.active) {
+    ix = joy.dx; iy = joy.dy;
     const mag = Math.min(1, Math.hypot(joy.dx, joy.dy));
     vx = joy.dx * JOY_SPEED * mag * dt;
     vy = joy.dy * JOY_SPEED * mag * dt;
@@ -647,11 +868,15 @@ function update(dt = 1) {
     const down  = keys['s'] || keys['S'] || keys['ArrowDown'];
     const left  = keys['a'] || keys['A'] || keys['ArrowLeft'];
     const right = keys['d'] || keys['D'] || keys['ArrowRight'];
+    ix = (right ? 1 : 0) + (left ? -1 : 0);
+    iy = (down  ? 1 : 0) + (up   ? -1 : 0);
     vx = right ? SPEED : left ? -SPEED : 0;
     vy = down  ? SPEED : up   ? -SPEED : 0;
     if (vx !== 0 && vy !== 0) { vx *= 0.7071; vy *= 0.7071; }
     vx *= dt; vy *= dt;
   }
+
+  updateAim(ix, iy);
 
   if (Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1) {
     const ax = Math.abs(vx), ay = Math.abs(vy);
@@ -684,6 +909,11 @@ function update(dt = 1) {
 
   updateWave();
   for (const z of zombies) updateZombie(z, dt);
+
+  // Firing happens after the zombie-update pass above (a kill splices
+  // `zombies` — safe here since that loop has already finished).
+  if (fireHeld) tryFire(performance.now());
+  pruneEffects();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -754,6 +984,15 @@ function roundRect(cx, x, y, w, h, r) {
   cx.closePath();
 }
 
+// Equipped-weapon sheet for the current skin if it's loaded, else the base
+// no-weapon skin sheet — the same "load if present, else fall back" pattern
+// used for zombie B/C, just keyed by (skin, weapon) instead of just tier.
+function currentPlayerImg() {
+  const img = weaponSkinImgs[`${playerSkin}_${currentWeapon}`];
+  if (img && img.complete && img.naturalWidth > 0) return img;
+  return skinImgs[playerSkin];
+}
+
 function drawPlayer() {
   const sx = wx(player.x);
   const sy = wy(player.y);
@@ -765,10 +1004,16 @@ function drawPlayer() {
 
   ctx.imageSmoothingEnabled = false;
 
-  const _sImg = skinImgs[playerSkin];
+  const _sImg = currentPlayerImg();
   if (_sImg.complete && _sImg.naturalWidth > 0) {
     const moving = player.moving ?? false;
-    const col  = moving ? player.animFrame : (player.idleFrame === 1 ? 2 : 0);
+    // Weapon sheets are documented as 2 columns (idle + walk) — no
+    // breathe-frame column — while base skin sheets have 3. Read the
+    // actual sheet width rather than assuming, so either layout (and any
+    // future sheet with a real 3rd column) is handled correctly instead
+    // of guessing from which image happened to be picked.
+    const cols = Math.max(1, Math.floor(_sImg.naturalWidth / FRAME_W));
+    const col  = moving ? player.animFrame : (cols >= 3 && player.idleFrame === 1 ? 2 : 0);
     const srcX = col * FRAME_W;
     const srcY = DIR_ROW[player.facing] * FRAME_H;
 
@@ -821,6 +1066,70 @@ function drawZombie(z) {
 }
 
 // ─────────────────────────────────────────────────────────
+//  DRAW — COMBAT FX (procedural — tracer/muzzle-flash + death burst)
+// ─────────────────────────────────────────────────────────
+function drawEffects() {
+  const now = performance.now();
+  for (const e of effects) {
+    const t = Math.min(1, (now - e.start) / e.duration);
+    if (e.type === 'tracer') drawTracerEffect(e, t);
+    else if (e.type === 'death') drawDeathEffect(e, t);
+  }
+}
+
+function drawTracerEffect(e, t) {
+  const sx = wx(e.x), sy = wy(e.y);
+  const alpha = 1 - t;
+  const ex = sx + Math.cos(e.angle) * e.dist;
+  const ey = sy + Math.sin(e.angle) * e.dist;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = e.hit ? '#f9c74f' : 'rgba(249,199,79,0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+
+  // Muzzle flash — small bright burst at the origin
+  const flashR = 10 * (1 - t) + 2;
+  const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, flashR);
+  grad.addColorStop(0, 'rgba(255,240,180,0.9)');
+  grad.addColorStop(1, 'rgba(255,240,180,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(sx, sy, flashR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawDeathEffect(e, t) {
+  const sx = wx(e.x), sy = wy(e.y);
+  const alpha = 1 - t;
+  const spread = 6 + t * 26;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#7a1f1f';
+  const spokes = 6;
+  for (let i = 0; i < spokes; i++) {
+    const a = (i / spokes) * Math.PI * 2;
+    const px = sx + Math.cos(a) * spread;
+    const py = sy + Math.sin(a) * spread * 0.6;
+    const r = 5 * (1 - t) + 1.5;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(40,10,10,0.6)';
+  ctx.beginPath();
+  ctx.ellipse(sx, sy, spread * 0.7, spread * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────
 //  DRAW — WAVE BANNER
 // ─────────────────────────────────────────────────────────
 function drawWaveBanner() {
@@ -848,6 +1157,23 @@ function drawWaveBanner() {
     ctx.font = '9px "Press Start 2P"';
     ctx.fillText(`NEXT WAVE IN ${Math.ceil(remain / 1000)}...`, cx, cy + 12);
   }
+
+  if (weaponUnlockNotice) {
+    const t = (performance.now() - weaponUnlockNotice.start) / WEAPON_UNLOCK_NOTICE_DURATION;
+    if (t >= 1) {
+      weaponUnlockNotice = null;
+    } else {
+      const alpha = t < 0.1 ? t / 0.1 : t > 0.75 ? (1 - t) / 0.25 : 1;
+      ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+      ctx.fillStyle = 'rgba(5,5,10,0.5)';
+      ctx.fillRect(0, cy + 44, VIEW_W, 46);
+      ctx.fillStyle = '#f9c74f';
+      ctx.font = '13px "Press Start 2P"';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(`WEAPON UNLOCKED: ${weaponUnlockNotice.label}`, cx, cy + 67);
+      ctx.globalAlpha = 1;
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -865,6 +1191,13 @@ function drawHUD() {
   ctx.textAlign = 'right';
   const remaining = zombies.length + Math.max(0, waveTotalCount - waveSpawnedCount);
   ctx.fillText(`WAVE ${waveNumber}  ·  ${remaining} LEFT`, VIEW_W - 8, CROP_TOP + 10);
+
+  // Bottom-left weapon readout
+  ctx.fillStyle = 'rgba(5,5,10,0.55)';
+  ctx.fillRect(0, screenBtm - 20, 140, 20);
+  ctx.fillStyle = '#f9c74f';
+  ctx.textAlign = 'left';
+  ctx.fillText(`[${WEAPONS[currentWeapon].label}]`, 8, screenBtm - 10);
 
   drawWaveBanner();
 }
@@ -901,6 +1234,9 @@ function render() {
   renderList.sort((a, b) => a.baseY - b.baseY);
   for (const item of renderList) item.fn();
 
+  // Combat FX draw on top of everything — transient, screen-space overlay.
+  drawEffects();
+
   // ── DEBUG OVERLAY (press ` backtick to toggle) — for tuning the
   // invisible building colliders against the painted background art. ──
   if (debugOn) {
@@ -935,6 +1271,21 @@ function render() {
     ctx.fillStyle = '#4ecca3'; ctx.font = '11px monospace'; ctx.textAlign = 'left';
     ctx.fillText(`WORLD ${WORLD_W}x${WORLD_H}  PLAYER (${Math.round(player.x)},${Math.round(player.y)})`, 6, 24);
     ctx.fillText(`WAVE state=${waveState} spawned=${waveSpawnedCount}/${waveTotalCount} zombies=${zombies.length}  [K]=clear wave`, 6, 38);
+    ctx.fillText(`WEAPON=${currentWeapon} aimDir=${player.aimDir} unlocked=[${[...unlockedWeapons].join(',')}]`, 6, 52);
+
+    // Aim cone — shows the exact hitscan wedge for the current weapon.
+    const w = WEAPONS[currentWeapon];
+    const dir = AIM_DIRS[player.aimDir];
+    const aimAngle = Math.atan2(dir.dy, dir.dx);
+    const half = (w.coneDeg * Math.PI / 180) / 2;
+    const ox = wx(player.x + PW / 2), oy = wy(player.y + FEET_OY + FEET_H / 2);
+    ctx.strokeStyle = 'rgba(249,199,79,0.7)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(ox + Math.cos(aimAngle - half) * w.range, oy + Math.sin(aimAngle - half) * w.range);
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(ox + Math.cos(aimAngle + half) * w.range, oy + Math.sin(aimAngle + half) * w.range);
+    ctx.stroke();
 
     for (const z of zombies) {
       const zsx = wx(z.x), zsy = wy(z.y);
