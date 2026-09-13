@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>ZOMBIE STREET</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -149,6 +150,74 @@
       background: rgba(233,69,96,0.32);
       box-shadow: 0 0 22px rgba(233,69,96,0.55);
     }
+
+    /* ────────────────────────────────────────
+       GAME OVER — score submission + leaderboard
+    ──────────────────────────────────────── */
+    #gameover-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(5,5,10,0.92);
+      display: none; align-items: center; justify-content: center;
+      padding: max(env(safe-area-inset-top,0px),20px)
+               max(env(safe-area-inset-right,0px),20px)
+               max(env(safe-area-inset-bottom,0px),20px)
+               max(env(safe-area-inset-left,0px),20px);
+    }
+    #gameover-overlay.active { display: flex; }
+    #gameover-box {
+      width: min(360px, 100%);
+      max-height: calc(100svh - 40px);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      background: #0c0710;
+      border: 2px solid #e94560;
+      box-shadow: 0 0 40px rgba(233,69,96,0.35);
+      padding: 22px 22px 18px;
+      text-align: center;
+    }
+    #gameover-title {
+      font-size: 18px; color: #e94560; letter-spacing: 2px;
+      text-shadow: 0 0 12px rgba(233,69,96,0.7);
+      margin-bottom: 16px;
+    }
+    #gameover-stats { font-size: 9px; color: #b0b8d0; line-height: 2.4; margin-bottom: 16px; }
+    #gameover-stats b { color: #f9c74f; }
+
+    #go-name-wrap { margin-bottom: 12px; }
+    #go-name-input {
+      width: 100%;
+      background: #080818; border: 1px solid #4ecca3; color: #4ecca3;
+      font-family: 'Press Start 2P', monospace; font-size: 8px;
+      padding: 9px 10px; outline: none; text-align: center;
+    }
+    #go-name-input::placeholder { color: #1a3a2a; }
+
+    #go-name-static { font-size: 9px; color: #4ecca3; margin-bottom: 12px; }
+
+    #go-submit-btn, #go-playagain-btn {
+      width: 100%;
+      font-family: 'Press Start 2P', monospace; font-size: 8px;
+      padding: 10px; cursor: pointer;
+      background: rgba(78,204,163,0.08); border: 1px solid #4ecca3; color: #4ecca3;
+      transition: background 0.1s;
+    }
+    #go-submit-btn:hover, #go-playagain-btn:hover { background: rgba(78,204,163,0.22); }
+    #go-submit-btn:disabled { opacity: 0.4; cursor: default; }
+
+    #go-submit-status { font-size: 7px; color: #f9c74f; margin: 8px 0; min-height: 10px; }
+
+    #go-leaderboard { margin: 16px 0; border-top: 1px solid #2a1420; padding-top: 12px; }
+    #go-leaderboard-title { font-size: 9px; color: #e94560; margin-bottom: 8px; letter-spacing: 1px; }
+    #go-leaderboard-list { list-style: none; font-size: 7.5px; color: #b0b8d0; text-align: left; }
+    #go-leaderboard-list li {
+      display: flex; justify-content: space-between; gap: 8px;
+      padding: 4px 2px; border-bottom: 1px solid #1a1020;
+    }
+    #go-leaderboard-list li span:first-child { color: #f9c74f; flex-shrink: 0; }
+    #go-leaderboard-empty { font-size: 7px; color: #4a4a5a; }
+
+    #go-playagain-btn { margin-top: 4px; border-color: #e94560; color: #e94560; background: rgba(233,69,96,0.08); }
+    #go-playagain-btn:hover { background: rgba(233,69,96,0.22); }
   </style>
 </head>
 <body>
@@ -172,6 +241,31 @@
     <div id="joystick-knob"></div>
   </div>
   <div id="fire-btn">⊕</div>
+</div>
+
+<div id="gameover-overlay">
+  <div id="gameover-box">
+    <div id="gameover-title">GAME OVER</div>
+    <div id="gameover-stats">
+      SCORE: <b id="go-score">0</b><br>
+      WAVE REACHED: <b id="go-wave">1</b>
+    </div>
+
+    <div id="go-name-wrap" style="display:none">
+      <input id="go-name-input" maxlength="12" placeholder="YOUR NAME" autocomplete="off">
+    </div>
+    <div id="go-name-static" style="display:none"></div>
+
+    <button id="go-submit-btn">SUBMIT SCORE</button>
+    <div id="go-submit-status"></div>
+
+    <div id="go-leaderboard">
+      <div id="go-leaderboard-title">▸ TOP 10</div>
+      <ol id="go-leaderboard-list"></ol>
+    </div>
+
+    <button id="go-playagain-btn">PLAY AGAIN</button>
+  </div>
 </div>
 
 <script>
@@ -301,6 +395,16 @@ const WEAPON_UNLOCK_NOTICE_DURATION = 2400; // ms the "WEAPON UNLOCKED" banner s
 const TRACER_FX_DURATION = 110; // ms a shot's tracer/muzzle-flash is visible
 const DEATH_FX_DURATION  = 420; // ms a zombie's death burst plays
 
+// ─────────────────────────────────────────────────────────
+//  PLAYER HP / SCORING — plain constants, hand-tune freely.
+// ─────────────────────────────────────────────────────────
+const PLAYER_MAX_HP          = 100;
+const PLAYER_INVULN_DURATION = 700; // ms of i-frames after taking a hit
+const PLAYER_KNOCKBACK       = 34;  // px shoved away from the zombie on hit
+
+const SCORE_PER_KILL = { A: 10, B: 25, C: 60 }; // more points for tougher tiers
+const SCORE_WAVE_CLEAR_BONUS = 50;              // flat bonus per wave cleared
+
 // ── Sprite sheet layout — same grid as index.html ──
 //  rows = directions, cols = frames
 const FRAME_W  = 256;
@@ -337,13 +441,64 @@ canvas.height = VIEW_H;
 //  IDENTITY — read the name/skin persisted by room 1
 // ─────────────────────────────────────────────────────────
 const SKIN_COUNT = 3;
-let playerName = 'ANON';
-let playerSkin = 0;
+let playerName    = 'ANON';
+let hasStoredName = false; // did room 1 actually give us a name, vs. defaulting to ANON
+let playerSkin    = 0;
 try {
-  playerName = localStorage.getItem('tana-player-name') || 'ANON';
+  const storedName = localStorage.getItem('tana-player-name');
+  if (storedName) { playerName = storedName; hasStoredName = true; }
   const storedSkin = parseInt(localStorage.getItem('tana-player-skin'), 10);
   if (!isNaN(storedSkin) && storedSkin >= 0 && storedSkin < SKIN_COUNT) playerSkin = storedSkin;
 } catch (_) {}
+
+// ─────────────────────────────────────────────────────────
+//  SCORING / LEADERBOARD — plain REST insert/select via supabase-js,
+//  same project + anon key room 1 uses for presence, but a completely
+//  separate concern from its realtime broadcast channel: this is a
+//  one-off write to a plain table, not a live channel.
+// ─────────────────────────────────────────────────────────
+const sb = supabase.createClient(
+  'https://bqhltjtktpaoctymmjrc.supabase.co',
+  'sb_publishable_75Z_fkmYckjBRFmI2jol6A_Czi0estn'
+);
+
+async function submitScore(name, finalScore, waveReached) {
+  try {
+    const { error } = await sb.from('zombie_scores').insert({
+      name: (name || 'ANON').slice(0, 20),
+      score: finalScore,
+      wave: waveReached,
+    });
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.error('[ZOMBIE STREET] score submit failed:', e);
+    return false;
+  }
+}
+
+async function fetchLeaderboard() {
+  try {
+    const { data, error } = await sb
+      .from('zombie_scores')
+      .select('name,score,wave')
+      .order('score', { ascending: false })
+      .limit(10);
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error('[ZOMBIE STREET] leaderboard fetch failed:', e);
+    return [];
+  }
+}
+
+// Reserved for a future score-based unlock reward (not scoped yet) — e.g.
+// unlocking a cosmetic or weapon skin once the player crosses some score
+// threshold. Called after every score change so the hook is already wired
+// in; fill in the body later without touching any call site.
+function checkScoreUnlock(currentScore) {
+  // TODO: score-based unlock reward — not scoped yet.
+}
 
 // ─────────────────────────────────────────────────────────
 //  ASSET LOADING
@@ -429,6 +584,8 @@ const player = {
   idleFrame: 0,
   idleTick: 0,
   aimDir: 2, // index into AIM_DIRS — starts facing "down", matches `facing`
+  hp: PLAYER_MAX_HP,
+  invulnUntil: 0, // performance.now() timestamp — i-frames until this passes
 };
 
 // ─────────────────────────────────────────────────────────
@@ -439,6 +596,17 @@ const unlockedWeapons = new Set(['pistol']);
 let lastFireTime      = 0;
 let fireHeld          = false;
 let weaponUnlockNotice = null; // { label, start } while the banner is shown
+
+// ─────────────────────────────────────────────────────────
+//  SCORE / GAME-OVER STATE
+// ─────────────────────────────────────────────────────────
+let score    = 0;
+let gameOver = false;
+
+function addScore(points) {
+  score += points;
+  checkScoreUnlock(score);
+}
 
 function playerFeetRect(px, py) {
   return {
@@ -570,11 +738,45 @@ function damageZombie(z, dmg) {
   const idx = zombies.indexOf(z);
   if (idx === -1) return; // already removed (e.g. a shotgun blast hit it twice)
   zombies.splice(idx, 1);
+  addScore(SCORE_PER_KILL[z.tier] || 0);
   addEffect({
     type: 'death',
     x: z.x + PW / 2, y: z.y + FEET_OY + FEET_H / 2,
     duration: DEATH_FX_DURATION,
   });
+}
+
+// ─────────────────────────────────────────────────────────
+//  PLAYER HP — zombie contact damage + knockback + i-frames
+// ─────────────────────────────────────────────────────────
+
+// Checked once per frame after zombies move — touching any zombie while
+// not currently invulnerable costs HP, knocks the player back a little,
+// and starts a brief invulnerability window so a whole swarm can't melt
+// the player in one frame.
+function checkZombieContact(now) {
+  if (gameOver || now < player.invulnUntil) return;
+  const pFeet = playerFeetRect();
+  for (const z of zombies) {
+    const zFeet = playerFeetRect(z.x, z.y); // zombies share the player's feet geometry
+    if (!rectsOverlap(pFeet, zFeet)) continue;
+    applyPlayerDamage(z.damage, z);
+    return; // one hit per frame even if several zombies are touching
+  }
+}
+
+function applyPlayerDamage(dmg, source) {
+  player.hp = Math.max(0, player.hp - dmg);
+  player.invulnUntil = performance.now() + PLAYER_INVULN_DURATION;
+
+  const dx = player.x - source.x, dy = player.y - source.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const kx = (dx / dist) * PLAYER_KNOCKBACK;
+  const ky = (dy / dist) * PLAYER_KNOCKBACK;
+  if (!wouldCollide(player.x + kx, player.y)) player.x += kx;
+  if (!wouldCollide(player.x, player.y + ky)) player.y += ky;
+
+  if (player.hp <= 0) triggerGameOver();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -706,6 +908,7 @@ function updateWave() {
     if (waveSpawnedCount >= waveTotalCount && zombies.length === 0) {
       waveState = 'CLEAR';
       waveStateSince = now;
+      addScore(SCORE_WAVE_CLEAR_BONUS);
       checkWeaponUnlocks(waveNumber);
     }
   } else if (waveState === 'CLEAR') {
@@ -783,6 +986,11 @@ window.addEventListener('keydown', e => {
     zombies.length = 0;
     waveSpawnedCount = waveTotalCount;
   }
+  // DEBUG — self-inflicted damage, for exercising the HP/game-over flow
+  // without waiting to actually get cornered by a swarm.
+  if ((e.key === 'h' || e.key === 'H') && !gameOver) {
+    applyPlayerDamage(25, { x: player.x + PW, y: player.y });
+  }
   if (e.key === ' ') fireHeld = true;
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
@@ -855,6 +1063,8 @@ jZone.addEventListener('touchcancel', jEnd,   { passive: false });
 //  UPDATE
 // ─────────────────────────────────────────────────────────
 function update(dt = 1) {
+  if (gameOver) return; // frozen behind the Game Over overlay
+
   let vx = 0, vy = 0;
   let ix = 0, iy = 0; // raw input direction, undiluted by dt/speed — feeds aim
 
@@ -909,6 +1119,7 @@ function update(dt = 1) {
 
   updateWave();
   for (const z of zombies) updateZombie(z, dt);
+  checkZombieContact(performance.now());
 
   // Firing happens after the zombie-update pass above (a kill splices
   // `zombies` — safe here since that loop has already finished).
@@ -996,6 +1207,10 @@ function currentPlayerImg() {
 function drawPlayer() {
   const sx = wx(player.x);
   const sy = wy(player.y);
+
+  // Invulnerability i-frames read as a fast blink after taking a hit.
+  const invuln = performance.now() < player.invulnUntil;
+  if (invuln && Math.floor(performance.now() / 80) % 2 === 0) return;
 
   ctx.fillStyle = 'rgba(0,0,0,0.30)';
   ctx.beginPath();
@@ -1192,6 +1407,26 @@ function drawHUD() {
   const remaining = zombies.length + Math.max(0, waveTotalCount - waveSpawnedCount);
   ctx.fillText(`WAVE ${waveNumber}  ·  ${remaining} LEFT`, VIEW_W - 8, CROP_TOP + 10);
 
+  // Second HUD row — HP bar (left) + score (right)
+  const rowY = CROP_TOP + 26;
+  const barW = 100, barH = 10;
+  const hpFrac = Math.max(0, player.hp / PLAYER_MAX_HP);
+  ctx.fillStyle = 'rgba(20,5,10,0.7)';
+  ctx.fillRect(8, rowY, barW, barH);
+  ctx.fillStyle = hpFrac > 0.35 ? '#4ecca3' : '#e94560';
+  ctx.fillRect(8, rowY, barW * hpFrac, barH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1;
+  ctx.strokeRect(8, rowY, barW, barH);
+  ctx.fillStyle = '#e0e0e0';
+  ctx.font = '7px "Press Start 2P"';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(`${Math.ceil(player.hp)}/${PLAYER_MAX_HP}`, 8 + barW + 8, rowY + barH / 2 + 1);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#f9c74f';
+  ctx.font = '9px "Press Start 2P"';
+  ctx.fillText(`SCORE ${score}`, VIEW_W - 8, rowY + barH / 2 + 1);
+
   // Bottom-left weapon readout
   ctx.fillStyle = 'rgba(5,5,10,0.55)';
   ctx.fillRect(0, screenBtm - 20, 140, 20);
@@ -1272,6 +1507,7 @@ function render() {
     ctx.fillText(`WORLD ${WORLD_W}x${WORLD_H}  PLAYER (${Math.round(player.x)},${Math.round(player.y)})`, 6, 24);
     ctx.fillText(`WAVE state=${waveState} spawned=${waveSpawnedCount}/${waveTotalCount} zombies=${zombies.length}  [K]=clear wave`, 6, 38);
     ctx.fillText(`WEAPON=${currentWeapon} aimDir=${player.aimDir} unlocked=[${[...unlockedWeapons].join(',')}]`, 6, 52);
+    ctx.fillText(`HP=${player.hp.toFixed(1)}/${PLAYER_MAX_HP} invuln=${performance.now() < player.invulnUntil} SCORE=${score}  [H]=-25hp`, 6, 66);
 
     // Aim cone — shows the exact hitscan wedge for the current weapon.
     const w = WEAPONS[currentWeapon];
@@ -1398,6 +1634,113 @@ if (window.visualViewport) {
 }
 resizeGame();
 setTimeout(resizeGame, 100);
+
+// ─────────────────────────────────────────────────────────
+//  GAME OVER — overlay wiring, score submission, leaderboard, reset
+// ─────────────────────────────────────────────────────────
+const goOverlay      = document.getElementById('gameover-overlay');
+const goScoreEl      = document.getElementById('go-score');
+const goWaveEl       = document.getElementById('go-wave');
+const goNameWrap     = document.getElementById('go-name-wrap');
+const goNameInput    = document.getElementById('go-name-input');
+const goNameStatic   = document.getElementById('go-name-static');
+const goSubmitBtn    = document.getElementById('go-submit-btn');
+const goSubmitStatus = document.getElementById('go-submit-status');
+const goLeaderList   = document.getElementById('go-leaderboard-list');
+const goPlayAgainBtn = document.getElementById('go-playagain-btn');
+
+let goSubmitted = false;
+
+async function renderLeaderboard() {
+  goLeaderList.innerHTML = '<li id="go-leaderboard-empty">LOADING...</li>';
+  const rows = await fetchLeaderboard();
+  if (!rows.length) {
+    goLeaderList.innerHTML = '<li id="go-leaderboard-empty">NO SCORES YET</li>';
+    return;
+  }
+  goLeaderList.innerHTML = rows.map((r, i) =>
+    `<li><span>#${i + 1} ${(r.name || 'ANON').toUpperCase()}</span><span>${r.score} (W${r.wave})</span></li>`
+  ).join('');
+}
+
+async function doSubmit(name) {
+  if (goSubmitted) return;
+  goSubmitted = true;
+  goSubmitBtn.disabled = true;
+  goSubmitStatus.textContent = 'SUBMITTING...';
+  const ok = await submitScore(name, score, waveNumber);
+  goSubmitStatus.textContent = ok ? '✓ SUBMITTED' : 'SUBMIT FAILED — SCORE NOT SAVED';
+  renderLeaderboard();
+}
+
+function showGameOverOverlay() {
+  goScoreEl.textContent = String(score);
+  goWaveEl.textContent  = String(waveNumber);
+  goSubmitted = false;
+  goSubmitBtn.disabled = false;
+  goSubmitStatus.textContent = '';
+  goLeaderList.innerHTML = '';
+
+  if (hasStoredName) {
+    // Already have a name from room 1 — skip straight to submitting.
+    goNameWrap.style.display   = 'none';
+    goNameStatic.style.display = 'block';
+    goNameStatic.textContent   = `PLAYER: ${playerName.toUpperCase()}`;
+    goSubmitBtn.style.display  = 'none';
+    doSubmit(playerName);
+  } else {
+    // No stored name — this is the player's second chance to name
+    // themselves before their score is submitted.
+    goNameWrap.style.display   = 'block';
+    goNameStatic.style.display = 'none';
+    goSubmitBtn.style.display  = 'block';
+    goNameInput.value = '';
+  }
+
+  renderLeaderboard();
+  goOverlay.classList.add('active');
+}
+
+function hideGameOverOverlay() {
+  goOverlay.classList.remove('active');
+}
+
+goSubmitBtn.addEventListener('click', () => {
+  const name = goNameInput.value.trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase() || 'ANON';
+  doSubmit(name);
+});
+
+function triggerGameOver() {
+  if (gameOver) return;
+  gameOver = true;
+  showGameOverOverlay();
+}
+
+// Resets everything a fresh run needs — player, zombies, wave, HP, score,
+// and weapon unlocks — then starts back at wave 1.
+function resetGame() {
+  player.x = WORLD_W / 2 - PW / 2;
+  player.y = WORLD_H / 2 - PH / 2;
+  player.hp = PLAYER_MAX_HP;
+  player.invulnUntil = 0;
+  player.facing = 'down';
+  player.aimDir = 2;
+  player.moving = false;
+
+  zombies.length = 0;
+  effects.length = 0;
+  score = 0;
+
+  currentWeapon = 'pistol';
+  unlockedWeapons.clear();
+  unlockedWeapons.add('pistol');
+
+  gameOver = false;
+  hideGameOverOverlay();
+  startWave(1);
+}
+
+goPlayAgainBtn.addEventListener('click', resetGame);
 
 // ─────────────────────────────────────────────────────────
 //  GAME LOOP
