@@ -395,6 +395,13 @@ const WEAPON_UNLOCK_NOTICE_DURATION = 2400; // ms the "WEAPON UNLOCKED" banner s
 const TRACER_FX_DURATION = 110; // ms a shot's tracer/muzzle-flash is visible
 const DEATH_FX_DURATION  = 420; // ms a zombie's death burst plays
 
+// Purely visual — where the tracer/muzzle-flash is drawn FROM, as a
+// fraction of PH down from player.y. This is deliberately separate from
+// the originX/originY used for hit detection in fireWeapon() (which stay
+// anchored near the feet, matching where zombies are actually measured
+// from); this just moves the drawn ray up to roughly chest height.
+const TRACER_VISUAL_ORIGIN_Y_FRAC = 0.45;
+
 // ─────────────────────────────────────────────────────────
 //  PLAYER HP / SCORING — plain constants, hand-tune freely.
 // ─────────────────────────────────────────────────────────
@@ -880,12 +887,18 @@ function fireWeapon(w) {
   }
 
   // Tracer reaches the nearest hit target, or the weapon's full range on a
-  // miss — visible either way so a miss still reads as feedback.
+  // miss — visible either way so a miss still reads as feedback. Its draw
+  // origin is chest-height (visual only), separate from originX/originY
+  // above which stay feet-anchored for hit detection.
   const tracerDist = hits.length ? hits[0].dist : w.range;
   addEffect({
     type: 'tracer',
-    x: originX, y: originY, angle, dist: tracerDist,
+    x: originX, y: player.y + PH * TRACER_VISUAL_ORIGIN_Y_FRAC, angle, dist: tracerDist,
     hit: hits.length > 0,
+    // Facing at the moment of firing — not re-checked later, since the
+    // player could turn while the tracer is still fading — used in
+    // render() to draw this behind the player when they were facing away.
+    facing: player.facing,
     duration: TRACER_FX_DURATION,
   });
 }
@@ -1321,12 +1334,28 @@ function drawZombie(z) {
 // ─────────────────────────────────────────────────────────
 //  DRAW — COMBAT FX (procedural — tracer/muzzle-flash + death burst)
 // ─────────────────────────────────────────────────────────
+// Tracers fired while the player was facing 'up' are drawn separately, in
+// render() BEFORE the player sprite (so they land behind it) — everything
+// else (every other tracer, plus the death burst) still draws here, after
+// everything, on top, exactly as before.
 function drawEffects() {
   const now = performance.now();
   for (const e of effects) {
     const t = Math.min(1, (now - e.start) / e.duration);
-    if (e.type === 'tracer') drawTracerEffect(e, t);
-    else if (e.type === 'death') drawDeathEffect(e, t);
+    if (e.type === 'tracer') {
+      if (e.facing === 'up') continue;
+      drawTracerEffect(e, t);
+    } else if (e.type === 'death') {
+      drawDeathEffect(e, t);
+    }
+  }
+}
+
+function drawUpFacingTracers() {
+  const now = performance.now();
+  for (const e of effects) {
+    if (e.type !== 'tracer' || e.facing !== 'up') continue;
+    drawTracerEffect(e, Math.min(1, (now - e.start) / e.duration));
   }
 }
 
@@ -1483,6 +1512,10 @@ function render() {
   ctx.imageSmoothingEnabled = false;
 
   drawBackground();
+
+  // Tracers fired while facing up are drawn here, before drawPlayer() runs
+  // below (via the Y-sorted renderList), so they land behind the player.
+  drawUpFacingTracers();
 
   const renderList = [];
   for (const obj of sceneObjects) {
