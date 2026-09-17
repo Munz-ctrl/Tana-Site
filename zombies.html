@@ -626,7 +626,12 @@ function rectsOverlap(a, b) {
       && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
-function wouldCollide(px, py) {
+// `self` identifies which entity is doing the moving (the `player` object,
+// or a zombie object) so that entity is excluded from the entity-solidity
+// checks below — otherwise nothing could ever move, since it would always
+// be "colliding" with its own feet rect. Omit `self` (e.g. from
+// pickSpawnPoint, which isn't moving anything) to check against everyone.
+function wouldCollide(px, py, self) {
   const feet = playerFeetRect(px, py);
 
   for (const obj of sceneObjects) {
@@ -638,6 +643,14 @@ function wouldCollide(px, py) {
   if (feet.x + feet.w > WORLD_W - WORLD_MARGIN) return true;
   if (feet.y < WORLD_MARGIN) return true;
   if (feet.y + feet.h > WORLD_H - WORLD_MARGIN) return true;
+
+  // The player and every zombie are solid too — the player can't walk
+  // through a zombie, and zombies can't stack on the player or each other.
+  if (self !== player && rectsOverlap(feet, playerFeetRect())) return true;
+  for (const z of zombies) {
+    if (z === self) continue;
+    if (rectsOverlap(feet, playerFeetRect(z.x, z.y))) return true;
+  }
 
   return false;
 }
@@ -709,22 +722,34 @@ function updateZombie(z, dt) {
   else                             z.facing = dy > 0 ? 'down'  : 'up';
 
   // Axis-separated movement — same slide-along-the-wall behavior as the
-  // player, with no real pathfinding.
-  if (!wouldCollide(z.x + vx, z.y)) z.x += vx;
-  if (!wouldCollide(z.x, z.y + vy)) z.y += vy;
+  // player, with no real pathfinding. `z` is excluded from the entity
+  // checks so it never collides with itself; buildings, the player, and
+  // every OTHER zombie are all solid to it.
+  if (!wouldCollide(z.x + vx, z.y, z)) z.x += vx;
+  if (!wouldCollide(z.x, z.y + vy, z)) z.y += vy;
 
-  // Anti-stuck: wedged in a concave corner the axis-slide can't resolve —
-  // shove it perpendicular to its approach direction to break free.
+  // Anti-stuck: wedged against geometry (a concave building corner) OR
+  // now against a dense cluster of other zombies pressing toward the same
+  // player — shove it perpendicular to its approach direction to break
+  // free. Try both perpendicular directions (a packed cluster can easily
+  // have the randomly-chosen one blocked too) before giving up for this
+  // check window.
   const now = performance.now();
   const movedSinceCheck = Math.hypot(z.x - z._stuckX, z.y - z._stuckY);
   if (movedSinceCheck > STUCK_MIN_DISTANCE) {
     z._stuckX = z.x; z._stuckY = z.y; z._stuckSince = now;
   } else if (now - z._stuckSince > STUCK_CHECK_INTERVAL) {
-    const sign = Math.random() < 0.5 ? 1 : -1;
-    const nx = (-dy / dist) * STUCK_NUDGE * sign;
-    const ny = (dx / dist) * STUCK_NUDGE * sign;
-    if (!wouldCollide(z.x + nx, z.y)) z.x += nx;
-    if (!wouldCollide(z.x, z.y + ny)) z.y += ny;
+    const firstSign = Math.random() < 0.5 ? 1 : -1;
+    for (const sign of [firstSign, -firstSign]) {
+      const nx = (-dy / dist) * STUCK_NUDGE * sign;
+      const ny = (dx / dist) * STUCK_NUDGE * sign;
+      const canX = !wouldCollide(z.x + nx, z.y, z);
+      const canY = !wouldCollide(z.x, z.y + ny, z);
+      if (!canX && !canY) continue; // this direction is fully blocked too — try the other
+      if (canX) z.x += nx;
+      if (canY) z.y += ny;
+      break;
+    }
     z._stuckX = z.x; z._stuckY = z.y; z._stuckSince = now;
   }
 
@@ -754,15 +779,28 @@ function damageZombie(z, dmg) {
 // not currently invulnerable costs HP, knocks the player back a little,
 // and starts a brief invulnerability window so a whole swarm can't melt
 // the player in one frame.
+//
+// Now that zombies (and the player) are solid in wouldCollide(), movement
+// stops the player and a zombie just short of true overlap — each frame,
+// the step that *would* overlap gets rejected, leaving a small step-sized
+// gap rather than flush contact. Inflating the touch-check by that much
+// finds contact at the point they're touching-but-solid, same as before
+// they could still freely overlap.
+const CONTACT_TOUCH_BUFFER = 12; // px
+
 function checkZombieContact(now) {
   if (gameOver || now < player.invulnUntil) return;
-  const pFeet = playerFeetRect();
+  const pFeetTouch = inflateRect(playerFeetRect(), CONTACT_TOUCH_BUFFER);
   for (const z of zombies) {
     const zFeet = playerFeetRect(z.x, z.y); // zombies share the player's feet geometry
-    if (!rectsOverlap(pFeet, zFeet)) continue;
+    if (!rectsOverlap(pFeetTouch, zFeet)) continue;
     applyPlayerDamage(z.damage, z);
     return; // one hit per frame even if several zombies are touching
   }
+}
+
+function inflateRect(r, amt) {
+  return { x: r.x - amt, y: r.y - amt, w: r.w + amt * 2, h: r.h + amt * 2 };
 }
 
 function applyPlayerDamage(dmg, source) {
@@ -773,8 +811,8 @@ function applyPlayerDamage(dmg, source) {
   const dist = Math.hypot(dx, dy) || 1;
   const kx = (dx / dist) * PLAYER_KNOCKBACK;
   const ky = (dy / dist) * PLAYER_KNOCKBACK;
-  if (!wouldCollide(player.x + kx, player.y)) player.x += kx;
-  if (!wouldCollide(player.x, player.y + ky)) player.y += ky;
+  if (!wouldCollide(player.x + kx, player.y, player)) player.x += kx;
+  if (!wouldCollide(player.x, player.y + ky, player)) player.y += ky;
 
   if (player.hp <= 0) triggerGameOver();
 }
@@ -1096,10 +1134,10 @@ function update(dt = 1) {
     else                         player.facing = 'up';
   }
 
-  // Axis-separated movement — slides along a building's edge instead of
-  // stopping dead when moving diagonally into it.
-  if (vx !== 0 && !wouldCollide(player.x + vx, player.y)) player.x += vx;
-  if (vy !== 0 && !wouldCollide(player.x, player.y + vy)) player.y += vy;
+  // Axis-separated movement — slides along a building's (or now a
+  // zombie's) edge instead of stopping dead when moving diagonally into it.
+  if (vx !== 0 && !wouldCollide(player.x + vx, player.y, player)) player.x += vx;
+  if (vy !== 0 && !wouldCollide(player.x, player.y + vy, player)) player.y += vy;
 
   const moving = Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1;
   player.moving = moving;
