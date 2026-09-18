@@ -151,6 +151,32 @@
       box-shadow: 0 0 22px rgba(233,69,96,0.55);
     }
 
+    /* weapon-switch button — same bottom-right cluster as fire-btn, sits
+       just above it. Tap cycles to the next unlocked weapon; shows its
+       short label so the player can see what's equipped without
+       checking the HUD. */
+    #weapon-btn {
+      position: absolute;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 22px + 66px + 10px);
+      right:  calc(env(safe-area-inset-right,  0px) + 16px);
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: rgba(249,199,79,0.09);
+      border: 2px solid rgba(249,199,79,0.5);
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: all; touch-action: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s, box-shadow 0.08s;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 8px; color: #f9c74f;
+      text-align: center;
+    }
+    #weapon-btn.pressed {
+      background: rgba(249,199,79,0.32);
+      box-shadow: 0 0 22px rgba(249,199,79,0.55);
+    }
+
     /* ────────────────────────────────────────
        GAME OVER — score submission + leaderboard
     ──────────────────────────────────────── */
@@ -240,6 +266,7 @@
     <div id="joystick-base"></div>
     <div id="joystick-knob"></div>
   </div>
+  <div id="weapon-btn">PST</div>
   <div id="fire-btn">⊕</div>
 </div>
 
@@ -376,12 +403,12 @@ const STUCK_NUDGE          = 14;   // px, perpendicular shove magnitude
 // ─────────────────────────────────────────────────────────
 const WEAPON_ORDER = ['pistol', 'smg', 'shotgun']; // unlock progression order
 const WEAPONS = {
-  pistol:  { label: 'PISTOL',  damage: 14, fireRate: 380, range: 560, coneDeg: 18, multiHit: false },
-  smg:     { label: 'SMG',     damage: 6,  fireRate: 90,  range: 480, coneDeg: 22, multiHit: false },
+  pistol:  { label: 'PISTOL',  short: 'PST', damage: 14, fireRate: 380, range: 560, coneDeg: 18, multiHit: false },
+  smg:     { label: 'SMG',     short: 'SMG', damage: 6,  fireRate: 90,  range: 480, coneDeg: 22, multiHit: false },
   // knockback is a separate property from multiHit — it just happens that
   // the shotgun is currently the only weapon with either. Per-tier: A/B
   // (weakest/mid) get shoved the most, C (toughest) barely budges.
-  shotgun: { label: 'SHOTGUN', damage: 9,  fireRate: 650, range: 320, coneDeg: 50, multiHit: true,
+  shotgun: { label: 'SHOTGUN', short: 'SG', damage: 9,  fireRate: 650, range: 320, coneDeg: 50, multiHit: true,
     knockback: { A: 46, B: 42, C: 14 } },
 };
 
@@ -973,6 +1000,19 @@ function checkWeaponUnlocks(clearedWave) {
   }
 }
 
+// Manual weapon switch (desktop Q key / mobile weapon-btn) — cycles to the
+// next weapon in WEAPON_ORDER that's actually unlocked, wrapping back to
+// the first. A no-op with only one weapon unlocked.
+function switchToNextWeapon() {
+  const unlocked = WEAPON_ORDER.filter(k => unlockedWeapons.has(k));
+  if (unlocked.length <= 1) return;
+  const idx = unlocked.indexOf(currentWeapon);
+  currentWeapon = unlocked[(idx + 1) % unlocked.length];
+  // Don't let a fast weapon's cooldown carry over into an instant first
+  // shot with a slower one.
+  lastFireTime = 0;
+}
+
 // ─────────────────────────────────────────────────────────
 //  WAVE STATE MACHINE
 //  WAVE_INTRO (banner) → WAVE_ACTIVE (spawns trickle in, zombies roam)
@@ -1101,6 +1141,8 @@ window.addEventListener('keydown', e => {
   if ((e.key === 'h' || e.key === 'H') && !gameOver) {
     applyPlayerDamage(25, { x: player.x + PW, y: player.y });
   }
+  // Manual weapon switch — cycles to the next unlocked weapon.
+  if (e.key === 'q' || e.key === 'Q') switchToNextWeapon();
   if (e.key === ' ') fireHeld = true;
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
@@ -1124,6 +1166,22 @@ fireBtn.addEventListener('touchend', e => {
 }, { passive: false });
 fireBtn.addEventListener('touchcancel', () => {
   fireHeld = false; fireBtn.classList.remove('pressed');
+});
+
+// ─────────────────────────────────────────────────────────
+//  INPUT — weapon switch (desktop: Q; mobile: weapon-btn tap)
+// ─────────────────────────────────────────────────────────
+const weaponBtn = document.getElementById('weapon-btn');
+weaponBtn.addEventListener('touchstart', e => {
+  e.preventDefault();
+  weaponBtn.classList.add('pressed');
+  switchToNextWeapon();
+}, { passive: false });
+weaponBtn.addEventListener('touchend', e => {
+  e.preventDefault(); weaponBtn.classList.remove('pressed');
+}, { passive: false });
+weaponBtn.addEventListener('touchcancel', () => {
+  weaponBtn.classList.remove('pressed');
 });
 
 // ─────────────────────────────────────────────────────────
@@ -1573,6 +1631,11 @@ function drawHUD() {
   ctx.fillStyle = '#f9c74f';
   ctx.textAlign = 'left';
   ctx.fillText(`[${WEAPONS[currentWeapon].label}]`, 8, screenBtm - 10);
+
+  // Keep the mobile weapon-switch button's label in sync — cheap to just
+  // re-set every frame rather than hooking every currentWeapon assignment.
+  const _wbLabel = WEAPONS[currentWeapon].short || WEAPONS[currentWeapon].label;
+  if (weaponBtn.textContent !== _wbLabel) weaponBtn.textContent = _wbLabel;
 
   drawWaveBanner();
 }
