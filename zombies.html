@@ -386,6 +386,12 @@ const SPAWN_INTERVAL = 900;   // ms between individual zombie spawns during a wa
 const WAVE_INTRO_DURATION = 2200; // ms the "WAVE N" banner is shown
 const WAVE_CLEAR_DURATION = 2500; // ms countdown after the last zombie is gone
 
+// Extra settle time after the intro pixelation transition finishes, before
+// the wave/spawn system (and its banner) actually begins — gives any
+// still-loading player/zombie/weapon art a moment to arrive. The player
+// can still move around freely during this buffer; only waves are held.
+const GAME_START_BUFFER_MS = 2000;
+
 // Anti-stuck: if a zombie has barely moved for this long despite trying,
 // it's wedged in a concave corner the axis-slide alone can't escape —
 // give it a small perpendicular shove to break free.
@@ -1019,7 +1025,15 @@ function switchToNextWeapon() {
 //  → WAVE_CLEAR (countdown once the wave's zombies are all gone) → next.
 //  Zombie kills now normally drive the ACTIVE→CLEAR transition; the 'K'
 //  debug key still force-clears a wave instantly for testing.
+//
+//  gameStarted stays false until the intro pixelation has finished AND a
+//  further GAME_START_BUFFER_MS has passed — update() and drawHUD() skip
+//  updateWave()/drawWaveBanner() entirely until then, so neither is ever
+//  implicitly timed off the stale waveStateSince=0 default from before
+//  startWave() has run for real. The player can still move around freely
+//  in the meantime; only the wave/spawn/banner system is held back.
 // ─────────────────────────────────────────────────────────
+let gameStarted      = false;
 let waveNumber       = 1;
 let waveState        = 'INTRO';
 let waveStateSince   = 0;
@@ -1094,11 +1108,20 @@ bgImg.onload = () => {
 
   console.log(`[ZOMBIE STREET] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH}`);
 
-  startWave(1);
-
   // Wait two frames so the loop has actually painted this world/background
-  // before snapshotting it for the intro dissolve.
-  requestAnimationFrame(() => requestAnimationFrame(playIntroPixelation));
+  // before snapshotting it for the intro dissolve. The wave system doesn't
+  // start the moment the dissolve finishes — startWave(1) (and gameStarted)
+  // wait an additional GAME_START_BUFFER_MS so the banner/spawns can't pop
+  // in while the scene (and its art) is still settling. The player can
+  // still move around freely in the meantime.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    playIntroPixelation(() => {
+      setTimeout(() => {
+        gameStarted = true;
+        startWave(1);
+      }, GAME_START_BUFFER_MS);
+    });
+  }));
 };
 
 // ─────────────────────────────────────────────────────────
@@ -1285,7 +1308,7 @@ function update(dt = 1) {
 
   updateCamera();
 
-  updateWave();
+  if (gameStarted) updateWave();
   for (const z of zombies) updateZombie(z, dt);
   checkZombieContact(performance.now());
 
@@ -1637,7 +1660,7 @@ function drawHUD() {
   const _wbLabel = WEAPONS[currentWeapon].short || WEAPONS[currentWeapon].label;
   if (weaponBtn.textContent !== _wbLabel) weaponBtn.textContent = _wbLabel;
 
-  drawWaveBanner();
+  if (gameStarted) drawWaveBanner();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1751,7 +1774,7 @@ function render() {
 const transitionCanvas = document.getElementById('transitionCanvas');
 const tCtx             = transitionCanvas.getContext('2d');
 
-function playIntroPixelation() {
+function playIntroPixelation(onComplete) {
   const w = canvas.width, h = canvas.height;
 
   const snapshot = document.createElement('canvas');
@@ -1803,6 +1826,7 @@ function playIntroPixelation() {
       requestAnimationFrame(step);
     } else {
       transitionCanvas.style.opacity = '0';
+      if (onComplete) onComplete();
     }
   }
   requestAnimationFrame(step);
@@ -1943,6 +1967,7 @@ function resetGame() {
   unlockedWeapons.add('pistol');
 
   gameOver = false;
+  gameStarted = true; // in case this fires before the initial startup buffer's setTimeout does
   hideGameOverOverlay();
   startWave(1);
 }
