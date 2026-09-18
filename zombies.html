@@ -399,6 +399,12 @@ const WEAPON_UNLOCK_NOTICE_DURATION = 2400; // ms the "WEAPON UNLOCKED" banner s
 const TRACER_FX_DURATION = 110; // ms a shot's tracer/muzzle-flash is visible
 const DEATH_FX_DURATION  = 420; // ms a zombie's death burst plays
 
+// Non-lethal hit feedback — the exact same red spoke-burst drawDeathEffect
+// already draws for a kill, just smaller and briefer, so a hit that
+// doesn't finish the zombie off still reads clearly as a hit.
+const HIT_FX_DURATION = 180;  // ms — shorter than the death burst
+const HIT_FX_SCALE    = 0.45; // shrinks the whole burst proportionally
+
 // Purely visual — where the tracer/muzzle-flash is drawn FROM, as a
 // fraction of PH down from player.y. This is deliberately separate from
 // the originX/originY used for hit detection in fireWeapon() (which stay
@@ -780,7 +786,18 @@ function updateZombie(z, dt) {
 
 function damageZombie(z, dmg) {
   z.hp -= dmg;
-  if (z.hp > 0) return;
+  if (z.hp > 0) {
+    // Non-lethal hit — same burst as a kill, just smaller/briefer, so
+    // every hit a shot lands (including each target in a multi-hit
+    // shotgun blast) reads clearly as a hit even when it doesn't kill.
+    addEffect({
+      type: 'death',
+      x: z.x + PW / 2, y: z.y + FEET_OY + FEET_H / 2,
+      duration: HIT_FX_DURATION,
+      scale: HIT_FX_SCALE,
+    });
+    return;
+  }
   const idx = zombies.indexOf(z);
   if (idx === -1) return; // already removed (e.g. a shotgun blast hit it twice)
   zombies.splice(idx, 1);
@@ -1444,7 +1461,8 @@ function drawTracerEffect(e, t) {
 function drawDeathEffect(e, t) {
   const sx = wx(e.x), sy = wy(e.y);
   const alpha = 1 - t;
-  const spread = 6 + t * 26;
+  const scale = e.scale ?? 1; // shrinks the whole burst for the lighter non-lethal-hit variant
+  const spread = (6 + t * 26) * scale;
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -1454,7 +1472,7 @@ function drawDeathEffect(e, t) {
     const a = (i / spokes) * Math.PI * 2;
     const px = sx + Math.cos(a) * spread;
     const py = sy + Math.sin(a) * spread * 0.6;
-    const r = 5 * (1 - t) + 1.5;
+    const r = (5 * (1 - t) + 1.5) * scale;
     ctx.beginPath();
     ctx.arc(px, py, r, 0, Math.PI * 2);
     ctx.fill();
