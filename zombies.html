@@ -438,12 +438,18 @@ const DEATH_FX_DURATION  = 420; // ms a zombie's death burst plays
 const HIT_FX_DURATION = 180;  // ms — shorter than the death burst
 const HIT_FX_SCALE    = 0.45; // shrinks the whole burst proportionally
 
+
 // Purely visual — where the tracer/muzzle-flash is drawn FROM, as a
-// fraction of PH down from player.y. This is deliberately separate from
-// the originX/originY used for hit detection in fireWeapon() (which stay
-// anchored near the feet, matching where zombies are actually measured
-// from); this just moves the drawn ray up to roughly chest height.
-const TRACER_VISUAL_ORIGIN_Y_FRAC = 0.45;
+// fraction of PW (x) / PH (y) from the player's top-left corner, per
+// facing direction. Separate from originX/originY in fireWeapon(),
+// which stay feet-anchored for hit detection — this just moves the
+// drawn ray to roughly where the gun sits in each pose.
+const TRACER_VISUAL_ORIGIN = {
+  down:  { x: 0.50, y: 0.45 },
+  up:    { x: 0.50, y: 0.40 },
+  left:  { x: 0.15, y: 0.38 },
+  right: { x: 0.85, y: 0.38 },
+};
 
 // The tracer visual fans this many rays evenly across the firing weapon's
 // actual coneDeg (same value fireWeapon() already used for hit detection,
@@ -981,10 +987,11 @@ function fireWeapon(w) {
   // miss — visible either way so a miss still reads as feedback. Its draw
   // origin is chest-height (visual only), separate from originX/originY
   // above which stay feet-anchored for hit detection.
-  const tracerDist = hits.length ? hits[0].dist : w.range;
+    const tracerDist = hits.length ? hits[0].dist : w.range;
+  const visOff = TRACER_VISUAL_ORIGIN[player.facing];
   addEffect({
     type: 'tracer',
-    x: originX, y: player.y + PH * TRACER_VISUAL_ORIGIN_Y_FRAC, angle, dist: tracerDist,
+    x: player.x + PW * visOff.x, y: player.y + PH * visOff.y, angle, dist: tracerDist,
     coneDeg: w.coneDeg, // so the tracer fans across the same cone that was actually checked
     hit: hits.length > 0,
     // Facing at the moment of firing — not re-checked later, since the
