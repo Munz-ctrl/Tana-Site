@@ -399,6 +399,11 @@ const STUCK_CHECK_INTERVAL = 2000; // ms window to judge "hasn't moved"
 const STUCK_MIN_DISTANCE   = 6;    // px moved within the window to NOT be stuck
 const STUCK_NUDGE          = 14;   // px, perpendicular shove magnitude
 
+// A knocked-back zombie (see applyZombieKnockback) is "staggered" for this
+// long — its push velocity drives movement instead of the normal
+// chase-toward-player logic, decaying linearly to zero across the window.
+const KNOCKBACK_STAGGER_DURATION = 380; // ms
+
 // ─────────────────────────────────────────────────────────
 //  WEAPONS — plain per-weapon constants, hand-tune freely.
 //  coneDeg is the FULL angle of the hitscan cone (centered on the aim
@@ -413,9 +418,12 @@ const WEAPONS = {
   smg:     { label: 'SMG',     short: 'SMG', damage: 6,  fireRate: 90,  range: 480, coneDeg: 22, multiHit: false },
   // knockback is a separate property from multiHit — it just happens that
   // the shotgun is currently the only weapon with either. Per-tier: A/B
-  // (weakest/mid) get shoved the most, C (toughest) barely budges.
+  // (weakest/mid) get shoved the most, C (toughest) barely budges. These
+  // are now approximate total px traveled over KNOCKBACK_STAGGER_DURATION
+  // (see applyZombieKnockback) rather than an instant jump, so they read
+  // as noticeably higher than a one-shot offset would need to be.
   shotgun: { label: 'SHOTGUN', short: 'SG', damage: 9,  fireRate: 650, range: 320, coneDeg: 50, multiHit: true,
-    knockback: { A: 46, B: 42, C: 14 } },
+    knockback: { A: 140, B: 120, C: 30 } },
 };
 
 // Wave-clear events that unlock each later weapon (pistol is available
@@ -773,12 +781,39 @@ function spawnZombie(tier, wave) {
     facing: 'down',
     animFrame: 0, animTick: 0,
     _stuckX: spawn.x, _stuckY: spawn.y, _stuckSince: performance.now(),
+    // Knockback stagger state — set by applyZombieKnockback(), consumed
+    // and decayed at the top of updateZombie().
+    staggeredUntil: 0, knockbackDirX: 0, knockbackDirY: 0, knockbackSpeed: 0,
   };
 }
 
 function zombieBaseY(z) { return z.y + FEET_OY + FEET_H; }
 
 function updateZombie(z, dt) {
+  const now = performance.now();
+
+  // Knocked back (shotgun hit) — the push drives movement instead of the
+  // normal chase-toward-player logic entirely, decaying linearly to zero
+  // across the stagger window so it reads as an actual hit instead of an
+  // instant jump the chase AI immediately closes back up. Chase resumes
+  // once the window ends, continuing from wherever the knockback actually
+  // left the zombie.
+  if (z.staggeredUntil && now < z.staggeredUntil) {
+    const remainingFrac = (z.staggeredUntil - now) / KNOCKBACK_STAGGER_DURATION;
+    const speed = z.knockbackSpeed * remainingFrac;
+    const kvx = z.knockbackDirX * speed * dt;
+    const kvy = z.knockbackDirY * speed * dt;
+    // Same axis-separated, wouldCollide-respecting movement as normal
+    // chasing — a knocked-back zombie still stops at a building's edge,
+    // another zombie's edge, or the player's edge.
+    if (!wouldCollide(z.x + kvx, z.y, z)) z.x += kvx;
+    if (!wouldCollide(z.x, z.y + kvy, z)) z.y += kvy;
+
+    z.animTick += dt;
+    if (z.animTick >= 14) { z.animTick = 0; z.animFrame ^= 1; }
+    return;
+  }
+
   const dx = player.x - z.x, dy = player.y - z.y;
   const dist = Math.hypot(dx, dy) || 1;
   const vx = (dx / dist) * z.speed * dt;
@@ -800,7 +835,6 @@ function updateZombie(z, dt) {
   // free. Try both perpendicular directions (a packed cluster can easily
   // have the randomly-chosen one blocked too) before giving up for this
   // check window.
-  const now = performance.now();
   const movedSinceCheck = Math.hypot(z.x - z._stuckX, z.y - z._stuckY);
   if (movedSinceCheck > STUCK_MIN_DISTANCE) {
     z._stuckX = z.x; z._stuckY = z.y; z._stuckSince = now;
@@ -849,10 +883,13 @@ function damageZombie(z, dmg) {
 }
 
 // Pushes a zombie away from (sourceX, sourceY) — e.g. the shotgun's blast
-// origin — using the same axis-separated, wouldCollide-respecting movement
-// zombies and the player already use elsewhere, so a knocked-back zombie
-// stops at a building's edge, another zombie's edge, or the player's edge
-// instead of shoving through it.
+// origin — by arming a decaying knockback velocity that updateZombie()
+// drives movement from for KNOCKBACK_STAGGER_DURATION, instead of an
+// instant position jump. An instant jump reads as nothing: the very next
+// tick, updateZombie() just recomputes the direction to the player fresh
+// and resumes chasing at full speed, closing the gap right back up. A
+// brief window where the push itself overrides the chase is what actually
+// makes the hit visible.
 function applyZombieKnockback(z, sourceX, sourceY, amount) {
   if (!amount) return;
   // sourceX/sourceY (fireWeapon's originX/originY) are feet-centered, so
@@ -862,10 +899,16 @@ function applyZombieKnockback(z, sourceX, sourceY, amount) {
   const zcx = z.x + PW / 2, zcy = z.y + FEET_OY + FEET_H / 2;
   const dx = zcx - sourceX, dy = zcy - sourceY;
   const dist = Math.hypot(dx, dy) || 1;
-  const kx = (dx / dist) * amount;
-  const ky = (dy / dist) * amount;
-  if (!wouldCollide(z.x + kx, z.y, z)) z.x += kx;
-  if (!wouldCollide(z.x, z.y + ky, z)) z.y += ky;
+
+  // Peak per-frame speed chosen so a linear decay to zero across the
+  // stagger window covers roughly `amount` px total (the area under that
+  // decay ramp is 0.5 * peakSpeed * frameCount) — same tunable per-tier
+  // amount as before, just spent over time instead of in one jump.
+  const frameCount = KNOCKBACK_STAGGER_DURATION / 16.667;
+  z.knockbackDirX  = dx / dist;
+  z.knockbackDirY  = dy / dist;
+  z.knockbackSpeed = (2 * amount) / frameCount;
+  z.staggeredUntil = performance.now() + KNOCKBACK_STAGGER_DURATION;
 }
 
 // ─────────────────────────────────────────────────────────
