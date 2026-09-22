@@ -585,6 +585,7 @@ function loadImg(src) {
 }
 
 const bgImg = loadImg('assets/plt2.png');
+const hydrantImg = loadImg('assets/firehydrant.png');
 
 // Same base (no-weapon) skin sheets as room 1 — the chosen skin index
 // picks which one to draw the player with.
@@ -642,6 +643,35 @@ function makeBuilding(id, x, y, w, h) {
     collision: { x, y, w, h },
     interactable: false,
     img: null,
+    draw() {}
+  };
+}
+
+// Fire hydrants — an actual drawn sprite (unlike the invisible building
+// colliders above), 80×130 per instance. Collision footprint is a
+// measured 61×66 rect starting 9px in from the left and 63px down from
+// the top of the sprite, covering the hydrant's base/body while leaving
+// its cap free for a zombie or the player to render in front of/behind
+// correctly without being blocked there.
+const HYDRANT_W = 80, HYDRANT_H = 130;
+const HYDRANT_COLLISION = { offsetX: 9, offsetY: 63, w: 61, h: 66 };
+
+// Positions are given as each hydrant's ground-contact point (bottom-
+// center of its footprint), not its top-left draw position.
+function makeHydrant(id, groundX, groundY) {
+  const x = groundX - HYDRANT_W / 2;
+  const y = groundY - HYDRANT_H;
+  return {
+    id, x, y, w: HYDRANT_W, h: HYDRANT_H,
+    baseY: groundY, // === y + HYDRANT_H
+    collision: {
+      x: x + HYDRANT_COLLISION.offsetX,
+      y: y + HYDRANT_COLLISION.offsetY,
+      w: HYDRANT_COLLISION.w,
+      h: HYDRANT_COLLISION.h,
+    },
+    interactable: false,
+    img: hydrantImg,
     draw() {}
   };
 }
@@ -1155,6 +1185,9 @@ bgImg.onload = () => {
     makeBuilding('bldg_tr', WORLD_W - BUILDING_W, 0, BUILDING_W, BUILDING_H),
     makeBuilding('bldg_bl', 0, WORLD_H - BUILDING_H, BUILDING_W, BUILDING_H),
     makeBuilding('bldg_br', WORLD_W - BUILDING_W, WORLD_H - BUILDING_H, BUILDING_W, BUILDING_H),
+    makeHydrant('hydrant_1', 958, 1455),
+    makeHydrant('hydrant_2', 2453, 1131),
+    makeHydrant('hydrant_3', 755, 497),
   );
 
   console.log(`[ZOMBIE STREET] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH}`);
