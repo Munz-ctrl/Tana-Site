@@ -676,6 +676,35 @@ function makeHydrant(id, groundX, groundY) {
   };
 }
 
+// Traffic light poles — four separate art pieces, no mirroring/flip logic.
+// Unlike the hydrants, each instance's x/y/w/h/baseY/collision are already
+// fully computed absolute values (sizes and collision offsets differ per
+// pole), so there's no shared footprint template to derive them from —
+// makeTrafficLight() just takes everything as given.
+//
+// NOTE: the art for pole 4 exists on disk as "trfficlightdownright.png"
+// (missing the "a" in "traffic") — using that exact filename so the
+// sprite actually loads, rather than the correctly-spelled name, which
+// 404s. Flagging this rather than silently guessing; rename the file (or
+// tell me to) if you'd rather the path read correctly.
+const trafficLightImgs = {
+  upleft:     loadImg('assets/trafficlightupleft.png'),
+  bottomleft: loadImg('assets/trafficlightbottomleft.png'),
+  upright:    loadImg('assets/trafficlightupright.png'),
+  downright:  loadImg('assets/trfficlightdownright.png'),
+};
+
+function makeTrafficLight(id, img, x, y, w, h, baseY, collision) {
+  return {
+    id, x, y, w, h,
+    baseY,
+    collision,
+    interactable: false,
+    img,
+    draw() {}
+  };
+}
+
 // ─────────────────────────────────────────────────────────
 //  PLAYER
 // ─────────────────────────────────────────────────────────
@@ -1188,6 +1217,10 @@ bgImg.onload = () => {
     makeHydrant('hydrant_1', 958, 1455),
     makeHydrant('hydrant_2', 2453, 1131),
     makeHydrant('hydrant_3', 755, 497),
+    makeTrafficLight('trafficlight_1', trafficLightImgs.upleft,     744,  56, 420, 434, 490,  { x: 874,  y: 403,  w: 61, h: 86 }),
+    makeTrafficLight('trafficlight_2', trafficLightImgs.bottomleft, 871,  687, 167, 457, 1144, { x: 944,  y: 1054, w: 61, h: 89 }),
+    makeTrafficLight('trafficlight_3', trafficLightImgs.upright,    1978, 53, 372, 437, 490,  { x: 2222, y: 417,  w: 49, h: 73 }),
+    makeTrafficLight('trafficlight_4', trafficLightImgs.downright,  2079, 687, 170, 457, 1144, { x: 2118, y: 1070, w: 52, h: 74 }),
   );
 
   console.log(`[ZOMBIE STREET] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH}`);
