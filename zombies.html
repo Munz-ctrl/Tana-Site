@@ -993,6 +993,7 @@ function fireWeapon(w) {
     type: 'tracer',
     x: player.x + PW * visOff.x, y: player.y + PH * visOff.y, angle, dist: tracerDist,
     coneDeg: w.coneDeg, // so the tracer fans across the same cone that was actually checked
+    multiHit: w.multiHit, // only multi-hit weapons (the shotgun) draw the ray fan
     hit: hits.length > 0,
     // Facing at the moment of firing — not re-checked later, since the
     // player could turn while the tracer is still fading — used in
@@ -1515,18 +1516,31 @@ function drawTracerEffect(e, t) {
   ctx.strokeStyle = e.hit ? '#f9c74f' : 'rgba(249,199,79,0.5)';
   ctx.lineWidth = 2;
 
-  // Fan TRACER_RAY_COUNT rays evenly across ±halfCone (the same cone
-  // fireWeapon() actually checked) instead of one center line, so the
-  // visual width always matches what's really being hit. Each ray is
-  // dimmer than a single solid line would be — for a narrow cone they
-  // nearly overlap and read as roughly one ray; for a wide cone (the
-  // shotgun) they fan out and clearly read as a spread.
-  for (let i = 0; i < TRACER_RAY_COUNT; i++) {
-    const frac = TRACER_RAY_COUNT > 1 ? (i / (TRACER_RAY_COUNT - 1)) * 2 - 1 : 0; // -1..1
-    const rayAngle = e.angle + frac * halfCone;
-    const ex = sx + Math.cos(rayAngle) * e.dist;
-    const ey = sy + Math.sin(rayAngle) * e.dist;
-    ctx.globalAlpha = alpha * TRACER_RAY_ALPHA_SCALE;
+  if (e.multiHit) {
+    // Fan TRACER_RAY_COUNT rays evenly across ±halfCone (the same cone
+    // fireWeapon() actually checked) instead of one center line, so the
+    // visual width always matches what's really being hit. Each ray is
+    // dimmer than a single solid line would be so the fan doesn't read
+    // brighter than a normal single-line tracer. Only multi-hit weapons
+    // (the shotgun) draw this — single-target weapons' cones are meant to
+    // stay narrow/invisible, not read as a visible spread.
+    for (let i = 0; i < TRACER_RAY_COUNT; i++) {
+      const frac = TRACER_RAY_COUNT > 1 ? (i / (TRACER_RAY_COUNT - 1)) * 2 - 1 : 0; // -1..1
+      const rayAngle = e.angle + frac * halfCone;
+      const ex = sx + Math.cos(rayAngle) * e.dist;
+      const ey = sy + Math.sin(rayAngle) * e.dist;
+      ctx.globalAlpha = alpha * TRACER_RAY_ALPHA_SCALE;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+    }
+  } else {
+    // Single-target weapons (pistol, SMG) — one clean line straight down
+    // the aim angle, no cone spread, same as before the fan was added.
+    const ex = sx + Math.cos(e.angle) * e.dist;
+    const ey = sy + Math.sin(e.angle) * e.dist;
+    ctx.globalAlpha = alpha;
     ctx.beginPath();
     ctx.moveTo(sx, sy);
     ctx.lineTo(ex, ey);
