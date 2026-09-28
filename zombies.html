@@ -1205,8 +1205,8 @@ bgImg.onload = () => {
   // These insets were measured directly off the art (sampled pixel bands
   // of the actual background image) so the invisible colliders sit at
   // the building line rather than spilling out over the walkable sidewalk.
-  const BUILDING_W = 780;  // building footprint depth inward from left/right edge
-  const BUILDING_H = 240;  // building footprint depth inward from top/bottom edge
+  const BUILDING_W = 880;  // building footprint depth inward from left/right edge
+  const BUILDING_H = 340;  // building footprint depth inward from top/bottom edge
 
   sceneObjects.length = 0;
   sceneObjects.push(
@@ -1214,8 +1214,8 @@ bgImg.onload = () => {
     makeBuilding('bldg_tr', WORLD_W - BUILDING_W, 0, BUILDING_W, BUILDING_H),
     makeBuilding('bldg_bl', 0, WORLD_H - BUILDING_H, BUILDING_W, BUILDING_H),
     makeBuilding('bldg_br', WORLD_W - BUILDING_W, WORLD_H - BUILDING_H, BUILDING_W, BUILDING_H),
-    makeHydrant('hydrant_1', 958, 1455),
-    makeHydrant('hydrant_2', 2453, 1131),
+    makeHydrant('hydrant_1', 958, 1555),
+    makeHydrant('hydrant_2', 2453, 1231),
     makeHydrant('hydrant_3', 755, 497),
     makeTrafficLight('trafficlight_1', trafficLightImgs.upleft,     844,  156, 420, 434, 590,  { x: 974,  y: 503,  w: 61, h: 86 }),
     makeTrafficLight('trafficlight_2', trafficLightImgs.bottomleft, 871,  817, 167, 457, 1274, { x: 944,  y: 1184, w: 61, h: 89 }),
