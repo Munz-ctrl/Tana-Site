@@ -1202,18 +1202,22 @@ bgImg.onload = () => {
 
   // Cross-shaped street intersection: plt2.png already paints a building
   // into each corner, fronted by a sidewalk that runs along the street.
-  // These insets were measured directly off the art (sampled pixel bands
-  // of the actual background image) so the invisible colliders sit at
-  // the building line rather than spilling out over the walkable sidewalk.
-  const BUILDING_W = 880;  // building footprint depth inward from left/right edge
-  const BUILDING_H = 340;  // building footprint depth inward from top/bottom edge
+  // The buildings' edges aren't mirror images of each other on this art,
+  // so each collider is defined by its own inner-corner point — where
+  // that building's two blocking walls meet, in world coordinates — and
+  // spans from that point out to its world corner (width/height derived
+  // from WORLD_W/WORLD_H). Hand-tune by adjusting these points.
+  const BLDG_INNER_NW = { x: 830,  y: 340  };
+  const BLDG_INNER_NE = { x: 2280, y: 350  };
+  const BLDG_INNER_SW = { x: 800,  y: 1200 };
+  const BLDG_INNER_SE = { x: 2300, y: 1200 };
 
   sceneObjects.length = 0;
   sceneObjects.push(
-    makeBuilding('bldg_tl', 0, 0, BUILDING_W, BUILDING_H),
-    makeBuilding('bldg_tr', WORLD_W - BUILDING_W, 0, BUILDING_W, BUILDING_H),
-    makeBuilding('bldg_bl', 0, WORLD_H - BUILDING_H, BUILDING_W, BUILDING_H),
-    makeBuilding('bldg_br', WORLD_W - BUILDING_W, WORLD_H - BUILDING_H, BUILDING_W, BUILDING_H),
+    makeBuilding('bldg_tl', 0, 0, BLDG_INNER_NW.x, BLDG_INNER_NW.y),
+    makeBuilding('bldg_tr', BLDG_INNER_NE.x, 0, WORLD_W - BLDG_INNER_NE.x, BLDG_INNER_NE.y),
+    makeBuilding('bldg_bl', 0, BLDG_INNER_SW.y, BLDG_INNER_SW.x, WORLD_H - BLDG_INNER_SW.y),
+    makeBuilding('bldg_br', BLDG_INNER_SE.x, BLDG_INNER_SE.y, WORLD_W - BLDG_INNER_SE.x, WORLD_H - BLDG_INNER_SE.y),
     makeHydrant('hydrant_1', 958, 1555),
     makeHydrant('hydrant_2', 2453, 1231),
     makeHydrant('hydrant_3', 755, 497),
