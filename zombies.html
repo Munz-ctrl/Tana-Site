@@ -949,7 +949,8 @@ function updateZombie(z, dt) {
 function damageZombie(z, dmg) {
   z.hp -= dmg;
   if (z.hp > 0) {
-    TanaAudio.play('zombie_hit');
+    // Slight delay so the hit lands after the gunshot instead of under it.
+    TanaAudio.play('zombie_hit', { delay: 0.06 });
     // Non-lethal hit — same burst as a kill, just smaller/briefer, so
     // every hit a shot lands (including each target in a multi-hit
     // shotgun blast) reads clearly as a hit even when it doesn't kill.
