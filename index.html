@@ -692,15 +692,13 @@
   </div>
 </div>
 
-<!-- Background soundtrack -->
-<audio id="bgm" src="assets/scA.m4a" loop preload="auto"></audio>
 <button id="chat-btn-desktop" type="button" aria-label="Chat" title="Chat">
   <svg width="22" height="22" viewBox="0 0 22 22" fill="#4ecca3" xmlns="http://www.w3.org/2000/svg">
     <rect x="1" y="1" width="20" height="14" rx="3"/>
     <polygon points="4,15 4,21 10,15"/>
   </svg>
 </button>
-<button id="bgm-toggle" type="button" aria-label="Toggle soundtrack" title="Toggle soundtrack (M)">
+<button id="bgm-toggle" type="button" aria-label="Mute all sound" title="Mute all sound (M)">
   <span id="bgm-icon">♪</span>
 </button>
 
@@ -712,6 +710,11 @@
   <span>`</span> — DEBUG
 </div>
 
+<script src="assets/audio.js"></script>
+<script>
+// If audio.js ever fails to load, every TanaAudio call becomes a harmless no-op.
+window.TanaAudio = window.TanaAudio || new Proxy({}, { get: () => () => null });
+</script>
 <script>
 'use strict';
 
@@ -1447,11 +1450,16 @@ function openEmailPopup() {
   [nameInput, emailInput, phoneInput].forEach(i => i.style.borderColor = '#4ecca3');
   popupOverlay.classList.add('active');
   popupOpen = true;
+  TanaAudio.play('ui_open');
 }
 
 function closePopup() {
+  // Guarded: ESC calls this unconditionally, and the email-sent auto-close
+  // timer can fire after the player already closed it — one sound per close.
+  if (!popupOpen) return;
   popupOverlay.classList.remove('active');
   popupOpen = false;
+  TanaAudio.play('ui_close');
 }
 
 document.getElementById('popup-close').addEventListener('click', closePopup);
@@ -1468,6 +1476,7 @@ function showFormError(msg, fields) {
 }
 
 emailSubmit.addEventListener('click', async () => {
+  TanaAudio.play('ui_click');
   const name  = nameInput.value.trim();
   const email = emailInput.value.trim();
   const phone = phoneInput.value.trim();
@@ -1539,14 +1548,17 @@ function openTV(videoId) {
   tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
   tvOverlay.classList.add('active');
   tvOpen = true;
-  duckBGMForTV();                // fade soundtrack out under YouTube
+  TanaAudio.duckMusic(true);     // fade music out under YouTube
+  TanaAudio.play('ui_open');
 }
 
 function closeTV() {
+  if (!tvOpen) return;           // ESC calls this unconditionally
   tvIframe.src = '';
   tvOverlay.classList.remove('active');
   tvOpen = false;
-  unduckBGMFromTV();             // fade soundtrack back in
+  TanaAudio.duckMusic(false);    // fade music back in
+  TanaAudio.play('ui_close');
 }
 
 document.getElementById('tv-close-btn').addEventListener('click', closeTV);
@@ -1627,99 +1639,28 @@ function startRoomTransition() {
 }
 
 // ─────────────────────────────────────────────────────────
-//  BACKGROUND SOUNDTRACK
-//  • Tries to autoplay on load. If the browser blocks it
-//    (most do on first visit), arms a one-shot listener
-//    that starts playback on the user's first interaction.
-//  • Fades out under the YouTube TV so the two don't fight.
-//  • Mute toggle persists to localStorage. 'M' is a shortcut.
+//  SOUND — master mute + music hooks (all audio lives in assets/audio.js)
+//  • The ♪ button and 'M' toggle a master mute (sfx + music), persisted
+//    to localStorage 'tana-muted' (the old 'tana-bgm-muted' value is
+//    migrated by audio.js on first load).
+//  • Music is a stub for now: setMusic()/duckMusic() do nothing until a
+//    track is configured in MUSIC at the top of audio.js. The TV open /
+//    close calls already duck it, so ducking works once music returns.
 // ─────────────────────────────────────────────────────────
-const bgm        = document.getElementById('bgm');
-const bgmToggle  = document.getElementById('bgm-toggle');
-const BGM_VOLUME = 0.40;   // playback target volume (0..1)
-const BGM_FADE   = 250;    // fade duration in ms
-
-let bgmStarted = false;
-let bgmFadeRAF = null;
-let userMuted  = false;
-try { userMuted = (localStorage.getItem('tana-bgm-muted') === '1'); } catch (_) {}
-
-bgm.volume = 0; // always start silent; we ramp up via fadeBGM
+const bgmToggle = document.getElementById('bgm-toggle');
 
 function applyMuteUI() {
-  bgmToggle.classList.toggle('muted', userMuted);
+  bgmToggle.classList.toggle('muted', TanaAudio.isMuted() === true);
 }
 applyMuteUI();
 
-function fadeBGM(toVol, durMs) {
-  if (bgmFadeRAF) cancelAnimationFrame(bgmFadeRAF);
-  const fromVol = bgm.volume;
-  const start   = performance.now();
-  const step = (now) => {
-    const k = Math.min(1, (now - start) / durMs);
-    bgm.volume = fromVol + (toVol - fromVol) * k;
-    if (k < 1) bgmFadeRAF = requestAnimationFrame(step);
-    else       bgmFadeRAF = null;
-  };
-  bgmFadeRAF = requestAnimationFrame(step);
-}
-
-function tryStartBGM() {
-  if (bgmStarted || userMuted || tvOpen) return;
-  const p = bgm.play();
-  if (p && typeof p.then === 'function') {
-    p.then(() => {
-      bgmStarted = true;
-      fadeBGM(BGM_VOLUME, BGM_FADE);
-    }).catch(() => {
-      // Autoplay blocked — first-interaction listeners below will retry
-    });
-  } else {
-    bgmStarted = true;
-    fadeBGM(BGM_VOLUME, BGM_FADE);
-  }
-}
-
-window.addEventListener('load', tryStartBGM);
-
-// First-interaction fallback. Capture phase so we win even if
-// other handlers stopPropagation. Self-removes once started.
-['keydown', 'pointerdown', 'touchstart', 'click'].forEach(evt => {
-  const handler = () => {
-    tryStartBGM();
-    if (bgmStarted) window.removeEventListener(evt, handler, true);
-  };
-  window.addEventListener(evt, handler, true);
-});
-
 bgmToggle.addEventListener('click', () => {
-  userMuted = !userMuted;
-  try { localStorage.setItem('tana-bgm-muted', userMuted ? '1' : '0'); } catch (_) {}
+  TanaAudio.toggleMute();
   applyMuteUI();
-  if (userMuted) {
-    fadeBGM(0, BGM_FADE);
-    setTimeout(() => { if (userMuted) bgm.pause(); }, BGM_FADE + 30);
-  } else {
-    if (!bgmStarted) { tryStartBGM(); return; }
-    bgm.play().catch(() => {});
-    if (!tvOpen) fadeBGM(BGM_VOLUME, BGM_FADE);
-  }
+  if (!TanaAudio.isMuted()) TanaAudio.play('ui_click'); // confirm un-mute only
 });
 
-// Two state flags fight each other otherwise:
-//   userMuted        → user clicked mute; stay silent regardless of TV
-//   ducked-for-TV    → temporary, restored when TV closes (unless userMuted)
-function duckBGMForTV() {
-  if (userMuted || !bgmStarted) return;
-  fadeBGM(0, BGM_FADE);
-  setTimeout(() => { if (tvOpen) bgm.pause(); }, BGM_FADE + 30);
-}
-function unduckBGMFromTV() {
-  if (userMuted) return;
-  if (!bgmStarted) { tryStartBGM(); return; }
-  bgm.play().catch(() => {});
-  fadeBGM(BGM_VOLUME, BGM_FADE);
-}
+TanaAudio.setMusic('room1');
 
 // 'M' keyboard shortcut. Ignore when typing into inputs.
 window.addEventListener('keydown', e => {
@@ -1840,6 +1781,7 @@ function openChatPopup() {
   _chatPopup.style.display = 'flex';
   _chatInput.value = '';
   _chatInput.focus();
+  TanaAudio.play('ui_open');
 }
 
 function closeChatPopup() {
@@ -1847,6 +1789,7 @@ function closeChatPopup() {
   chatOpen = false;
   _chatPopup.style.display = 'none';
   _chatInput.blur();
+  TanaAudio.play('ui_close');
 }
 
 _chatInput.addEventListener('keydown', e => {
@@ -1874,6 +1817,7 @@ function openPlaqueInfo() {
   emailWrap.style.display = 'none';
   popupOverlay.classList.add('active');
   popupOpen = true;
+  TanaAudio.play('ui_open');
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2567,6 +2511,7 @@ setTimeout(resizeGame, 100);
       skinBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       playerSkin = parseInt(btn.dataset.skin, 10);
+      TanaAudio.play('ui_click');
     });
   });
 
@@ -2580,6 +2525,7 @@ setTimeout(resizeGame, 100);
     } catch (_) {}
     nameScreenOpen = false;
     screen.remove();
+    TanaAudio.play('ui_close');   // entry screen is an overlay — its dismissal is the close sound
     initMultiplayer();
   }
 
@@ -2618,6 +2564,9 @@ function initMultiplayer() {
     let _broadcastInterval = null;
     const joinWorld = () => {
       if (_broadcastInterval) { clearInterval(_broadcastInterval); _broadcastInterval = null; }
+      // joinWorld() also runs for silent reconnects — only sound when the
+      // bouncer overlay was actually up.
+      if (_bouncerOpen) TanaAudio.play('ui_close');
       _bouncerOpen = false;
       _bouncerOverlay.style.display = 'none';
 
@@ -2756,6 +2705,8 @@ function initMultiplayer() {
           let _afkCountTimer = null;
 
           const _dismissAfk = () => {
+            // Also bound to every keydown — only the visible→hidden edge is a "close".
+            if (_afkVisible) TanaAudio.play('ui_close');
             _afkVisible = false;
             _afkOverlay.style.display = 'none';
             clearInterval(_afkCountTimer);
@@ -2766,6 +2717,7 @@ function initMultiplayer() {
 
           const _showAfk = () => {
             _afkVisible = true;
+            TanaAudio.play('ui_open');
             let _secs = 30;
             const _countEl = _afkOverlay.querySelector('#_afkCount');
             _countEl.textContent = 'RETURNING IN ' + _secs + '...';
@@ -2870,6 +2822,7 @@ function initMultiplayer() {
           } else {
             _bouncerOpen = true;
             _bouncerOverlay.style.display = 'flex';
+            TanaAudio.play('ui_open');
             _syncBouncer();
           }
         }, 1500);
