@@ -23,7 +23,7 @@
     ui_close:      { file: 'assets/sfx/ui_close.mp3',      vol: 0.5,  pitchVar: 0,    minGap: 60,  maxVoices: 2 },
     ui_click:      { file: 'assets/sfx/ui_click.mp3',      vol: 0.45, pitchVar: 0.03, minGap: 50,  maxVoices: 2 },
     pistol:        { file: 'assets/sfx/pistol_new.mp3',        vol: 0.55, pitchVar: 0.06, minGap: 0,   maxVoices: 4 },
-    smg:           { file: 'assets/sfx/smg_new.mp3',           vol: 0.45, pitchVar: 0.08, minGap: 0,   maxVoices: 6 },
+    smg:           { file: 'assets/sfx/zombie_hit_new.mp3',           vol: 0.45, pitchVar: 0.08, minGap: 0,   maxVoices: 6 },
     shotgun:       { file: 'assets/sfx/shotgun_new.mp3',       vol: 0.65, pitchVar: 0.05, minGap: 0,   maxVoices: 3 },
     weapon_switch: { file: 'assets/sfx/weapon_switch.mp3', vol: 0.5,  pitchVar: 0,    minGap: 80,  maxVoices: 1 },
     weapon_unlock: { file: 'assets/sfx/weapon_unlock.mp3', vol: 0.6,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
