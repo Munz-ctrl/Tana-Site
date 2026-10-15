@@ -6,6 +6,11 @@
   <title>ZOMBIE STREET</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="assets/audio.js"></script>
+  <script>
+    // If audio.js ever fails to load, every TanaAudio call becomes a harmless no-op.
+    window.TanaAudio = window.TanaAudio || new Proxy({}, { get: () => () => null });
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -244,6 +249,26 @@
 
     #go-playagain-btn { margin-top: 4px; border-color: #e94560; color: #e94560; background: rgba(233,69,96,0.08); }
     #go-playagain-btn:hover { background: rgba(233,69,96,0.22); }
+
+    /* ── Master mute toggle (same look as room 1's; sits under the HUD line) ── */
+    #mute-toggle {
+      position: fixed;
+      top: 32px; right: 8px;
+      width: 24px; height: 24px;
+      background: rgba(5,5,10,0.72);
+      border: 1px solid #f9c74f;
+      color: #f9c74f;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0; outline: none;
+      box-shadow: 0 0 10px rgba(249,199,79,0.20);
+    }
+    #mute-toggle:hover { background: rgba(249,199,79,0.18); }
+    #mute-toggle.muted { color: #555; border-color: #333; box-shadow: none; }
+    #mute-toggle.muted span { text-decoration: line-through; }
   </style>
 </head>
 <body>
@@ -269,6 +294,8 @@
   <div id="weapon-btn">PST</div>
   <div id="fire-btn">⊕</div>
 </div>
+
+<button id="mute-toggle" type="button" aria-label="Mute all sound" title="Mute all sound (M)"><span>♪</span></button>
 
 <div id="gameover-overlay">
   <div id="gameover-box">
@@ -391,6 +418,9 @@ const WAVE_CLEAR_DURATION = 2500; // ms countdown after the last zombie is gone
 // still-loading player/zombie/weapon art a moment to arrive. The player
 // can still move around freely during this buffer; only waves are held.
 const GAME_START_BUFFER_MS = 2000;
+// wave_start.mp3's big hit sits this far into the file — it's scheduled so
+// the hit lands exactly when the wave starts spawning (see scheduleWaveStartSfx).
+const WAVE_START_HIT_SEC = 4.75;
 
 // Anti-stuck: if a zombie has barely moved for this long despite trying,
 // it's wedged in a concave corner the axis-slide alone can't escape —
@@ -919,6 +949,7 @@ function updateZombie(z, dt) {
 function damageZombie(z, dmg) {
   z.hp -= dmg;
   if (z.hp > 0) {
+    TanaAudio.play('zombie_hit');
     // Non-lethal hit — same burst as a kill, just smaller/briefer, so
     // every hit a shot lands (including each target in a multi-hit
     // shotgun blast) reads clearly as a hit even when it doesn't kill.
@@ -933,6 +964,8 @@ function damageZombie(z, dmg) {
   const idx = zombies.indexOf(z);
   if (idx === -1) return; // already removed (e.g. a shotgun blast hit it twice)
   zombies.splice(idx, 1);
+  TanaAudio.play('zombie_death');
+  TanaAudio.play('score_tick');
   addScore(SCORE_PER_KILL[z.tier] || 0);
   addEffect({
     type: 'death',
@@ -1003,6 +1036,7 @@ function inflateRect(r, amt) {
 }
 
 function applyPlayerDamage(dmg, source) {
+  TanaAudio.play('player_hurt');
   player.hp = Math.max(0, player.hp - dmg);
   player.invulnUntil = performance.now() + PLAYER_INVULN_DURATION;
 
@@ -1052,6 +1086,7 @@ function tryFire(now) {
 }
 
 function fireWeapon(w) {
+  TanaAudio.play(currentWeapon); // 'pistol' | 'smg' | 'shotgun' — one per trigger pull
   const dir = AIM_DIRS[player.aimDir];
   const angle = Math.atan2(dir.dy, dir.dx);
   const halfCone = (w.coneDeg * Math.PI / 180) / 2;
@@ -1112,6 +1147,7 @@ function checkWeaponUnlocks(clearedWave) {
       unlockedWeapons.add(key);
       currentWeapon = key;
       weaponUnlockNotice = { label: WEAPONS[key].label, start: performance.now() };
+      TanaAudio.play('weapon_unlock');
     }
   }
 }
@@ -1121,12 +1157,14 @@ function checkWeaponUnlocks(clearedWave) {
 // the first. A no-op with only one weapon unlocked.
 function switchToNextWeapon() {
   const unlocked = WEAPON_ORDER.filter(k => unlockedWeapons.has(k));
-  if (unlocked.length <= 1) return;
+  if (unlocked.length <= 1) return false;
   const idx = unlocked.indexOf(currentWeapon);
   currentWeapon = unlocked[(idx + 1) % unlocked.length];
   // Don't let a fast weapon's cooldown carry over into an instant first
   // shot with a slower one.
   lastFireTime = 0;
+  TanaAudio.play('weapon_switch');
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1150,6 +1188,24 @@ let waveStateSince   = 0;
 let waveTotalCount   = 0;
 let waveSpawnedCount = 0;
 let lastSpawnTime    = 0;
+
+// ── Wave sound: wave_start.mp3's hit lands exactly when spawning begins ──
+// spawnStartMs is the performance.now() timestamp at which the wave's
+// INTRO banner ends and zombies start spawning. The file is started
+// WAVE_START_HIT_SEC before that; if that moment has already passed (wave 1,
+// restarts) it starts immediately, offset by how late we are.
+let waveStartVoice = null;
+function scheduleWaveStartSfx(spawnStartMs) {
+  if (waveStartVoice) waveStartVoice.stop();
+  const startInMs = (spawnStartMs - WAVE_START_HIT_SEC * 1000) - performance.now();
+  waveStartVoice = startInMs >= 0
+    ? TanaAudio.play('wave_start', { delay: startInMs / 1000 })
+    : TanaAudio.play('wave_start', { offset: -startInMs / 1000 });
+}
+
+// "+50" wave-clear bonus popup — drawn by drawWaveBanner().
+let scorePopup = null; // { text, start }
+const SCORE_POPUP_DURATION = 1400;
 
 function waveZombieCount(wave) {
   if (WAVE_COUNT_OVERRIDES[wave] != null) return WAVE_COUNT_OVERRIDES[wave];
@@ -1183,7 +1239,12 @@ function updateWave() {
       waveState = 'CLEAR';
       waveStateSince = now;
       addScore(SCORE_WAVE_CLEAR_BONUS);
+      scorePopup = { text: '+' + SCORE_WAVE_CLEAR_BONUS, start: now };
+      TanaAudio.play('wave_clear');
+      TanaAudio.play('score_coins');
       checkWeaponUnlocks(waveNumber);
+      // Next wave spawns after the clear countdown + intro banner.
+      scheduleWaveStartSfx(now + WAVE_CLEAR_DURATION + WAVE_INTRO_DURATION);
     }
   } else if (waveState === 'CLEAR') {
     if (now - waveStateSince >= WAVE_CLEAR_DURATION) {
@@ -1237,6 +1298,8 @@ bgImg.onload = () => {
   // still move around freely in the meantime.
   requestAnimationFrame(() => requestAnimationFrame(() => {
     playIntroPixelation(() => {
+      // Spawning begins GAME_START_BUFFER_MS + intro from now.
+      scheduleWaveStartSfx(performance.now() + GAME_START_BUFFER_MS + WAVE_INTRO_DURATION);
       setTimeout(() => {
         gameStarted = true;
         startWave(1);
@@ -1319,7 +1382,9 @@ const weaponBtn = document.getElementById('weapon-btn');
 weaponBtn.addEventListener('touchstart', e => {
   e.preventDefault();
   weaponBtn.classList.add('pressed');
-  switchToNextWeapon();
+  // weapon_switch plays inside switchToNextWeapon(); with only one weapon
+  // unlocked it's a no-op, so give the press a plain click instead.
+  if (!switchToNextWeapon()) TanaAudio.play('ui_click');
 }, { passive: false });
 weaponBtn.addEventListener('touchend', e => {
   e.preventDefault(); weaponBtn.classList.remove('pressed');
@@ -1327,6 +1392,27 @@ weaponBtn.addEventListener('touchend', e => {
 weaponBtn.addEventListener('touchcancel', () => {
   weaponBtn.classList.remove('pressed');
 });
+
+// ─────────────────────────────────────────────────────────
+//  SOUND — master mute (shared 'tana-muted' state with room 1) + music hook
+// ─────────────────────────────────────────────────────────
+const muteToggle = document.getElementById('mute-toggle');
+function applyMuteUI() {
+  muteToggle.classList.toggle('muted', TanaAudio.isMuted() === true);
+}
+applyMuteUI();
+muteToggle.addEventListener('click', () => {
+  TanaAudio.toggleMute();
+  applyMuteUI();
+  if (!TanaAudio.isMuted()) TanaAudio.play('ui_click'); // confirm un-mute only
+});
+window.addEventListener('keydown', e => {
+  if (e.key !== 'm' && e.key !== 'M') return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+  muteToggle.click();
+});
+TanaAudio.setMusic('room2');
 
 // ─────────────────────────────────────────────────────────
 //  INPUT — virtual joystick (same pattern as room 1)
@@ -1728,6 +1814,21 @@ function drawWaveBanner() {
     ctx.fillText(`NEXT WAVE IN ${Math.ceil(remain / 1000)}...`, cx, cy + 12);
   }
 
+  if (scorePopup) {
+    const t = (performance.now() - scorePopup.start) / SCORE_POPUP_DURATION;
+    if (t >= 1) {
+      scorePopup = null;
+    } else {
+      // Floats up from just above the banner while fading out.
+      ctx.globalAlpha = Math.max(0, Math.min(1, t > 0.6 ? (1 - t) / 0.4 : 1));
+      ctx.fillStyle = '#f9c74f';
+      ctx.font = '18px "Press Start 2P"';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(scorePopup.text, cx, cy - 50 - 40 * t);
+      ctx.globalAlpha = 1;
+    }
+  }
+
   if (weaponUnlockNotice) {
     const t = (performance.now() - weaponUnlockNotice.start) / WEAPON_UNLOCK_NOTICE_DURATION;
     if (t >= 1) {
@@ -2038,8 +2139,38 @@ async function doSubmit(name) {
   renderLeaderboard();
 }
 
+// Score counts up 0 → final over GO_COUNT_DURATION while score_coins plays,
+// starting GO_COUNT_DELAY after the overlay appears so ui_open / game_over
+// get their moment first.
+const GO_COUNT_DURATION = 1200; // ms
+const GO_COUNT_DELAY    = 400;  // ms
+let goCountRAF = 0, goCountTimer = 0;
+
+function cancelGameOverCount() {
+  cancelAnimationFrame(goCountRAF);
+  clearTimeout(goCountTimer);
+  goCountRAF = goCountTimer = 0;
+}
+
+function startGameOverCount(finalScore) {
+  cancelGameOverCount();
+  if (finalScore <= 0) { goScoreEl.textContent = String(finalScore); return; }
+  goScoreEl.textContent = '0';
+  goCountTimer = setTimeout(() => {
+    goCountTimer = 0;
+    TanaAudio.play('score_coins');
+    const t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / GO_COUNT_DURATION);
+      goScoreEl.textContent = String(Math.round(finalScore * k));
+      goCountRAF = k < 1 ? requestAnimationFrame(step) : 0;
+    };
+    goCountRAF = requestAnimationFrame(step);
+  }, GO_COUNT_DELAY);
+}
+
 function showGameOverOverlay() {
-  goScoreEl.textContent = String(score);
+  startGameOverCount(score);
   goWaveEl.textContent  = String(waveNumber);
   goSubmitted = false;
   goSubmitBtn.disabled = false;
@@ -2064,13 +2195,18 @@ function showGameOverOverlay() {
 
   renderLeaderboard();
   goOverlay.classList.add('active');
+  TanaAudio.play('ui_open');
 }
 
 function hideGameOverOverlay() {
+  cancelGameOverCount();
+  if (!goOverlay.classList.contains('active')) return;
   goOverlay.classList.remove('active');
+  TanaAudio.play('ui_close');
 }
 
 goSubmitBtn.addEventListener('click', () => {
+  TanaAudio.play('ui_click');
   const name = goNameInput.value.trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase() || 'ANON';
   doSubmit(name);
 });
@@ -2078,7 +2214,9 @@ goSubmitBtn.addEventListener('click', () => {
 function triggerGameOver() {
   if (gameOver) return;
   gameOver = true;
-  showGameOverOverlay();
+  if (waveStartVoice) { waveStartVoice.stop(); waveStartVoice = null; }
+  showGameOverOverlay();   // plays ui_open first
+  TanaAudio.play('game_over');
 }
 
 // Resets everything a fresh run needs — player, zombies, wave, HP, score,
@@ -2102,8 +2240,10 @@ function resetGame() {
 
   gameOver = false;
   gameStarted = true; // in case this fires before the initial startup buffer's setTimeout does
+  scorePopup = null;
   hideGameOverOverlay();
   startWave(1);
+  scheduleWaveStartSfx(performance.now() + WAVE_INTRO_DURATION);
 }
 
 goPlayAgainBtn.addEventListener('click', resetGame);
