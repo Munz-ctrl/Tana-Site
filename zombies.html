@@ -442,26 +442,46 @@ const KNOCKBACK_STAGGER_DURATION = 380; // ms
 //  the same target — the shotgun is the deliberate exception: it's
 //  wide enough to overlap neighboring directions and can multi-hit.
 // ─────────────────────────────────────────────────────────
-const WEAPON_ORDER = ['pistol', 'smg', 'shotgun']; // unlock progression order
+const WEAPON_ORDER = ['pistol', 'uzi', 'shotgun', 'draco']; // unlock progression order
+
+// Shotgun damage/knockback scale by distance: mult = lerp(1.0, this, dist / range)
+// — point-blank is full strength, the edge of the cone is this fraction.
+const SHOTGUN_FALLOFF_MIN = 0.35;
+
+// Per-tier knockback is the approximate total px a zombie travels over
+// KNOCKBACK_STAGGER_DURATION (see applyZombieKnockback) — A/B (weakest/mid)
+// get shoved the most, C (toughest) barely budges.
+//   knockbackStack: true  → a new hit ADDS to the zombie's existing push
+//                          (capped by KNOCKBACK_STACK_CAP) instead of
+//                          resetting it, so sustained full-auto fire drives
+//                          a zombie visibly back.
+//   range: the pistol/uzi/draco use WORLD_W (a getter, since WORLD_W is only
+//   known once the background image loads) so shots cover the whole map
+//   width; they still only ever hit the nearest zombie in the cone.
+//   spriteFallback: weapon whose sheet is used while this weapon's own
+//   skin{A,B,C}{File}.png is missing.
 const WEAPONS = {
-  pistol:  { label: 'PISTOL',  short: 'PST', damage: 14, fireRate: 380, range: 560, coneDeg: 18, multiHit: false },
-  smg:     { label: 'SMG',     short: 'SMG', damage: 6,  fireRate: 90,  range: 480, coneDeg: 22, multiHit: false },
-  // knockback is a separate property from multiHit — it just happens that
-  // the shotgun is currently the only weapon with either. Per-tier: A/B
-  // (weakest/mid) get shoved the most, C (toughest) barely budges. These
-  // are now approximate total px traveled over KNOCKBACK_STAGGER_DURATION
-  // (see applyZombieKnockback) rather than an instant jump, so they read
-  // as noticeably higher than a one-shot offset would need to be.
-  shotgun: { label: 'SHOTGUN', short: 'SG', damage: 9,  fireRate: 650, range: 320, coneDeg: 50, multiHit: true,
-    knockback: { A: 140, B: 120, C: 30 } },
+  pistol:  { label: 'PISTOL',  short: 'PST', damage: 14, fireRate: 380, get range() { return WORLD_W; }, coneDeg: 18, multiHit: false,
+    knockback: { A: 40, B: 30, C: 10 } },
+  uzi:     { label: 'UZI',     short: 'UZI', damage: 6,  fireRate: 90,  get range() { return WORLD_W; }, coneDeg: 22, multiHit: false,
+    knockback: { A: 18, B: 12, C: 4 }, knockbackStack: true },
+  shotgun: { label: 'SHOTGUN', short: 'SG',  damage: 9,  fireRate: 650, range: 320, coneDeg: 50, multiHit: true,
+    knockback: { A: 140, B: 120, C: 30 }, distFalloffMin: SHOTGUN_FALLOFF_MIN },
+  draco:   { label: 'DRACO',   short: 'DRC', damage: 13, fireRate: 140, get range() { return WORLD_W; }, coneDeg: 22, multiHit: false,
+    knockback: { A: 55, B: 40, C: 15 }, knockbackStack: true, spriteFallback: 'uzi' },
 };
+
+// Cap on a stacked push, in the same "approx total px" units as the
+// per-tier knockback numbers above (sustained uzi/draco fire pins here).
+const KNOCKBACK_STACK_CAP = 90;
 
 // Wave-clear events that unlock each later weapon (pistol is available
 // from the start). Sits next to the wave-scaling constants above since
 // both drive off the same wave-clear progression.
 const WEAPON_UNLOCK_WAVE = {
-  smg:     4,
+  uzi:     4,
   shotgun: 8,
+  draco:   11,
 };
 
 const WEAPON_UNLOCK_NOTICE_DURATION = 2400; // ms the "WEAPON UNLOCKED" banner shows
@@ -489,15 +509,17 @@ const TRACER_VISUAL_ORIGIN = {
   right: { x: 0.95, y: 0.55 },
 };
 
-// The tracer visual fans this many rays evenly across the firing weapon's
-// actual coneDeg (same value fireWeapon() already used for hit detection,
-// so the visual width always matches what's really being hit) — same
-// mechanism for every weapon. Each ray is drawn dimmer than a single solid
-// line would be, so a narrow cone's rays (nearly all overlapping) still
-// read as roughly one ray, while a wide cone's rays (spread far apart)
-// clearly read as a fan.
-const TRACER_RAY_COUNT       = 5;
-const TRACER_RAY_ALPHA_SCALE = 0.45;
+// Single-target tracer: a hit draws muzzle → middle of the hit zombie's
+// sprite (this fraction of PH down from its top), behind that zombie.
+const TRACER_HIT_TARGET_Y = 0.5;
+
+// Shotgun: instead of rays, one soft light wedge matching coneDeg and range
+// (radial gradient from this alpha at the muzzle to 0 at the edge), fading
+// out over TRACER_FX_DURATION, plus a slightly larger muzzle flash.
+const SHOTGUN_CONE_ALPHA  = 0.35;
+const SHOTGUN_CONE_COLOR  = '255,244,214'; // rgb of the warm white
+const MUZZLE_FLASH_RADIUS = 10;            // px, base flash size
+const SHOTGUN_FLASH_SCALE = 1.5;           // × MUZZLE_FLASH_RADIUS for the shotgun
 
 // ─────────────────────────────────────────────────────────
 //  PLAYER HP / SCORING — plain constants, hand-tune freely.
@@ -643,7 +665,9 @@ const zombieImgs = {
 // Every (skin, weapon) pair is preloaded up front; missing ones just 404
 // like zombie B/C above, and drawPlayer() falls back to the base skin sheet.
 const SKIN_LETTERS      = ['A', 'B', 'C'];
-const WEAPON_FILE_NAMES = { pistol: 'Pistol', smg: 'SMG', shotgun: 'Shotgun' };
+// uzi reuses the existing *SMG.png sheets; draco loads skin{A,B,C}Draco.png
+// if present (currentPlayerImg falls back to the uzi sheet otherwise).
+const WEAPON_FILE_NAMES = { pistol: 'Pistol', uzi: 'SMG', shotgun: 'Shotgun', draco: 'Draco' };
 
 function weaponSheetPath(skinIdx, weaponKey) {
   const letter = SKIN_LETTERS[skinIdx] || 'A';
@@ -983,7 +1007,11 @@ function damageZombie(z, dmg) {
 // and resumes chasing at full speed, closing the gap right back up. A
 // brief window where the push itself overrides the chase is what actually
 // makes the hit visible.
-function applyZombieKnockback(z, sourceX, sourceY, amount) {
+//
+// stack=true (uzi/draco): if the zombie is already mid-push, the new impulse
+// is ADDED to its remaining push velocity instead of replacing it, capped at
+// KNOCKBACK_STACK_CAP, so sustained fire keeps driving it back.
+function applyZombieKnockback(z, sourceX, sourceY, amount, stack) {
   if (!amount) return;
   // sourceX/sourceY (fireWeapon's originX/originY) are feet-centered, so
   // measure the zombie the same way — matches how fireWeapon() itself
@@ -998,10 +1026,25 @@ function applyZombieKnockback(z, sourceX, sourceY, amount) {
   // decay ramp is 0.5 * peakSpeed * frameCount) — same tunable per-tier
   // amount as before, just spent over time instead of in one jump.
   const frameCount = KNOCKBACK_STAGGER_DURATION / 16.667;
-  z.knockbackDirX  = dx / dist;
-  z.knockbackDirY  = dy / dist;
-  z.knockbackSpeed = (2 * amount) / frameCount;
-  z.staggeredUntil = performance.now() + KNOCKBACK_STAGGER_DURATION;
+  const now = performance.now();
+  let vx = (dx / dist) * ((2 * amount) / frameCount);
+  let vy = (dy / dist) * ((2 * amount) / frameCount);
+
+  if (stack && z.staggeredUntil && now < z.staggeredUntil) {
+    // Add whatever push is still left from earlier hits.
+    const remaining = z.knockbackSpeed * ((z.staggeredUntil - now) / KNOCKBACK_STAGGER_DURATION);
+    vx += z.knockbackDirX * remaining;
+    vy += z.knockbackDirY * remaining;
+    const maxSpeed = (2 * KNOCKBACK_STACK_CAP) / frameCount;
+    const mag = Math.hypot(vx, vy);
+    if (mag > maxSpeed) { vx *= maxSpeed / mag; vy *= maxSpeed / mag; }
+  }
+
+  const speed = Math.hypot(vx, vy) || 1;
+  z.knockbackDirX  = vx / speed;
+  z.knockbackDirY  = vy / speed;
+  z.knockbackSpeed = speed;
+  z.staggeredUntil = now + KNOCKBACK_STAGGER_DURATION;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1087,7 +1130,7 @@ function tryFire(now) {
 }
 
 function fireWeapon(w) {
-  TanaAudio.play(currentWeapon); // 'pistol' | 'smg' | 'shotgun' — one per trigger pull
+  TanaAudio.play(currentWeapon); // 'pistol' | 'uzi' | 'shotgun' | 'draco' — one per trigger pull
   const dir = AIM_DIRS[player.aimDir];
   const angle = Math.atan2(dir.dy, dir.dx);
   const halfCone = (w.coneDeg * Math.PI / 180) / 2;
@@ -1109,15 +1152,24 @@ function fireWeapon(w) {
   if (hits.length) {
     if (w.multiHit) {
       for (const h of hits) {
-        damageZombie(h.z, w.damage);
-        // Per-tier pushback (shotgun-only right now) — skip a zombie the
-        // hit just killed, since damageZombie() already removed it.
+        // Distance falloff (shotgun): closer zombies take more damage and
+        // knockback — lerp(1.0, distFalloffMin, dist / range).
+        const mult = w.distFalloffMin != null
+          ? 1 + (w.distFalloffMin - 1) * Math.min(1, h.dist / w.range)
+          : 1;
+        damageZombie(h.z, w.damage * mult);
+        // Per-tier pushback — skip a zombie the hit just killed, since
+        // damageZombie() already removed it.
         if (w.knockback && h.z.hp > 0) {
-          applyZombieKnockback(h.z, originX, originY, w.knockback[h.z.tier] || 0);
+          applyZombieKnockback(h.z, originX, originY, (w.knockback[h.z.tier] || 0) * mult, w.knockbackStack);
         }
       }
     } else {
-      damageZombie(hits[0].z, w.damage);
+      const target = hits[0].z;
+      damageZombie(target, w.damage);
+      if (w.knockback && target.hp > 0) {
+        applyZombieKnockback(target, originX, originY, w.knockback[target.tier] || 0, w.knockbackStack);
+      }
     }
   }
 
@@ -1125,14 +1177,19 @@ function fireWeapon(w) {
   // miss — visible either way so a miss still reads as feedback. Its draw
   // origin is chest-height (visual only), separate from originX/originY
   // above which stay feet-anchored for hit detection.
-    const tracerDist = hits.length ? hits[0].dist : w.range;
+  const tracerDist = hits.length ? hits[0].dist : w.range;
   const visOff = TRACER_VISUAL_ORIGIN[player.facing];
   addEffect({
     type: 'tracer',
     x: player.x + PW * visOff.x, y: player.y + PH * visOff.y, angle, dist: tracerDist,
-    coneDeg: w.coneDeg, // so the tracer fans across the same cone that was actually checked
-    multiHit: w.multiHit, // only multi-hit weapons (the shotgun) draw the ray fan
+    range: w.range,
+    coneDeg: w.coneDeg, // the shotgun's light wedge spans the cone that was actually checked
+    multiHit: w.multiHit, // only multi-hit weapons (the shotgun) draw the wedge instead of a line
     hit: hits.length > 0,
+    // Single-target hit: the tracer ends inside this zombie's body and is
+    // depth-sorted just behind it (see render()). Kept by reference so the
+    // line follows the zombie for the ~100ms it's visible.
+    target: (hits.length && !w.multiHit) ? hits[0].z : null,
     // Facing at the moment of firing — not re-checked later, since the
     // player could turn while the tracer is still fading — used in
     // render() to draw this behind the player when they were facing away.
@@ -1598,8 +1655,12 @@ function roundRect(cx, x, y, w, h, r) {
 // no-weapon skin sheet — the same "load if present, else fall back" pattern
 // used for zombie B/C, just keyed by (skin, weapon) instead of just tier.
 function currentPlayerImg() {
-  const img = weaponSkinImgs[`${playerSkin}_${currentWeapon}`];
-  if (img && img.complete && img.naturalWidth > 0) return img;
+  const keys = [currentWeapon, WEAPONS[currentWeapon].spriteFallback];
+  for (const wk of keys) {
+    if (!wk) continue;
+    const img = weaponSkinImgs[`${playerSkin}_${wk}`];
+    if (img && img.complete && img.naturalWidth > 0) return img;
+  }
   return skinImgs[playerSkin];
 }
 
@@ -1707,49 +1768,62 @@ function drawUpFacingTracers() {
   }
 }
 
-function drawTracerEffect(e, t) {
-  const sx = wx(e.x), sy = wy(e.y);
-  const alpha = 1 - t;
-  const halfCone = ((e.coneDeg || 0) * Math.PI / 180) / 2;
+// A tracer is up to three pieces:
+//  • line  — single-target weapons. On a hit it runs muzzle → middle of the
+//    hit zombie's sprite and is drawn from the depth-sorted render list just
+//    behind that zombie (drawTracerLine, called by render()); on a miss it
+//    runs the full range along the aim angle, drawn with the rest of the FX.
+//  • cone  — shotgun only: one soft light wedge matching coneDeg/range.
+//  • flash — small muzzle burst at the origin (all weapons).
+function tracerHitTargetPos(e) {
+  return { x: e.target.x + PW / 2, y: e.target.y + PH * TRACER_HIT_TARGET_Y };
+}
 
+function drawTracerLine(e, t) {
+  const sx = wx(e.x), sy = wy(e.y);
+  let ex, ey;
+  if (e.target) {
+    const p = tracerHitTargetPos(e);
+    ex = wx(p.x); ey = wy(p.y);
+  } else {
+    ex = sx + Math.cos(e.angle) * e.dist;
+    ey = sy + Math.sin(e.angle) * e.dist;
+  }
   ctx.save();
   ctx.strokeStyle = e.hit ? '#f9c74f' : 'rgba(249,199,79,0.5)';
   ctx.lineWidth = 2;
+  ctx.globalAlpha = 1 - t;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  ctx.restore();
+}
 
-  if (e.multiHit) {
-    // Fan TRACER_RAY_COUNT rays evenly across ±halfCone (the same cone
-    // fireWeapon() actually checked) instead of one center line, so the
-    // visual width always matches what's really being hit. Each ray is
-    // dimmer than a single solid line would be so the fan doesn't read
-    // brighter than a normal single-line tracer. Only multi-hit weapons
-    // (the shotgun) draw this — single-target weapons' cones are meant to
-    // stay narrow/invisible, not read as a visible spread.
-    for (let i = 0; i < TRACER_RAY_COUNT; i++) {
-      const frac = TRACER_RAY_COUNT > 1 ? (i / (TRACER_RAY_COUNT - 1)) * 2 - 1 : 0; // -1..1
-      const rayAngle = e.angle + frac * halfCone;
-      const ex = sx + Math.cos(rayAngle) * e.dist;
-      const ey = sy + Math.sin(rayAngle) * e.dist;
-      ctx.globalAlpha = alpha * TRACER_RAY_ALPHA_SCALE;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(ex, ey);
-      ctx.stroke();
-    }
-  } else {
-    // Single-target weapons (pistol, SMG) — one clean line straight down
-    // the aim angle, no cone spread, same as before the fan was added.
-    const ex = sx + Math.cos(e.angle) * e.dist;
-    const ey = sy + Math.sin(e.angle) * e.dist;
-    ctx.globalAlpha = alpha;
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(ex, ey);
-    ctx.stroke();
-  }
+function drawShotgunCone(e, t) {
+  const sx = wx(e.x), sy = wy(e.y);
+  const halfCone = ((e.coneDeg || 0) * Math.PI / 180) / 2;
+  const range = e.range || e.dist;
+  const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, range);
+  grad.addColorStop(0, `rgba(${SHOTGUN_CONE_COLOR},${SHOTGUN_CONE_ALPHA})`);
+  grad.addColorStop(1, `rgba(${SHOTGUN_CONE_COLOR},0)`);
+  ctx.save();
+  ctx.globalAlpha = 1 - t;
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.arc(sx, sy, range, e.angle - halfCone, e.angle + halfCone);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
 
-  // Muzzle flash — small bright burst at the origin
-  ctx.globalAlpha = alpha;
-  const flashR = 10 * (1 - t) + 2;
+function drawMuzzleFlash(e, t) {
+  const sx = wx(e.x), sy = wy(e.y);
+  const base = MUZZLE_FLASH_RADIUS * (e.multiHit ? SHOTGUN_FLASH_SCALE : 1);
+  const flashR = base * (1 - t) + 2;
+  ctx.save();
+  ctx.globalAlpha = 1 - t;
   const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, flashR);
   grad.addColorStop(0, 'rgba(255,240,180,0.9)');
   grad.addColorStop(1, 'rgba(255,240,180,0)');
@@ -1758,6 +1832,14 @@ function drawTracerEffect(e, t) {
   ctx.arc(sx, sy, flashR, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+}
+
+// Everything about a tracer EXCEPT a hit's line (that one is drawn from the
+// depth-sorted render list so it sits behind the zombie it hit).
+function drawTracerEffect(e, t) {
+  if (e.multiHit) drawShotgunCone(e, t);
+  else if (!e.target) drawTracerLine(e, t);
+  drawMuzzleFlash(e, t);
 }
 
 function drawDeathEffect(e, t) {
@@ -1931,6 +2013,17 @@ function render() {
   renderList.push({ baseY: playerBaseY(), fn: drawPlayer });
   for (const z of zombies) {
     renderList.push({ baseY: zombieBaseY(z), fn: () => drawZombie(z) });
+  }
+  // A hit's tracer line ends inside the zombie's body, so it's slotted just
+  // BEHIND that zombie (even one that this very hit killed — its last
+  // position is still on the effect's target).
+  {
+    const nowT = performance.now();
+    for (const e of effects) {
+      if (e.type !== 'tracer' || !e.target) continue;
+      const t = Math.min(1, (nowT - e.start) / e.duration);
+      renderList.push({ baseY: zombieBaseY(e.target) - 0.5, fn: () => drawTracerLine(e, t) });
+    }
   }
   renderList.sort((a, b) => a.baseY - b.baseY);
   for (const item of renderList) item.fn();
