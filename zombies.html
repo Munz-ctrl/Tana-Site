@@ -22,6 +22,7 @@
       --joy-knob:    64px;
       --fire-size:   104px;
       --weapon-size: 64px;
+      --buy-size:    64px;   /* vending BUY button, left of the fire button */
       --ctrl-gap:    10px;   /* gap between the weapon and fire buttons */
     }
 
@@ -217,6 +218,32 @@
       box-shadow: 0 0 22px rgba(249,199,79,0.55);
     }
 
+    /* vending BUY button — same look as weapon-btn, sits just left of fire.
+       Only displayed while the player is within VEND_RANGE of the machine. */
+    #buy-btn {
+      position: absolute;
+      bottom: calc(var(--ctrl-bottom) + (var(--fire-size) - var(--buy-size)) / 2);
+      right:  calc(env(safe-area-inset-right, 0px) + var(--ctrl-side) + var(--fire-size) + var(--ctrl-gap));
+      width: var(--buy-size); height: var(--buy-size);
+      border-radius: 50%;
+      background: rgba(78,204,163,0.10);
+      border: 2px solid rgba(78,204,163,0.6);
+      display: none; align-items: center; justify-content: center;
+      pointer-events: all; touch-action: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s, box-shadow 0.08s, opacity 0.15s;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 10px; color: #4ecca3;
+      text-align: center;
+    }
+    #buy-btn.show { display: flex; }
+    #buy-btn.cant { opacity: 0.45; }
+    #buy-btn.pressed {
+      background: rgba(78,204,163,0.32);
+      box-shadow: 0 0 22px rgba(78,204,163,0.55);
+    }
+
     /* ────────────────────────────────────────
        GAME OVER — score submission + leaderboard
     ──────────────────────────────────────── */
@@ -325,6 +352,7 @@
   <div id="joystick-zone"></div>
   <div id="joystick-rest"></div>
   <div id="joystick-base"><div id="joystick-knob"></div></div>
+  <div id="buy-btn">BUY</div>
   <div id="weapon-btn">PST</div>
   <div id="fire-btn">⊕</div>
 </div>
@@ -335,7 +363,10 @@
   <div id="gameover-box">
     <div id="gameover-title">GAME OVER</div>
     <div id="gameover-stats">
-      SCORE: <b id="go-score">0</b><br>
+      <span id="go-gross-row">SCORE: <b id="go-gross">0</b><br></span>
+      <span id="go-spent-row" style="display:none">SPENT: <b id="go-spent" style="color:#e94560">0</b><br></span>
+      <span id="go-bonus-row" style="display:none">NO-HEAL BONUS: <b id="go-bonus" style="color:#4ecca3">0</b><br></span>
+      FINAL: <b id="go-score">0</b><br>
       WAVE REACHED: <b id="go-wave">1</b>
     </div>
 
@@ -631,6 +662,32 @@ const PLAYER_KNOCKBACK       = 34;  // px shoved away from the zombie on hit
 const SCORE_PER_KILL = { A: 10, B: 25, C: 60 }; // more points for tougher tiers
 const SCORE_WAVE_CLEAR_BONUS = 50;              // flat bonus per wave cleared
 
+// ─────────────────────────────────────────────────────────
+//  VENDING — the ONLY way to restore health (no drops, ever). Buying
+//  spends SCORE; there is no separate currency. Hand-tune freely.
+// ─────────────────────────────────────────────────────────
+const VEND_HEAL_AMOUNT        = 40;    // HP per potion, capped at max HP
+const VEND_MIN_PRICE          = 150;   // floor, keeps it expensive early
+const VEND_INCOME_FRACTION    = 0.7;   // price = 70% of score earned last wave
+const VEND_REPEAT_SURCHARGE   = 0.10;  // +10% per potion already bought this run (compounding)
+const VEND_BUY_TIME           = 500;   // ms player is frozen while buying
+const VEND_RANGE              = 90;    // px from the machine's front
+const NO_HEAL_BONUS_FRACTION  = 0.10;  // +10% final score if never bought
+
+// Machine art / footprint (ground-anchored, same idea as the hydrants).
+const VENDING_W = 104, VENDING_H = 165;
+const VENDING_COLLISION = { offsetX: 6, offsetY: 99, w: 92, h: 66 }; // bottom ~40%
+
+// Visuals
+const VEND_GLOW_RGB     = '120,220,255'; // ground glow in front of the machine
+const VEND_GLOW_ALPHA   = 0.22;          // peak alpha of the pulse
+const VEND_GLOW_RX      = 130;           // px
+const VEND_GLOW_RY      = 55;            // px
+const VEND_GLOW_OFFSET_Y = 34;           // px in front of (below) the ground point
+const VEND_GLOW_PULSE_MS = 2200;
+const VEND_ERR_FLASH_MS = 350;           // label flashes red this long on a refused buy
+const VEND_FLOAT_MS     = 1000;          // "-price" / "+HP" floating text lifetime
+
 // ── Sprite sheet layout — same grid as index.html ──
 //  rows = directions, cols = frames
 const FRAME_W  = 256;
@@ -738,6 +795,7 @@ function loadImg(src) {
 
 const bgImg = loadImg('assets/plt2.png');
 const hydrantImg = loadImg('assets/firehydrant.png');
+const vendingImg = loadImg('assets/vendingmachine_game.png');
 
 // Same base (no-weapon) skin sheets as room 1 — the chosen skin index
 // picks which one to draw the player with.
@@ -809,6 +867,8 @@ function makeBuilding(id, x, y, w, h) {
 // correctly without being blocked there.
 const HYDRANT_W = 80, HYDRANT_H = 130;
 const HYDRANT_COLLISION = { offsetX: 9, offsetY: 63, w: 61, h: 66 };
+// hydrant_3 used to stand at (755, 497); the vending machine took that spot.
+const HYDRANT_3_GROUND = { x: 520, y: 508 };
 
 // Positions are given as each hydrant's ground-contact point (bottom-
 // center of its footprint), not its top-left draw position.
@@ -826,6 +886,29 @@ function makeHydrant(id, groundX, groundY) {
     },
     interactable: false,
     img: hydrantImg,
+    draw() {}
+  };
+}
+
+// Vending machine — ground-anchored like the hydrants (groundX/groundY is
+// the bottom-center of its footprint), solid on its bottom ~40%, depth-
+// sorted by baseY, and drawn through drawNightTinted (obj.tint).
+function makeVendingMachine(id, groundX, groundY) {
+  const x = groundX - VENDING_W / 2;
+  const y = groundY - VENDING_H;
+  return {
+    id, x, y, w: VENDING_W, h: VENDING_H,
+    baseY: groundY,
+    collision: {
+      x: x + VENDING_COLLISION.offsetX,
+      y: y + VENDING_COLLISION.offsetY,
+      w: VENDING_COLLISION.w,
+      h: VENDING_COLLISION.h,
+    },
+    interactable: false,
+    vending: true, groundX, groundY,
+    tint: true,
+    img: vendingImg,
     draw() {}
   };
 }
@@ -892,7 +975,77 @@ let gameOver = false;
 
 function addScore(points) {
   score += points;
+  waveScoreEarned += points;
   checkScoreUnlock(score);
+}
+
+// ─────────────────────────────────────────────────────────
+//  VENDING MACHINE — pricing, buying, floating feedback
+// ─────────────────────────────────────────────────────────
+let waveScoreEarned       = 0; // everything added to score during the wave in progress
+let scoreEarnedLastWave   = 0; // snapshot of the above when a wave was cleared (0 before wave 1 clears)
+let potionsBoughtThisRun  = 0;
+let totalSpent            = 0;
+let vendPrice             = 0; // fixed during a wave; recalculated on wave clear + after each purchase
+let vendBuy               = null; // { start, price } while the purchase is in progress
+let vendLabelErrUntil     = 0;
+let vendingObj            = null; // set once the scene is built
+let runBreakdown          = { gross: 0, spent: 0, bonus: 0 };
+const floatTexts          = []; // { kind: 'hud' | 'player', text, color, born }
+
+// price = round-to-10( max(MIN, FRACTION * earnedLastWave) * (1 + SURCHARGE)^potions )
+function recalcVendPrice() {
+  const base = Math.max(VEND_MIN_PRICE, VEND_INCOME_FRACTION * scoreEarnedLastWave);
+  vendPrice = Math.round(base * Math.pow(1 + VEND_REPEAT_SURCHARGE, potionsBoughtThisRun) / 10) * 10;
+}
+recalcVendPrice();
+
+// Distance from the player's feet to the machine's front (its collision rect).
+function vendDistance() {
+  if (!vendingObj) return Infinity;
+  const c = vendingObj.collision;
+  const fx = player.x + PW / 2, fy = player.y + FEET_OY + FEET_H / 2;
+  const nx = Math.max(c.x, Math.min(fx, c.x + c.w));
+  const ny = Math.max(c.y, Math.min(fy, c.y + c.h));
+  return Math.hypot(fx - nx, fy - ny);
+}
+function vendInRange() { return !!vendingObj && !gameOver && vendDistance() <= VEND_RANGE; }
+function vendCanBuy()  { return score >= vendPrice && player.hp < PLAYER_MAX_HP; }
+
+function tryVend() {
+  if (gameOver || vendBuy || !vendInRange()) return false;
+  const now = performance.now();
+  if (!vendCanBuy()) {
+    vendLabelErrUntil = now + VEND_ERR_FLASH_MS;
+    TanaAudio.play('ui_click', { rate: 0.6 }); // low "error tick"
+    return false;
+  }
+  vendBuy = { start: now, price: vendPrice };
+  TanaAudio.play('ui_click');
+  return true;
+}
+
+// Damage mid-purchase cancels it — nothing is charged until completion.
+function cancelVend() {
+  if (!vendBuy) return;
+  vendBuy = null;
+  TanaAudio.play('ui_close');
+}
+
+function updateVending(now) {
+  if (!vendBuy || now - vendBuy.start < VEND_BUY_TIME) return;
+  const price = vendBuy.price;
+  vendBuy = null;
+  if (score < price || player.hp >= PLAYER_MAX_HP) return; // changed under us — no charge
+  score -= price;
+  totalSpent += price;
+  potionsBoughtThisRun++;
+  const healed = Math.min(VEND_HEAL_AMOUNT, PLAYER_MAX_HP - player.hp);
+  player.hp += healed;
+  recalcVendPrice();
+  floatTexts.push({ kind: 'hud',    text: '-' + price,        color: '#ff5a6e', born: now });
+  floatTexts.push({ kind: 'player', text: '+' + healed + ' HP', color: '#4ecca3', born: now });
+  TanaAudio.play('score_coins');
 }
 
 function playerFeetRect(px, py) {
@@ -1279,6 +1432,7 @@ function inflateRect(r, amt) {
 }
 
 function applyPlayerDamage(dmg, source) {
+  cancelVend();
   TanaAudio.play('player_hurt');
   player.hp = Math.max(0, player.hp - dmg);
   player.invulnUntil = performance.now() + PLAYER_INVULN_DURATION;
@@ -1511,6 +1665,10 @@ function updateWave() {
       waveState = 'CLEAR';
       waveStateSince = now;
       addScore(SCORE_WAVE_CLEAR_BONUS);
+      // Vending price for the next wave is based on what this wave earned.
+      scoreEarnedLastWave = waveScoreEarned;
+      waveScoreEarned = 0;
+      recalcVendPrice();
       scorePopup = { text: '+' + SCORE_WAVE_CLEAR_BONUS, start: now };
       TanaAudio.play('wave_clear');
       TanaAudio.play('score_coins');
@@ -1553,12 +1711,15 @@ bgImg.onload = () => {
     makeBuilding('bldg_br', BLDG_INNER_SE.x, BLDG_INNER_SE.y, WORLD_W - BLDG_INNER_SE.x, WORLD_H - BLDG_INNER_SE.y),
     makeHydrant('hydrant_1', 958, 1555),
     makeHydrant('hydrant_2', 2453, 1231),
-    makeHydrant('hydrant_3', 755, 497),
+    makeVendingMachine('vending_1', 755, 497),
+    makeHydrant('hydrant_3', HYDRANT_3_GROUND.x, HYDRANT_3_GROUND.y),
     makeTrafficLight('trafficlight_1', trafficLightImgs.upleft,     844,  156, 420, 434, 590,  { x: 974,  y: 503,  w: 61, h: 86 }),
     makeTrafficLight('trafficlight_2', trafficLightImgs.bottomleft, 871,  817, 167, 457, 1274, { x: 944,  y: 1184, w: 61, h: 89 }),
     makeTrafficLight('trafficlight_3', trafficLightImgs.upright,    1978, 153, 372, 437, 590,  { x: 2222, y: 517,  w: 49, h: 73 }),
     makeTrafficLight('trafficlight_4', trafficLightImgs.downright,  2140, 817, 170, 457, 1274, { x: 2180, y: 1200, w: 52, h: 74 }),
   );
+
+  vendingObj = sceneObjects.find(o => o.vending) || null;
 
   console.log(`[ZOMBIE STREET] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH}`);
 
@@ -1622,6 +1783,8 @@ window.addEventListener('keydown', e => {
   }
   // Manual weapon switch — cycles to the next unlocked weapon.
   if (e.key === 'q' || e.key === 'Q') switchToNextWeapon();
+  // Vending machine (when within VEND_RANGE). Ignore while typing a name.
+  if ((e.key === 'e' || e.key === 'E') && !(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'))) tryVend();
   if (e.key === ' ') fireHeld = true;
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
@@ -1664,6 +1827,25 @@ weaponBtn.addEventListener('touchend', e => {
 weaponBtn.addEventListener('touchcancel', () => {
   weaponBtn.classList.remove('pressed');
 });
+
+// ─────────────────────────────────────────────────────────
+//  INPUT — vending BUY button (mobile; desktop uses E). Shown by
+//  updateBuyButton() only while within VEND_RANGE of the machine.
+// ─────────────────────────────────────────────────────────
+const buyBtn = document.getElementById('buy-btn');
+buyBtn.addEventListener('touchstart', e => {
+  e.preventDefault(); buyBtn.classList.add('pressed'); tryVend();
+}, { passive: false });
+buyBtn.addEventListener('touchend', e => {
+  e.preventDefault(); buyBtn.classList.remove('pressed');
+}, { passive: false });
+buyBtn.addEventListener('touchcancel', () => buyBtn.classList.remove('pressed'));
+buyBtn.addEventListener('click', () => tryVend()); // mouse / touch-emulation fallback
+
+function updateBuyButton() {
+  buyBtn.classList.toggle('show', vendInRange());
+  buyBtn.classList.toggle('cant', !vendCanBuy());
+}
 
 // ─────────────────────────────────────────────────────────
 //  SOUND — master mute (shared 'tana-muted' state with room 1) + music hook
@@ -1794,6 +1976,9 @@ function update(dt = 1) {
     vx *= dt; vy *= dt;
   }
 
+  // Frozen at the machine while a purchase is in progress.
+  if (vendBuy) { vx = vy = 0; ix = iy = 0; }
+
   updateAim(ix, iy);
 
   if (Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1) {
@@ -1825,13 +2010,15 @@ function update(dt = 1) {
 
   updateCamera();
 
+  updateVending(performance.now());
+
   if (gameStarted) updateWave();
   for (const z of zombies) updateZombie(z, dt);
   checkZombieContact(performance.now());
 
   // Firing happens after the zombie-update pass above (a kill splices
   // `zombies` — safe here since that loop has already finished).
-  if (fireHeld) tryFire(performance.now());
+  if (fireHeld && !vendBuy) tryFire(performance.now());
   pruneEffects();
 }
 
@@ -1847,6 +2034,9 @@ _tintCanvas.height = PH;
 const _tintCtx = _tintCanvas.getContext('2d');
 
 function drawNightTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh) {
+  // Props can be larger than a character frame (e.g. the vending machine).
+  if (_tintCanvas.width < dw)  _tintCanvas.width  = dw;
+  if (_tintCanvas.height < dh) _tintCanvas.height = dh;
   _tintCtx.clearRect(0, 0, dw, dh);
   _tintCtx.imageSmoothingEnabled = false;
   _tintCtx.globalCompositeOperation = 'source-over';
@@ -1886,6 +2076,87 @@ function drawFlashTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh) {
   _flashCtx.fillRect(0, 0, dw, dh);
   _flashCtx.globalCompositeOperation = 'source-over';
   ctx.drawImage(_flashCanvas, 0, 0, dw, dh, dx, dy, dw, dh);
+}
+
+// ─────────────────────────────────────────────────────────
+//  DRAW — VENDING (glow on the ground, price label, buy ring, floats)
+// ─────────────────────────────────────────────────────────
+// Faint pulsing glow on the ground in front of the machine — under all
+// entities — so players can find it at night.
+function drawVendingGlow() {
+  if (!vendingObj) return;
+  const cx = wx(vendingObj.groundX), cy = wy(vendingObj.groundY + VEND_GLOW_OFFSET_Y);
+  if (cx < -VEND_GLOW_RX || cx > VIEW_W + VEND_GLOW_RX || cy < -VEND_GLOW_RY || cy > VIEW_H + VEND_GLOW_RY) return;
+  const pulse = 0.6 + 0.4 * Math.sin(performance.now() / VEND_GLOW_PULSE_MS * Math.PI * 2);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, VEND_GLOW_RY / VEND_GLOW_RX); // squash the radial gradient into an ellipse
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, VEND_GLOW_RX);
+  g.addColorStop(0, `rgba(${VEND_GLOW_RGB},${(VEND_GLOW_ALPHA * pulse).toFixed(3)})`);
+  g.addColorStop(1, `rgba(${VEND_GLOW_RGB},0)`);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, 0, VEND_GLOW_RX, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// "+40 HP  150 PTS" above the machine. Dim when you can't afford it / are
+// at full HP, flashes red briefly after a refused buy.
+function drawVendingLabel() {
+  if (!vendingObj) return;
+  const sx = wx(vendingObj.x + vendingObj.w / 2), sy = wy(vendingObj.y) - 12;
+  if (sx < -120 || sx > VIEW_W + 120 || sy < -20 || sy > VIEW_H + 20) return;
+  const now = performance.now();
+  const err = now < vendLabelErrUntil;
+  const color = err ? '#ff4d5e' : (vendCanBuy() ? '#f9c74f' : '#8f93a8');
+  const txt = `+${VEND_HEAL_AMOUNT} HP  ${vendPrice} PTS`;
+  ctx.save();
+  ctx.font = '9px "Press Start 2P"';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(txt).width;
+  ctx.fillStyle = err ? 'rgba(60,5,10,0.8)' : 'rgba(5,5,10,0.65)';
+  ctx.fillRect(Math.round(sx - tw / 2 - 5), Math.round(sy - 9), Math.round(tw + 10), 18);
+  ctx.fillStyle = color;
+  ctx.fillText(txt, sx, sy + 1);
+  ctx.restore();
+}
+
+// Progress ring over the player while a purchase is in progress.
+function drawVendRing() {
+  if (!vendBuy) return;
+  const k = Math.min(1, (performance.now() - vendBuy.start) / VEND_BUY_TIME);
+  const cx = wx(player.x + PW / 2), cy = wy(player.y) - 38, r = 11;
+  ctx.save();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(5,5,10,0.7)';
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = '#4ecca3';
+  ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+// Green "+HP" rising above the player (world space). The red "-price" is
+// drawn by drawHUD() next to the score.
+function drawPlayerFloats() {
+  const now = performance.now();
+  for (let i = floatTexts.length - 1; i >= 0; i--) {
+    if (now - floatTexts[i].born >= VEND_FLOAT_MS) floatTexts.splice(i, 1);
+  }
+  ctx.save();
+  ctx.font = '10px "Press Start 2P"';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineJoin = 'round';
+  for (const f of floatTexts) {
+    if (f.kind !== 'player') continue;
+    const k = (now - f.born) / VEND_FLOAT_MS;
+    ctx.globalAlpha = k < 0.5 ? 1 : 1 - (k - 0.5) / 0.5;
+    const x = wx(player.x + PW / 2), y = wy(player.y) - 34 - 26 * k;
+    ctx.strokeText(f.text, x, y);
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.text, x, y);
+  }
+  ctx.restore();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2370,6 +2641,30 @@ function drawHUD() {
   ctx.font = '9px "Press Start 2P"';
   ctx.fillText(`SCORE ${score}`, VIEW_W - 8, rowY + barH / 2 + 1);
 
+  // Red "-price" floating off the score after a purchase.
+  {
+    const nowH = performance.now();
+    for (const f of floatTexts) {
+      if (f.kind !== 'hud') continue;
+      const k = (nowH - f.born) / VEND_FLOAT_MS;
+      if (k >= 1) continue;
+      ctx.globalAlpha = k < 0.4 ? 1 : 1 - (k - 0.4) / 0.6;
+      ctx.fillStyle = f.color;
+      ctx.font = '9px "Press Start 2P"';
+      ctx.textAlign = 'right';
+      ctx.fillText(f.text, VIEW_W - 8, rowY + barH / 2 + 16 + 14 * k);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // NO-HEAL tag — shown while the bonus is still alive (no potion bought yet).
+  if (potionsBoughtThisRun === 0) {
+    ctx.fillStyle = '#4ecca3';
+    ctx.font = '7px "Press Start 2P"';
+    ctx.textAlign = 'left';
+    ctx.fillText(`NO-HEAL +${Math.round(NO_HEAL_BONUS_FRACTION * 100)}%`, 8, rowY + barH + 10);
+  }
+
   // Bottom-left weapon readout
   ctx.fillStyle = 'rgba(5,5,10,0.55)';
   ctx.fillRect(0, screenBtm - 20, 140, 20);
@@ -2389,6 +2684,7 @@ function drawHUD() {
 //  MAIN RENDER — Y-sort by baseY, same as room 1
 // ─────────────────────────────────────────────────────────
 function render() {
+  updateBuyButton();
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.imageSmoothingEnabled = false;
 
@@ -2399,6 +2695,7 @@ function render() {
   ctx.translate(shk.x, shk.y);
 
   drawBackground();
+  drawVendingGlow();  // ground glow in front of the machine — under every entity
   drawBloodDecals(); // ground splats — under every entity
 
   // Tracers fired while facing up are drawn here, before drawPlayer() runs
@@ -2414,7 +2711,8 @@ function render() {
         if (sx + obj.w < 0 || sx > VIEW_W || sy + obj.h < 0 || sy > VIEW_H) return;
         ctx.imageSmoothingEnabled = false;
         if (obj.img && obj.img.complete && obj.img.naturalWidth > 0) {
-          ctx.drawImage(obj.img, sx, sy, obj.w, obj.h);
+          if (obj.tint) drawNightTinted(obj.img, 0, 0, obj.img.naturalWidth, obj.img.naturalHeight, sx, sy, obj.w, obj.h);
+          else          ctx.drawImage(obj.img, sx, sy, obj.w, obj.h);
         } else {
           obj.draw(ctx, sx, sy);
         }
@@ -2441,6 +2739,9 @@ function render() {
 
   // Combat FX draw on top of everything — transient, screen-space overlay.
   drawEffects();
+  drawVendingLabel();
+  drawVendRing();
+  drawPlayerFloats();
 
   ctx.restore(); // end of the shaken world layer
 
@@ -2613,6 +2914,11 @@ setTimeout(resizeGame, 100);
 // ─────────────────────────────────────────────────────────
 const goOverlay      = document.getElementById('gameover-overlay');
 const goScoreEl      = document.getElementById('go-score');
+const goGrossEl      = document.getElementById('go-gross');
+const goSpentRow     = document.getElementById('go-spent-row');
+const goSpentEl      = document.getElementById('go-spent');
+const goBonusRow     = document.getElementById('go-bonus-row');
+const goBonusEl      = document.getElementById('go-bonus');
 const goWaveEl       = document.getElementById('go-wave');
 const goNameWrap     = document.getElementById('go-name-wrap');
 const goNameInput    = document.getElementById('go-name-input');
@@ -2677,6 +2983,12 @@ function startGameOverCount(finalScore) {
 }
 
 function showGameOverOverlay() {
+  // Breakdown: SCORE (gross earned), SPENT or NO-HEAL BONUS, FINAL (counts up).
+  goGrossEl.textContent = String(runBreakdown.gross);
+  goSpentRow.style.display = runBreakdown.spent > 0 ? '' : 'none';
+  goSpentEl.textContent    = '-' + runBreakdown.spent;
+  goBonusRow.style.display = runBreakdown.bonus > 0 ? '' : 'none';
+  goBonusEl.textContent    = '+' + runBreakdown.bonus;
   startGameOverCount(score);
   goWaveEl.textContent  = String(waveNumber);
   goSubmitted = false;
@@ -2721,7 +3033,14 @@ goSubmitBtn.addEventListener('click', () => {
 function triggerGameOver() {
   if (gameOver) return;
   gameOver = true;
+  vendBuy = null;
   if (waveStartVoice) { waveStartVoice.stop(); waveStartVoice = null; }
+  // NO-HEAL bonus: never bought a potion → +10% on the final score. Applied
+  // to `score` BEFORE the overlay shows / submission runs, so FINAL is what
+  // gets submitted and ranked on the leaderboard.
+  const bonus = potionsBoughtThisRun === 0 ? Math.round(score * NO_HEAL_BONUS_FRACTION) : 0;
+  runBreakdown = { gross: score + totalSpent, spent: totalSpent, bonus };
+  score += bonus;
   showGameOverOverlay();   // plays ui_open first
   TanaAudio.play('game_over');
 }
@@ -2745,6 +3064,11 @@ function resetGame() {
   hitstopUntil = 0;
   screenShake = { amp: 0, start: 0, ms: 0 };
   score = 0;
+  waveScoreEarned = 0; scoreEarnedLastWave = 0;
+  potionsBoughtThisRun = 0; totalSpent = 0;
+  vendBuy = null; vendLabelErrUntil = 0; floatTexts.length = 0;
+  runBreakdown = { gross: 0, spent: 0, bonus: 0 };
+  recalcVendPrice();
 
   currentWeapon = 'pistol';
   unlockedWeapons.clear();
