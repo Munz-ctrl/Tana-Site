@@ -1155,12 +1155,31 @@ function updateVending(now) {
   score -= price;
   totalSpent += price;
   potionsBoughtThisRun++;
+  TanaAudio.play('vend_pay');                 // the moment the score is charged
   const healed = Math.min(VEND_HEAL_AMOUNT, PLAYER_MAX_HP - player.hp);
-  player.hp += healed;
+  const hpBefore = player.hp;
+  player.hp += healed;                        // real HP updates immediately
+  // Display only: the HUD bar fills old → new over HEAL_ANIM_MS, starting
+  // when the heal sound does.
+  hpAnim = { from: hpBefore, to: player.hp, start: now + HEAL_SOUND_DELAY_MS };
   recalcVendPrice();
   floatTexts.push({ kind: 'hud',    text: '-' + price,        color: '#ff5a6e', born: now });
   floatTexts.push({ kind: 'player', text: '+' + healed + ' HP', color: '#4ecca3', born: now });
-  TanaAudio.play('score_coins');
+  TanaAudio.play('heal', { delay: HEAL_SOUND_DELAY_MS / 1000 });
+}
+
+// HP bar "fill" animation after a purchase (display only — player.hp is
+// already the new value). Never shows MORE than the real HP, so damage
+// taken mid-animation still reads immediately.
+const HEAL_SOUND_DELAY_MS = 250;
+const HEAL_ANIM_MS        = 600;
+let hpAnim = null; // { from, to, start }
+function displayedHp(now) {
+  if (!hpAnim) return player.hp;
+  const k = (now - hpAnim.start) / HEAL_ANIM_MS;
+  if (k >= 1) { hpAnim = null; return player.hp; }
+  const v = hpAnim.from + (hpAnim.to - hpAnim.from) * Math.max(0, k);
+  return Math.min(player.hp, v);
 }
 
 function playerFeetRect(px, py) {
@@ -1459,7 +1478,7 @@ let secretLastHit   = 0, secretFlashUntil = 0, secretShakeStart = 0;
 let secretJetClock  = 0;
 let hosePickup      = null;   // { x, y } while waiting to be grabbed
 let hoseObtained    = false;  // once per run
-const hose = { tank: HOSE_TANK_MAX, sputter: false, lastSprayAt: -1e9, lastTick: 0, lastSputterFx: 0, voice: null };
+const hose = { tank: HOSE_TANK_MAX, sputter: false, lastSprayAt: -1e9, lastTick: 0, lastSputterFx: 0, voice: null, wasSpraying: false };
 let hoseBeam = { alpha: 0, angle: 0, x: 0, y: 0, facing: 'down' };
 
 function spawnWaterParticle(x, y, ang, speed, life, g, sizeRange) {
@@ -1569,7 +1588,11 @@ function updateHose(dt, now) {
     }
   }
 
-  // Looping sound (silent if hose.mp3 is missing — startLoop returns null).
+  // Spray start: one-shot "hose_start" on the not-spraying → spraying edge
+  // (not while sputtering), together with the loop. The loop is silent if its
+  // file is missing — startLoop returns null.
+  if (spraying && !hose.wasSpraying) TanaAudio.play('hose_start');
+  hose.wasSpraying = spraying;
   if (spraying && !hose.voice) hose.voice = TanaAudio.startLoop('hose');
   else if (!spraying && hose.voice) { hose.voice.stop(80); hose.voice = null; }
 
@@ -3085,7 +3108,8 @@ function drawHUD() {
   // Second HUD row — HP bar (left) + score (right)
   const rowY = CROP_TOP + 26;
   const barW = 100, barH = 10;
-  const hpFrac = Math.max(0, player.hp / PLAYER_MAX_HP);
+  const shownHp = displayedHp(performance.now());
+  const hpFrac = Math.max(0, shownHp / PLAYER_MAX_HP);
   ctx.fillStyle = 'rgba(20,5,10,0.7)';
   ctx.fillRect(8, rowY, barW, barH);
   ctx.fillStyle = hpFrac > 0.35 ? '#4ecca3' : '#e94560';
@@ -3095,7 +3119,7 @@ function drawHUD() {
   ctx.fillStyle = '#e0e0e0';
   ctx.font = '7px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText(`${Math.ceil(player.hp)}/${PLAYER_MAX_HP}`, 8 + barW + 8, rowY + barH / 2 + 1);
+  ctx.fillText(`${Math.ceil(shownHp)}/${PLAYER_MAX_HP}`, 8 + barW + 8, rowY + barH / 2 + 1);
 
   // SCORE — top center, ~2× the other HUD text, gold, with a dark outline so
   // it reads over the street. (Clear of the left title / right WAVE text and
@@ -3561,7 +3585,8 @@ function resetGame() {
   secretHp = SECRET_HP; secretBroken = false; secretLastHit = 0; secretFlashUntil = 0; secretShakeStart = 0;
   if (secretHydrant) secretHydrant.collision = secretHydrant.origCollision; // solid again
   hosePickup = null; hoseObtained = false;
-  hose.tank = HOSE_TANK_MAX; hose.sputter = false; hose.lastSprayAt = -1e9;
+  hose.tank = HOSE_TANK_MAX; hose.sputter = false; hose.lastSprayAt = -1e9; hose.wasSpraying = false;
+  hpAnim = null;
   if (hose.voice) { hose.voice.stop(80); hose.voice = null; }
   hoseBeam.alpha = 0;
   runBreakdown = { gross: 0, spent: 0, bonus: 0 };
