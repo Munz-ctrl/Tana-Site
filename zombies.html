@@ -509,9 +509,30 @@ const KNOCKBACK_STAGGER_DURATION = 380; // ms
 // ─────────────────────────────────────────────────────────
 const WEAPON_ORDER = ['pistol', 'uzi', 'shotgun', 'draco']; // unlock progression order
 
-// Shotgun damage/knockback scale by distance: mult = lerp(1.0, this, dist / range)
-// — point-blank is full strength, the edge of the cone is this fraction.
-const SHOTGUN_FALLOFF_MIN = 0.35;
+// ╔═══════════════════════════════════════════════════════════════════╗
+// ║  ★★★  TWEAK ZONE — SHOTGUN DAMAGE + KNOCKBACK  ★★★                ║
+// ║  Edit the numbers in this box; everything else reads from here.   ║
+// ╚═══════════════════════════════════════════════════════════════════╝
+//
+// SHOTGUN DAMAGE — per pellet-cone hit, scaled by distance to each zombie:
+//   damage = lerp(NEAR, FAR, dist / range)   (range is the shotgun's 320 px)
+// Knockback below is scaled by the same falloff, so a far hit also shoves
+// less (at the cone's edge: FAR / NEAR of the number you set).
+const SHOTGUN_DAMAGE_NEAR = 34;   // point-blank
+const SHOTGUN_DAMAGE_FAR  = 14;   // at the edge of the range
+const SHOTGUN_FALLOFF_MIN = SHOTGUN_DAMAGE_FAR / SHOTGUN_DAMAGE_NEAR; // (derived — don't edit)
+
+// KNOCKBACK — approx total px a zombie is pushed per hit, by zombie tier.
+// Bigger = shoved further. (Duration of the push: KNOCKBACK_STAGGER_DURATION.)
+const PISTOL_KNOCKBACK  = { A: 40,  B: 30,  C: 10 };
+const UZI_KNOCKBACK     = { A: 8,   B: 2,   C: 2  };  // was 18/12/4 — now gentler
+const SHOTGUN_KNOCKBACK = { A: 260, B: 80, C: 280 };  // was 140/120/30 — now much stronger
+const DRACO_KNOCKBACK   = { A: 55,  B: 9,  C: 35 };
+
+// Uzi/draco hits ADD to a zombie's existing push (so sustained fire drives it
+// back). This caps the total pile-up, in the same px units as above.
+const KNOCKBACK_STACK_CAP = 90;
+// ═══════════════════════════ end tweak zone ═══════════════════════════
 
 // Per-tier knockback is the approximate total px a zombie travels over
 // KNOCKBACK_STAGGER_DURATION (see applyZombieKnockback) — A/B (weakest/mid)
@@ -527,18 +548,14 @@ const SHOTGUN_FALLOFF_MIN = 0.35;
 //   skin{A,B,C}{File}.png is missing.
 const WEAPONS = {
   pistol:  { label: 'PISTOL',  short: 'PST', damage: 14, fireRate: 380, get range() { return WORLD_W; }, coneDeg: 18, multiHit: false,
-    knockback: { A: 40, B: 30, C: 10 } },
+    knockback: PISTOL_KNOCKBACK },
   uzi:     { label: 'UZI',     short: 'UZI', damage: 6,  fireRate: 90,  get range() { return WORLD_W; }, coneDeg: 22, multiHit: false,
-    knockback: { A: 18, B: 12, C: 4 }, knockbackStack: true },
-  shotgun: { label: 'SHOTGUN', short: 'SG',  damage: 9,  fireRate: 650, range: 320, coneDeg: 50, multiHit: true,
-    knockback: { A: 140, B: 120, C: 30 }, distFalloffMin: SHOTGUN_FALLOFF_MIN },
+    knockback: UZI_KNOCKBACK, knockbackStack: true },
+  shotgun: { label: 'SHOTGUN', short: 'SG',  damage: SHOTGUN_DAMAGE_NEAR, fireRate: 650, range: 320, coneDeg: 50, multiHit: true,
+    knockback: SHOTGUN_KNOCKBACK, distFalloffMin: SHOTGUN_FALLOFF_MIN },
   draco:   { label: 'DRACO',   short: 'DRC', damage: 13, fireRate: 140, get range() { return WORLD_W; }, coneDeg: 22, multiHit: false,
-    knockback: { A: 55, B: 40, C: 15 }, knockbackStack: true, spriteFallback: 'uzi' },
+    knockback: DRACO_KNOCKBACK, knockbackStack: true, spriteFallback: 'uzi' },
 };
-
-// Cap on a stacked push, in the same "approx total px" units as the
-// per-tier knockback numbers above (sustained uzi/draco fire pins here).
-const KNOCKBACK_STACK_CAP = 90;
 
 // Wave-clear events that unlock each later weapon (pistol is available
 // from the start). Sits next to the wave-scaling constants above since
