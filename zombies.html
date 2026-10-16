@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>ZOMBIE STREET</title>
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="apple-mobile-web-app-title" content="TANA.EXE">
+  <meta name="theme-color" content="#05050a">
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="assets/audio.js"></script>
@@ -312,6 +317,30 @@
     #go-playagain-btn { margin-top: 4px; border-color: #e94560; color: #e94560; background: rgba(233,69,96,0.08); }
     #go-playagain-btn:hover { background: rgba(233,69,96,0.22); }
 
+    /* ── TAP TO FIGHT — shown after the intro when audio is still locked ── */
+    #tap-prompt {
+      position: fixed; inset: 0; z-index: 120;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 14px;
+      background: rgba(5,5,10,0.35);
+      cursor: pointer; text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #tap-prompt.show { display: flex; }
+    #tap-prompt-main {
+      font-family: 'Press Start 2P', monospace; font-size: 20px; letter-spacing: 3px;
+      color: #e94560; text-shadow: 0 0 14px rgba(233,69,96,0.8), 0 2px 0 #05050a;
+      animation: tapPulse 1.2s ease-in-out infinite;
+    }
+    #tap-prompt-sub {
+      font-family: 'Press Start 2P', monospace; font-size: 7px; letter-spacing: 2px;
+      color: #b0b8d0; text-shadow: 0 1px 0 #05050a;
+    }
+    @keyframes tapPulse {
+      0%, 100% { opacity: 0.55; transform: scale(0.97); }
+      50%      { opacity: 1;    transform: scale(1.03); }
+    }
+
     /* ── Master mute toggle (same look as room 1's; sits under the HUD line) ── */
     #mute-toggle {
       position: fixed;
@@ -358,6 +387,11 @@
 </div>
 
 <button id="mute-toggle" type="button" aria-label="Mute all sound" title="Mute all sound (M)"><span>♪</span></button>
+
+<div id="tap-prompt">
+  <div id="tap-prompt-main">TAP TO FIGHT</div>
+  <div id="tap-prompt-sub">SOUND ON</div>
+</div>
 
 <div id="gameover-overlay">
   <div id="gameover-box">
@@ -583,7 +617,7 @@ const SHOTGUN_FALLOFF_MIN = SHOTGUN_DAMAGE_FAR / SHOTGUN_DAMAGE_NEAR; // (derive
 // KNOCKBACK — approx total px a zombie is pushed per hit, by zombie tier.
 // Bigger = shoved further. (Duration of the push: KNOCKBACK_STAGGER_DURATION.)
 const PISTOL_KNOCKBACK  = { A: 40,  B: 30,  C: 10 };
-const UZI_KNOCKBACK     = { A: 8,   B: 2,   C: 2  };  // was 18/12/4 — now gentler
+const UZI_KNOCKBACK     = { A: 1,   B: 1,   C: 1  };  // was 18/12/4 — now barely a nudge
 const SHOTGUN_KNOCKBACK = { A: 260, B: 80, C: 280 };  // was 140/120/30 — now much stronger
 const DRACO_KNOCKBACK   = { A: 55,  B: 9,  C: 35 };
 
@@ -1986,12 +2020,43 @@ function switchToNextWeapon() {
 //  in the meantime; only the wave/spawn/banner system is held back.
 // ─────────────────────────────────────────────────────────
 let gameStarted      = false;
+let tapPromptActive  = false; // true while "TAP TO FIGHT" is up: no movement / firing, wave 1 not started
 let waveNumber       = 1;
 let waveState        = 'INTRO';
 let waveStateSince   = 0;
 let waveTotalCount   = 0;
 let waveSpawnedCount = 0;
 let lastSpawnTime    = 0;
+
+// ── TAP TO FIGHT ──
+// Room 1 → here is a full page load, so this page's AudioContext starts
+// suspended until a gesture on THIS page. If it's still locked when the intro
+// ends we wait for a tap/click/key, resume audio, and only THEN run the
+// GAME_START_BUFFER_MS + wave-1 sequence — so scheduleWaveStartSfx() runs with
+// a running context instead of being dropped. Already-running (most desktop)
+// → no prompt at all.
+const tapPromptEl = document.getElementById('tap-prompt');
+function showTapPrompt(onGo) {
+  tapPromptActive = true;
+  fireHeld = false;
+  tapPromptEl.classList.add('show');
+  const events = ['pointerup', 'touchend', 'click', 'keydown'];
+  let busy = false;
+  async function go(e) {
+    if (busy) return;           // pointerup + touchend + click all fire for one tap
+    busy = true;
+    if (e.type === 'touchend') e.preventDefault(); // no ghost click on whatever is underneath
+    await TanaAudio.resume();   // resume() is called synchronously, inside the gesture
+    // Esc / Shift / etc. can't unlock audio — keep waiting for a real gesture.
+    if (e.type === 'keydown' && TanaAudio.state() === 'suspended') { busy = false; return; }
+    events.forEach(ev => window.removeEventListener(ev, go, true));
+    tapPromptEl.classList.remove('show');
+    tapPromptActive = false;
+    fireHeld = false;
+    onGo();
+  }
+  events.forEach(ev => window.addEventListener(ev, go, { capture: true, passive: false }));
+}
 
 // ── Wave sound: wave_start.mp3's hit lands exactly when spawning begins ──
 // spawnStartMs is the performance.now() timestamp at which the wave's
@@ -2111,12 +2176,18 @@ bgImg.onload = () => {
   // still move around freely in the meantime.
   requestAnimationFrame(() => requestAnimationFrame(() => {
     playIntroPixelation(() => {
-      // Spawning begins GAME_START_BUFFER_MS + intro from now.
-      scheduleWaveStartSfx(performance.now() + GAME_START_BUFFER_MS + WAVE_INTRO_DURATION);
-      setTimeout(() => {
-        gameStarted = true;
-        startWave(1);
-      }, GAME_START_BUFFER_MS);
+      const beginWave1 = () => {
+        // Spawning begins GAME_START_BUFFER_MS + intro from now.
+        scheduleWaveStartSfx(performance.now() + GAME_START_BUFFER_MS + WAVE_INTRO_DURATION);
+        setTimeout(() => {
+          gameStarted = true;
+          startWave(1);
+        }, GAME_START_BUFFER_MS);
+      };
+      // Audio still locked (typical on phones after the room-1 page load)?
+      // Ask for a tap first; otherwise go straight in.
+      if (TanaAudio.state() === 'suspended') showTapPrompt(beginWave1);
+      else beginWave1();
     });
   }));
 };
@@ -2334,6 +2405,7 @@ requestAnimationFrame(reseatIdleJoystick);
 function update(dt = 1) {
   if (gameOver) return; // frozen behind the Game Over overlay
   if (performance.now() < hitstopUntil) return; // kill hitstop — rendering carries on
+  if (tapPromptActive) return;                  // waiting on "TAP TO FIGHT" — no movement or firing yet
 
   let vx = 0, vy = 0;
   let ix = 0, iy = 0; // raw input direction, undiluted by dt/speed — feeds aim
@@ -3025,12 +3097,19 @@ function drawHUD() {
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillText(`${Math.ceil(player.hp)}/${PLAYER_MAX_HP}`, 8 + barW + 8, rowY + barH / 2 + 1);
 
-  ctx.textAlign = 'right';
+  // SCORE — top center, ~2× the other HUD text, gold, with a dark outline so
+  // it reads over the street. (Clear of the left title / right WAVE text and
+  // the NO-HEAL tag on the left — the HUD scales as one 1537-wide layer.)
+  const scoreX = VIEW_W / 2, scoreY = CROP_TOP + 22;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '16px "Press Start 2P"';
+  ctx.lineJoin = 'round'; ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(5,5,10,0.85)';
+  ctx.strokeText(`SCORE ${score}`, scoreX, scoreY);
   ctx.fillStyle = '#f9c74f';
-  ctx.font = '9px "Press Start 2P"';
-  ctx.fillText(`SCORE ${score}`, VIEW_W - 8, rowY + barH / 2 + 1);
+  ctx.fillText(`SCORE ${score}`, scoreX, scoreY);
 
-  // Red "-price" floating off the score after a purchase.
+  // Red "-price" dropping from under the score after a purchase.
   {
     const nowH = performance.now();
     for (const f of floatTexts) {
@@ -3038,10 +3117,13 @@ function drawHUD() {
       const k = (nowH - f.born) / VEND_FLOAT_MS;
       if (k >= 1) continue;
       ctx.globalAlpha = k < 0.4 ? 1 : 1 - (k - 0.4) / 0.6;
+      ctx.font = '12px "Press Start 2P"';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(5,5,10,0.85)';
+      const fy = scoreY + 22 + 18 * k;
+      ctx.strokeText(f.text, scoreX, fy);
       ctx.fillStyle = f.color;
-      ctx.font = '9px "Press Start 2P"';
-      ctx.textAlign = 'right';
-      ctx.fillText(f.text, VIEW_W - 8, rowY + barH / 2 + 16 + 14 * k);
+      ctx.fillText(f.text, scoreX, fy);
       ctx.globalAlpha = 1;
     }
   }
@@ -3054,7 +3136,9 @@ function drawHUD() {
     ctx.fillText(`NO-HEAL +${Math.round(NO_HEAL_BONUS_FRACTION * 100)}%`, 8, rowY + barH + 10);
   }
 
-  // Bottom-left weapon readout
+  // Bottom-left weapon readout (font set explicitly — it used to inherit
+  // whatever the HUD code above happened to draw last)
+  ctx.font = '9px "Press Start 2P"';
   ctx.fillStyle = 'rgba(5,5,10,0.55)';
   const _isHose = currentWeapon === 'hose';
   ctx.fillRect(0, screenBtm - 20, _isHose ? 230 : 140, 20);
