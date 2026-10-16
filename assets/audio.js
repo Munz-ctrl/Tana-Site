@@ -44,7 +44,7 @@
     hose_start:    { file: 'assets/sfx/hose_start.mp3',    vol: 0.55, pitchVar: 0.04, minGap: 250, maxVoices: 1 },
     score_coins:   { file: 'assets/sfx/score_coins.mp3',   vol: 0.55, pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     // Vending machine: the payment, then (0.25 s later) the heal.
-    vend_pay:      { file: 'assets/sfx/vend_pay.mp3',      vol: 0.55, pitchVar: 0,    minGap: 0,   maxVoices: 1 },
+    vend_pay:      { file: 'assets/sfx/pay_new.mp3',      vol: 0.55, pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     heal:          { file: 'assets/sfx/heal.mp3',          vol: 0.6,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
   };
   const MUSIC = { room1: null, room2: null };  // placeholders — tracks get re-added later (path string, looped)
