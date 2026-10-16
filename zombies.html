@@ -1932,6 +1932,10 @@ function fireWeapon(w) {
     // depth-sorted just behind it (see render()). Kept by reference so the
     // line follows the zombie for the ~100ms it's visible.
     target: (hits.length && !w.multiHit && hits[0].z) ? hits[0].z : null,
+    // Hydrant hit: line ends in the middle of its sprite, sorted just behind it.
+    hitPos: (hits.length && !w.multiHit && hits[0].hydrant)
+      ? { x: secretHydrant.x + secretHydrant.w / 2, y: secretHydrant.y + secretHydrant.h * 0.5 } : null,
+    hitBaseY: (hits.length && hits[0].hydrant) ? secretHydrant.baseY : 0,
     // Facing at the moment of firing — not re-checked later, since the
     // player could turn while the tracer is still fading — used in
     // render() to draw this behind the player when they were facing away.
@@ -2842,6 +2846,9 @@ function drawTracerLine(e, t) {
   if (e.target) {
     const p = tracerHitTargetPos(e);
     ex = wx(p.x); ey = wy(p.y);
+  } else if (e.hitPos) {
+    // Static target (the secret hydrant): ends in the middle of its sprite.
+    ex = wx(e.hitPos.x); ey = wy(e.hitPos.y);
   } else {
     ex = sx + Math.cos(e.angle) * e.dist;
     ey = sy + Math.sin(e.angle) * e.dist;
@@ -2895,7 +2902,7 @@ function drawMuzzleFlash(e, t) {
 // depth-sorted render list so it sits behind the zombie it hit).
 function drawTracerEffect(e, t) {
   if (e.multiHit) drawShotgunCone(e, t);
-  else if (!e.target) drawTracerLine(e, t);
+  else if (!e.target && !e.hitPos) drawTracerLine(e, t); // hit lines are drawn depth-sorted by render()
   drawMuzzleFlash(e, t);
 }
 
@@ -3126,9 +3133,9 @@ function render() {
   {
     const nowT = performance.now();
     for (const e of effects) {
-      if (e.type !== 'tracer' || !e.target) continue;
+      if (e.type !== 'tracer' || (!e.target && !e.hitPos)) continue;
       const t = Math.min(1, (nowT - e.start) / e.duration);
-      renderList.push({ baseY: zombieBaseY(e.target) - 0.5, fn: () => drawTracerLine(e, t) });
+      renderList.push({ baseY: (e.target ? zombieBaseY(e.target) : e.hitBaseY) - 0.5, fn: () => drawTracerLine(e, t) });
     }
   }
   renderList.sort((a, b) => a.baseY - b.baseY);
