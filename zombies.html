@@ -524,11 +524,77 @@ const WEAPON_UNLOCK_NOTICE_DURATION = 2400; // ms the "WEAPON UNLOCKED" banner s
 const TRACER_FX_DURATION = 110; // ms a shot's tracer/muzzle-flash is visible
 const DEATH_FX_DURATION  = 420; // ms a zombie's death burst plays
 
-// Non-lethal hit feedback — the exact same red spoke-burst drawDeathEffect
-// already draws for a kill, just smaller and briefer, so a hit that
-// doesn't finish the zombie off still reads clearly as a hit.
-const HIT_FX_DURATION = 180;  // ms — shorter than the death burst
-const HIT_FX_SCALE    = 0.45; // shrinks the whole burst proportionally
+// ─────────────────────────────────────────────────────────
+//  HIT_FX — combat "juice" (VISUAL ONLY: nothing here touches damage,
+//  hitboxes or movement). Every value for the blood / flash / numbers /
+//  hp-bar / hitstop / shake / muzzle / recoil pass lives in this block.
+//  Times are ms, distances are world px, speeds are px per ms.
+// ─────────────────────────────────────────────────────────
+const HIT_FX = {
+  // Blood particles — small pixel squares spraying along the bullet's
+  // direction (± particleSpreadDeg). Each hit spawns its own set.
+  particleCount:      [5, 8],       // per non-lethal hit (min, max)
+  particleCountKill:  [5, 8],       // per killing blow (the death burst is drawn on top of these)
+  particleSize:       [2, 4],       // px square
+  particleSpreadDeg:  35,
+  particleSpeed:      [0.10, 0.26], // px/ms
+  particleGravity:    0.0003,       // px/ms² (+y, "slight")
+  particleLife:       [300, 500],
+  particleJitter:     8,            // px random offset of the spawn point
+  particleColors:     ['#8a1c1c', '#a82424', '#6b1414', '#c43030'],
+  particleMax:        300,          // alive cap, oldest dropped first
+
+  // Ground decals — under all entities, fade out, oldest removed first.
+  decalFadeMs:        6000,
+  decalMax:           80,
+  decalColor:         '88,10,14',   // rgb
+  decalAlpha:         0.8,
+  decalOffset:        16,           // px random offset from the zombie's feet
+  decalHit:           { blobs: [2, 3], size: [3, 6] },    // blob count / blob px size
+  decalKill:          { blobs: [7, 10], size: [4, 9] },
+  decalKillSpread:    14,           // px radius the kill splat's blobs scatter over
+  decalHitSpread:     6,
+
+  // Zombie hit reaction
+  flashMs:            70,
+  flashColor:         'rgba(255,205,195,0.85)', // white-red, clipped to the sprite silhouette
+  spriteShakeMs:      120,
+  spriteShakeAmp:     3,            // px, decays to 0 — draw position only
+
+  // Damage numbers
+  numRiseMs:          550,          // rise + fade duration
+  numRisePx:          18,
+  numMergeMs:         300,          // same zombie hit again within this → add to its number
+  numPop:             0.3,          // extra scale on a merge
+  numPopMs:           120,
+  numColor:           '#ffd9c9',
+  numKillColor:       '#fff04d',
+  numFont:            '8px "Press Start 2P"',
+  numKillFont:        '10px "Press Start 2P"',
+  numYOffset:         -12,          // px above the sprite's top edge (hp bar sits just under it)
+
+  // Zombie HP bar — only after being damaged
+  hpBarW:             40,
+  hpBarH:             4,
+  hpBarYOffset:       -5,           // px above the sprite's top edge
+  hpBarHoldMs:        1500,         // fully visible this long after the last hit...
+  hpBarFadeMs:        300,          // ...then fades out over this
+  hpBarBg:            'rgba(20,5,10,0.75)',
+  hpBarFill:          '#e94560',
+
+  // Weight
+  hitstopMs:          35,           // game updates freeze on a kill (rendering continues)
+  hitstopMinGapMs:    150,          // at most once per this
+  shotShake:          { shotgun: { amp: 3, ms: 90 }, draco: { amp: 3, ms: 90 } },
+  killShake:          { amp: 1, ms: 60 },
+  muzzleMs:           60,           // muzzle flash sprite lifetime
+  muzzleLen:          24,           // px, flash length along the aim
+  muzzleScaleMulti:   1.5,          // × for multi-hit weapons (shotgun)
+  recoilPx:           2,            // player sprite nudged this far opposite the aim...
+  recoilMs:           60,           // ...for this long
+  vibrateMs:          12,           // navigator.vibrate on kills (Android)
+};
+
 
 
 // Purely visual — where the tracer/muzzle-flash is drawn FROM, as a
@@ -931,6 +997,8 @@ function spawnZombie(tier, wave) {
     // Knockback stagger state — set by applyZombieKnockback(), consumed
     // and decayed at the top of updateZombie().
     staggeredUntil: 0, knockbackDirX: 0, knockbackDirY: 0, knockbackSpeed: 0,
+    // Visual-only hit reaction state (see HIT_FX / spawnHitFx).
+    lastHitAt: 0, flashUntil: 0, shakeStart: 0,
   };
 }
 
@@ -1004,20 +1072,13 @@ function updateZombie(z, dt) {
   if (z.animTick >= 14) { z.animTick = 0; z.animFrame ^= 1; }
 }
 
-function damageZombie(z, dmg) {
+function damageZombie(z, dmg, shotAngle) {
   z.hp -= dmg;
   if (z.hp > 0) {
     // Slight delay so the hit lands after the gunshot instead of under it.
     TanaAudio.play('zombie_hit', { delay: 0.06 });
-    // Non-lethal hit — same burst as a kill, just smaller/briefer, so
-    // every hit a shot lands (including each target in a multi-hit
-    // shotgun blast) reads clearly as a hit even when it doesn't kill.
-    addEffect({
-      type: 'death',
-      x: z.x + PW / 2, y: z.y + FEET_OY + FEET_H / 2,
-      duration: HIT_FX_DURATION,
-      scale: HIT_FX_SCALE,
-    });
+    // Non-lethal hit — blood spray, decal, flash, shake, number (visual only).
+    spawnHitFx(z, dmg, shotAngle, false);
     return;
   }
   const idx = zombies.indexOf(z);
@@ -1031,6 +1092,110 @@ function damageZombie(z, dmg) {
     x: z.x + PW / 2, y: z.y + FEET_OY + FEET_H / 2,
     duration: DEATH_FX_DURATION,
   });
+  spawnHitFx(z, dmg, shotAngle, true);
+  onKillFeedback();
+}
+
+// ─────────────────────────────────────────────────────────
+//  HIT FX state + spawners (visual only — see HIT_FX)
+//  Particles/decals/numbers are world-space and animate off timestamps
+//  (closed-form motion), so they keep playing through hitstop.
+// ─────────────────────────────────────────────────────────
+const bloodParticles = []; // { x0, y0, vx, vy, size, born, life, color }
+const bloodDecals    = []; // { x, y, born, blobs: [{ox, oy, s}] , kill }
+const damageNumbers  = []; // { z, value, born, lastHit, popAt, kill, popAmt }
+let hitstopUntil = 0, lastHitstopAt = -1e9;
+let screenShake  = { amp: 0, start: 0, ms: 0 };
+let lastShot     = { angle: 0, at: -1e9 }; // for the player recoil nudge
+
+function _rr(range) { return range[0] + Math.random() * (range[1] - range[0]); }
+function _ri(range) { return Math.floor(_rr([range[0], range[1] + 1])); }
+
+function zombieBodyCenter(z) { return { x: z.x + PW / 2, y: z.y + PH * 0.45 }; }
+
+function spawnHitFx(z, dmg, shotAngle, killed) {
+  const now = performance.now();
+  const ang = shotAngle != null ? shotAngle : Math.random() * Math.PI * 2;
+  const c = zombieBodyCenter(z);
+
+  // Blood spray
+  const n = _ri(killed ? HIT_FX.particleCountKill : HIT_FX.particleCount);
+  const spread = HIT_FX.particleSpreadDeg * Math.PI / 180;
+  for (let i = 0; i < n; i++) {
+    const a = ang + (Math.random() * 2 - 1) * spread;
+    const sp = _rr(HIT_FX.particleSpeed);
+    bloodParticles.push({
+      x0: c.x + (Math.random() * 2 - 1) * HIT_FX.particleJitter,
+      y0: c.y + (Math.random() * 2 - 1) * HIT_FX.particleJitter,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      size: _ri(HIT_FX.particleSize),
+      born: now, life: _rr(HIT_FX.particleLife),
+      color: HIT_FX.particleColors[Math.floor(Math.random() * HIT_FX.particleColors.length)],
+    });
+  }
+  while (bloodParticles.length > HIT_FX.particleMax) bloodParticles.shift();
+
+  // Ground decal under the zombie's feet
+  const cfg = killed ? HIT_FX.decalKill : HIT_FX.decalHit;
+  const scatter = killed ? HIT_FX.decalKillSpread : HIT_FX.decalHitSpread;
+  const blobs = [];
+  for (let i = 0, nb = _ri(cfg.blobs); i < nb; i++) {
+    blobs.push({
+      ox: Math.round((Math.random() * 2 - 1) * scatter),
+      oy: Math.round((Math.random() * 2 - 1) * scatter * 0.5),
+      s: _ri(cfg.size),
+    });
+  }
+  bloodDecals.push({
+    x: z.x + PW / 2 + (Math.random() * 2 - 1) * HIT_FX.decalOffset,
+    y: z.y + FEET_OY + FEET_H / 2 + (Math.random() * 2 - 1) * HIT_FX.decalOffset * 0.5,
+    born: now, blobs, kill: killed,
+  });
+  while (bloodDecals.length > HIT_FX.decalMax) bloodDecals.shift();
+
+  // Flash + sprite shake (also drives the hp bar)
+  z.lastHitAt  = now;
+  z.flashUntil = now + HIT_FX.flashMs;
+  z.shakeStart = now;
+
+  // Damage number — merge rapid hits on the same zombie
+  let num = null;
+  for (let i = damageNumbers.length - 1; i >= 0; i--) {
+    const d = damageNumbers[i];
+    if (d.z === z && now - d.lastHit <= HIT_FX.numMergeMs) { num = d; break; }
+  }
+  if (num) {
+    num.value += dmg;
+    num.lastHit = now;
+    num.popAt = now; num.popAmt = HIT_FX.numPop;
+    if (killed) num.kill = true;
+  } else {
+    damageNumbers.push({ z, value: dmg, born: now, lastHit: now, popAt: now, popAmt: HIT_FX.numPop * 0.5, kill: killed });
+  }
+}
+
+// Hitstop / screen shake / vibrate on a killing blow.
+function onKillFeedback() {
+  const now = performance.now();
+  if (now - lastHitstopAt >= HIT_FX.hitstopMinGapMs) {
+    lastHitstopAt = now;
+    hitstopUntil  = now + HIT_FX.hitstopMs;
+  }
+  addScreenShake(HIT_FX.killShake.amp, HIT_FX.killShake.ms);
+  try { if (navigator.vibrate) navigator.vibrate(HIT_FX.vibrateMs); } catch (_) {}
+}
+
+function addScreenShake(amp, ms) {
+  const now = performance.now();
+  const cur = screenShake.amp * Math.max(0, 1 - (now - screenShake.start) / (screenShake.ms || 1));
+  if (amp >= cur) screenShake = { amp, start: now, ms };
+}
+
+function currentShakeOffset() {
+  const k = 1 - (performance.now() - screenShake.start) / (screenShake.ms || 1);
+  if (k <= 0 || !screenShake.amp) return { x: 0, y: 0 };
+  const a = screenShake.amp * k;
+  return { x: Math.round((Math.random() * 2 - 1) * a), y: Math.round((Math.random() * 2 - 1) * a) };
 }
 
 // Pushes a zombie away from (sourceX, sourceY) — e.g. the shotgun's blast
@@ -1191,7 +1356,8 @@ function fireWeapon(w) {
         const mult = w.distFalloffMin != null
           ? 1 + (w.distFalloffMin - 1) * Math.min(1, h.dist / w.range)
           : 1;
-        damageZombie(h.z, w.damage * mult);
+        damageZombie(h.z, w.damage * mult,
+          Math.atan2(h.z.y + PH * 0.45 - originY, h.z.x + PW / 2 - originX));
         // Per-tier pushback — skip a zombie the hit just killed, since
         // damageZombie() already removed it.
         if (w.knockback && h.z.hp > 0) {
@@ -1200,7 +1366,8 @@ function fireWeapon(w) {
       }
     } else {
       const target = hits[0].z;
-      damageZombie(target, w.damage);
+      damageZombie(target, w.damage,
+        Math.atan2(target.y + PH * 0.45 - originY, target.x + PW / 2 - originX));
       if (w.knockback && target.hp > 0) {
         applyZombieKnockback(target, originX, originY, w.knockback[target.tier] || 0, w.knockbackStack);
       }
@@ -1213,6 +1380,19 @@ function fireWeapon(w) {
   // above which stay feet-anchored for hit detection.
   const tracerDist = hits.length ? hits[0].dist : w.range;
   const visOff = TRACER_VISUAL_ORIGIN[player.facing];
+
+  // Weight (visual only): muzzle flash sprite at the tracer origin, recoil
+  // nudge of the player sprite, and a screen kick on the heavy guns.
+  addEffect({
+    type: 'muzzle',
+    x: player.x + PW * visOff.x, y: player.y + PH * visOff.y, angle,
+    big: !!w.multiHit,
+    facing: player.facing,
+    duration: HIT_FX.muzzleMs,
+  });
+  lastShot = { angle, at: performance.now() };
+  const shotShake = HIT_FX.shotShake[currentWeapon];
+  if (shotShake) addScreenShake(shotShake.amp, shotShake.ms);
   addEffect({
     type: 'tracer',
     x: player.x + PW * visOff.x, y: player.y + PH * visOff.y, angle, dist: tracerDist,
@@ -1591,6 +1771,7 @@ requestAnimationFrame(reseatIdleJoystick);
 // ─────────────────────────────────────────────────────────
 function update(dt = 1) {
   if (gameOver) return; // frozen behind the Game Over overlay
+  if (performance.now() < hitstopUntil) return; // kill hitstop — rendering carries on
 
   let vx = 0, vy = 0;
   let ix = 0, iy = 0; // raw input direction, undiluted by dt/speed — feeds aim
@@ -1687,6 +1868,26 @@ function drawNightTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh) {
   ctx.drawImage(_tintCanvas, 0, 0, dw, dh, dx, dy, dw, dh);
 }
 
+// Hit flash — same offscreen-canvas idea as drawNightTinted: draw the sprite
+// frame, then fill with the flash colour using 'source-atop' so only the
+// sprite's own silhouette is tinted, never the transparent padding.
+const _flashCanvas = document.createElement('canvas');
+_flashCanvas.width  = PW;
+_flashCanvas.height = PH;
+const _flashCtx = _flashCanvas.getContext('2d');
+
+function drawFlashTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh) {
+  _flashCtx.clearRect(0, 0, dw, dh);
+  _flashCtx.imageSmoothingEnabled = false;
+  _flashCtx.globalCompositeOperation = 'source-over';
+  _flashCtx.drawImage(srcImg, sx0, sy0, sw, sh, 0, 0, dw, dh);
+  _flashCtx.globalCompositeOperation = 'source-atop';
+  _flashCtx.fillStyle = HIT_FX.flashColor;
+  _flashCtx.fillRect(0, 0, dw, dh);
+  _flashCtx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(_flashCanvas, 0, 0, dw, dh, dx, dy, dw, dh);
+}
+
 // ─────────────────────────────────────────────────────────
 //  DRAW — BACKGROUND
 // ─────────────────────────────────────────────────────────
@@ -1736,8 +1937,14 @@ function currentPlayerImg() {
 }
 
 function drawPlayer() {
-  const sx = wx(player.x);
-  const sy = wy(player.y);
+  let sx = wx(player.x);
+  let sy = wy(player.y);
+  // Recoil: nudge the DRAW position opposite the last shot (visual only).
+  const recoilAge = performance.now() - lastShot.at;
+  if (recoilAge < HIT_FX.recoilMs) {
+    sx -= Math.round(Math.cos(lastShot.angle) * HIT_FX.recoilPx);
+    sy -= Math.round(Math.sin(lastShot.angle) * HIT_FX.recoilPx);
+  }
 
   // Invulnerability i-frames read as a fast blink after taking a hit.
   const invuln = performance.now() < player.invulnUntil;
@@ -1788,6 +1995,7 @@ function drawPlayer() {
 // ─────────────────────────────────────────────────────────
 function drawZombie(z) {
   const sx = wx(z.x), sy = wy(z.y);
+  const now = performance.now();
 
   ctx.fillStyle = 'rgba(0,0,0,0.30)';
   ctx.beginPath();
@@ -1796,19 +2004,137 @@ function drawZombie(z) {
 
   ctx.imageSmoothingEnabled = false;
 
+  // Hit shake — random draw offset that decays to 0. The real position
+  // (z.x / z.y, knockback, collision) is untouched.
+  let shx = 0, shy = 0;
+  const shakeAge = now - z.shakeStart;
+  if (z.shakeStart && shakeAge < HIT_FX.spriteShakeMs) {
+    const a = HIT_FX.spriteShakeAmp * (1 - shakeAge / HIT_FX.spriteShakeMs);
+    shx = Math.round((Math.random() * 2 - 1) * a);
+    shy = Math.round((Math.random() * 2 - 1) * a);
+  }
+  const flashing = now < z.flashUntil;
+
   const img = zombieImgs[z.tier];
   if (img.complete && img.naturalWidth > 0) {
     const srcX = z.animFrame * FRAME_W;
     const srcY = DIR_ROW[z.facing] * FRAME_H;
-    drawNightTinted(img, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
+    if (flashing) drawFlashTinted(img, srcX, srcY, FRAME_W, FRAME_H, sx + shx, sy + shy, PW, PH);
+    else          drawNightTinted(img, srcX, srcY, FRAME_W, FRAME_H, sx + shx, sy + shy, PW, PH);
   } else {
-    ctx.fillStyle = ZOMBIE_TIERS[z.tier].color;
-    ctx.fillRect(sx + 10, sy + 6, PW - 20, PH - 24);
+    ctx.fillStyle = flashing ? HIT_FX.flashColor : ZOMBIE_TIERS[z.tier].color;
+    ctx.fillRect(sx + shx + 10, sy + shy + 6, PW - 20, PH - 24);
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.font = '8px monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(z.tier, sx + PW / 2, sy + PH / 2);
+    ctx.fillText(z.tier, sx + shx + PW / 2, sy + shy + PH / 2);
   }
+
+  // HP bar — only once damaged; held, then faded out after the last hit.
+  if (z.lastHitAt) {
+    const since = now - z.lastHitAt;
+    const fadeT = (since - HIT_FX.hpBarHoldMs) / HIT_FX.hpBarFadeMs;
+    if (fadeT < 1) {
+      const alpha = fadeT <= 0 ? 1 : 1 - fadeT;
+      const bx = Math.round(sx + PW / 2 - HIT_FX.hpBarW / 2);
+      const by = Math.round(sy + HIT_FX.hpBarYOffset);
+      const frac = Math.max(0, Math.min(1, z.hp / z.maxHp));
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = HIT_FX.hpBarBg;
+      ctx.fillRect(bx - 1, by - 1, HIT_FX.hpBarW + 2, HIT_FX.hpBarH + 2);
+      ctx.fillStyle = HIT_FX.hpBarFill;
+      ctx.fillRect(bx, by, Math.round(HIT_FX.hpBarW * frac), HIT_FX.hpBarH);
+      ctx.restore();
+    }
+  }
+}
+
+// ── Blood decals — ground splats, drawn under every entity ──
+function drawBloodDecals() {
+  const now = performance.now();
+  for (let i = bloodDecals.length - 1; i >= 0; i--) {
+    if (now - bloodDecals[i].born >= HIT_FX.decalFadeMs) bloodDecals.splice(i, 1);
+  }
+  if (!bloodDecals.length) return;
+  ctx.save();
+  for (const d of bloodDecals) {
+    const age = (now - d.born) / HIT_FX.decalFadeMs;
+    ctx.fillStyle = `rgba(${HIT_FX.decalColor},${(HIT_FX.decalAlpha * (1 - age)).toFixed(3)})`;
+    const bx = wx(d.x), by = wy(d.y);
+    for (const b of d.blobs) ctx.fillRect(bx + b.ox, by + b.oy, b.s, Math.max(2, Math.round(b.s * 0.6)));
+  }
+  ctx.restore();
+}
+
+// ── Blood particles + damage numbers — drawn on top, after the entities ──
+function drawBloodParticles() {
+  const now = performance.now();
+  for (let i = bloodParticles.length - 1; i >= 0; i--) {
+    if (now - bloodParticles[i].born >= bloodParticles[i].life) bloodParticles.splice(i, 1);
+  }
+  if (!bloodParticles.length) return;
+  ctx.save();
+  for (const p of bloodParticles) {
+    const age = now - p.born;
+    const x = p.x0 + p.vx * age;
+    const y = p.y0 + p.vy * age + 0.5 * HIT_FX.particleGravity * age * age;
+    const k = age / p.life;
+    ctx.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(wx(x), wy(y), p.size, p.size);
+  }
+  ctx.restore();
+}
+
+function drawDamageNumbers() {
+  const now = performance.now();
+  for (let i = damageNumbers.length - 1; i >= 0; i--) {
+    if (now - damageNumbers[i].lastHit >= HIT_FX.numRiseMs) damageNumbers.splice(i, 1);
+  }
+  if (!damageNumbers.length) return;
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const d of damageNumbers) {
+    const rise = HIT_FX.numRisePx * (1 - Math.pow(1 - Math.min(1, (now - d.born) / HIT_FX.numRiseMs), 2));
+    const fadeK = (now - d.lastHit) / HIT_FX.numRiseMs;
+    const alpha = fadeK < 0.35 ? 1 : 1 - (fadeK - 0.35) / 0.65;
+    const popK = Math.max(0, 1 - (now - d.popAt) / HIT_FX.numPopMs);
+    const scale = 1 + d.popAmt * popK;
+    const x = wx(d.z.x + PW / 2);
+    const y = wy(d.z.y) + HIT_FX.numYOffset - rise;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.font = d.kill ? HIT_FX.numKillFont : HIT_FX.numFont;
+    const txt = String(Math.max(1, Math.round(d.value)));
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineJoin = 'round';
+    ctx.strokeText(txt, 0, 0);
+    ctx.fillStyle = d.kill ? HIT_FX.numKillColor : HIT_FX.numColor;
+    ctx.fillText(txt, 0, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// Procedural pixel muzzle flash — a small blocky burst pointing along the aim.
+function drawMuzzleSprite(e, t) {
+  const sx = wx(e.x), sy = wy(e.y);
+  const L = HIT_FX.muzzleLen * (e.big ? HIT_FX.muzzleScaleMulti : 1) * (1 - t * 0.35);
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(e.angle);
+  ctx.globalAlpha = 1 - t * 0.6;
+  // outer flame, mid flame, white-hot core — stacked pixel rects
+  ctx.fillStyle = '#ff9a2e'; ctx.fillRect(0, -5, Math.round(L), 10);
+  ctx.fillStyle = '#ffd23f'; ctx.fillRect(0, -3, Math.round(L * 0.75), 6);
+  ctx.fillStyle = '#fffbe0'; ctx.fillRect(0, -1, Math.round(L * 0.45), 2);
+  // side spikes
+  ctx.fillStyle = '#ffd23f';
+  ctx.fillRect(Math.round(L * 0.2), -9, 4, 4);
+  ctx.fillRect(Math.round(L * 0.2),  5, 4, 4);
+  ctx.restore();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1825,17 +2151,24 @@ function drawEffects() {
     if (e.type === 'tracer') {
       if (e.facing === 'up') continue;
       drawTracerEffect(e, t);
+    } else if (e.type === 'muzzle') {
+      if (e.facing === 'up') continue; // drawn behind the player instead
+      drawMuzzleSprite(e, t);
     } else if (e.type === 'death') {
       drawDeathEffect(e, t);
     }
   }
+  drawBloodParticles();
+  drawDamageNumbers();
 }
 
 function drawUpFacingTracers() {
   const now = performance.now();
   for (const e of effects) {
-    if (e.type !== 'tracer' || e.facing !== 'up') continue;
-    drawTracerEffect(e, Math.min(1, (now - e.start) / e.duration));
+    if (e.facing !== 'up') continue;
+    const t = Math.min(1, (now - e.start) / e.duration);
+    if (e.type === 'tracer')      drawTracerEffect(e, t);
+    else if (e.type === 'muzzle') drawMuzzleSprite(e, t);
   }
 }
 
@@ -2059,7 +2392,14 @@ function render() {
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.imageSmoothingEnabled = false;
 
+  // Screen shake: the whole world layer is nudged; the HUD (drawn after the
+  // restore below) stays put.
+  ctx.save();
+  const shk = currentShakeOffset();
+  ctx.translate(shk.x, shk.y);
+
   drawBackground();
+  drawBloodDecals(); // ground splats — under every entity
 
   // Tracers fired while facing up are drawn here, before drawPlayer() runs
   // below (via the Y-sorted renderList), so they land behind the player.
@@ -2101,6 +2441,8 @@ function render() {
 
   // Combat FX draw on top of everything — transient, screen-space overlay.
   drawEffects();
+
+  ctx.restore(); // end of the shaken world layer
 
   // ── DEBUG OVERLAY (press ` backtick to toggle) — for tuning the
   // invisible building colliders against the painted background art. ──
@@ -2397,6 +2739,11 @@ function resetGame() {
 
   zombies.length = 0;
   effects.length = 0;
+  bloodParticles.length = 0;
+  bloodDecals.length = 0;
+  damageNumbers.length = 0;
+  hitstopUntil = 0;
+  screenShake = { amp: 0, start: 0, ms: 0 };
   score = 0;
 
   currentWeapon = 'pistol';
