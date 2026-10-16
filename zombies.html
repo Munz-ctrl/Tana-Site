@@ -12,6 +12,19 @@
     window.TanaAudio = window.TanaAudio || new Proxy({}, { get: () => () => null });
   </script>
   <style>
+    /* ── Touch-control tuning — tweak these ── */
+    :root {
+      --ctrl-bottom: calc(env(safe-area-inset-bottom, 0px) + 70px); /* button cluster + joystick rest spot, from the bottom */
+      --ctrl-side:   16px;   /* inset from the left/right edge (safe-area is added on top) */
+      --hud-h:       44px;   /* top strip the floating joystick ignores (HUD + mute button) */
+      --joy-zone-w:  45%;    /* touches starting in this left share of the screen drive the joystick */
+      --joy-base:    170px;
+      --joy-knob:    64px;
+      --fire-size:   104px;
+      --weapon-size: 64px;
+      --ctrl-gap:    10px;   /* gap between the weapon and fire buttons */
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     html { height: 100%; overflow: hidden; }
@@ -107,24 +120,44 @@
       #touch-ui { display: block; }
     }
 
+    /* Floating joystick: #joystick-zone is just the invisible touch catcher
+       (left share of the screen, below the HUD). #joystick-base is the
+       visible ring — it jumps under the thumb on touch and eases back to
+       #joystick-rest (the default bottom-left spot) on release. */
     #joystick-zone {
       position: absolute;
-      bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
-      left:   calc(env(safe-area-inset-left,   0px) + 14px);
-      width: 100px; height: 100px;
+      left: 0; top: var(--hud-h); bottom: 0;
+      width: var(--joy-zone-w);
       pointer-events: all;
       touch-action: none;
     }
+    #joystick-rest {
+      position: absolute;
+      bottom: var(--ctrl-bottom);
+      left:   calc(env(safe-area-inset-left, 0px) + var(--ctrl-side));
+      width: var(--joy-base); height: var(--joy-base);
+      visibility: hidden;
+      pointer-events: none;
+    }
     #joystick-base {
-      position: absolute; inset: 0;
+      position: absolute;
+      left: 0; top: 0;                   /* set from JS */
+      width: var(--joy-base); height: var(--joy-base);
       border-radius: 50%;
       background: rgba(233,69,96,0.08);
       border: 2px solid rgba(233,69,96,0.35);
       box-shadow: 0 0 18px rgba(233,69,96,0.18);
+      opacity: 0.35;                     /* faint while idle */
+      pointer-events: none;
+      transition: left 0.15s ease-out, top 0.15s ease-out, opacity 0.15s ease-out;
+    }
+    #joystick-base.active {
+      opacity: 1;
+      transition: opacity 0.08s linear;  /* position jumps, only the fade animates */
     }
     #joystick-knob {
       position: absolute;
-      width: 40px; height: 40px;
+      width: var(--joy-knob); height: var(--joy-knob);
       border-radius: 50%;
       background: radial-gradient(circle at 35% 35%, #e94560, #5c1a28);
       border: 2px solid rgba(233,69,96,0.9);
@@ -132,15 +165,17 @@
       top: 50%; left: 50%;
       transform: translate(-50%,-50%);
       pointer-events: none;
+      transition: transform 0.1s ease-out;
     }
+    #joystick-base.active #joystick-knob { transition: none; }
 
     /* fire button — bottom-right of viewport (mirrors room 1's interact
        button pattern, relabeled with a crosshair for hold-to-fire) */
     #fire-btn {
       position: absolute;
-      bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
-      right:  calc(env(safe-area-inset-right,  0px) + 16px);
-      width: 66px; height: 66px;
+      bottom: var(--ctrl-bottom);
+      right:  calc(env(safe-area-inset-right, 0px) + var(--ctrl-side));
+      width: var(--fire-size); height: var(--fire-size);
       border-radius: 50%;
       background: rgba(233,69,96,0.09);
       border: 2px solid rgba(233,69,96,0.5);
@@ -149,7 +184,7 @@
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
       transition: background 0.08s, box-shadow 0.08s;
-      font-size: 26px; color: #e94560;
+      font-size: 40px; color: #e94560;
     }
     #fire-btn.pressed {
       background: rgba(233,69,96,0.32);
@@ -162,9 +197,9 @@
        checking the HUD. */
     #weapon-btn {
       position: absolute;
-      bottom: calc(env(safe-area-inset-bottom, 0px) + 22px + 66px + 10px);
-      right:  calc(env(safe-area-inset-right,  0px) + 16px);
-      width: 52px; height: 52px;
+      bottom: calc(var(--ctrl-bottom) + var(--fire-size) + var(--ctrl-gap));
+      right:  calc(env(safe-area-inset-right, 0px) + var(--ctrl-side) + (var(--fire-size) - var(--weapon-size)) / 2);
+      width: var(--weapon-size); height: var(--weapon-size);
       border-radius: 50%;
       background: rgba(249,199,79,0.09);
       border: 2px solid rgba(249,199,79,0.5);
@@ -174,7 +209,7 @@
       -webkit-tap-highlight-color: transparent;
       transition: background 0.08s, box-shadow 0.08s;
       font-family: 'Press Start 2P', monospace;
-      font-size: 8px; color: #f9c74f;
+      font-size: 10px; color: #f9c74f;
       text-align: center;
     }
     #weapon-btn.pressed {
@@ -287,10 +322,9 @@
 </div>
 
 <div id="touch-ui">
-  <div id="joystick-zone">
-    <div id="joystick-base"></div>
-    <div id="joystick-knob"></div>
-  </div>
+  <div id="joystick-zone"></div>
+  <div id="joystick-rest"></div>
+  <div id="joystick-base"><div id="joystick-knob"></div></div>
   <div id="weapon-btn">PST</div>
   <div id="fire-btn">⊕</div>
 </div>
@@ -1476,16 +1510,40 @@ TanaAudio.setMusic('room2');
 //  INPUT — virtual joystick (same pattern as room 1)
 // ─────────────────────────────────────────────────────────
 const joy = { dx: 0, dy: 0, active: false };
-const JOY_MAX = 30;
+const JOY_MAX = 55;
+// Floating joystick: any touch that STARTS in #joystick-zone (left share of
+// the screen, below the HUD) grabs it — the base appears centered under the
+// thumb and the knob follows from there. Touches that start elsewhere (fire
+// / weapon buttons) are separate touch identifiers, so they keep working at
+// the same time. Movement math below is unchanged: joy.dx/dy are still
+// knob offset / JOY_MAX.
 const jZone = document.getElementById('joystick-zone');
+const jRest = document.getElementById('joystick-rest');
+const jBase = document.getElementById('joystick-base');
 const jKnob = document.getElementById('joystick-knob');
 let jCX = 0, jCY = 0, jTid = null;
 
+function placeJoyBase(cx, cy) {
+  const half = jBase.offsetWidth / 2;
+  jBase.style.left = (cx - half) + 'px';
+  jBase.style.top  = (cy - half) + 'px';
+}
+function settleJoyAtRest() {
+  const r = jRest.getBoundingClientRect();
+  if (!r.width) return; // touch UI not displayed (desktop)
+  placeJoyBase(r.left + r.width / 2, r.top + r.height / 2);
+}
+
 function jStart(e) {
   e.preventDefault();
+  if (jTid !== null) return; // one thumb drives the stick
   const t = e.changedTouches[0]; jTid = t.identifier;
-  const r = jZone.getBoundingClientRect();
-  jCX = r.left + r.width / 2; jCY = r.top + r.height / 2;
+  // Keep the whole ring on-screen even for a touch right at the edge.
+  const half = jBase.offsetWidth / 2;
+  jCX = Math.max(half, Math.min(window.innerWidth  - half, t.clientX));
+  jCY = Math.max(half, Math.min(window.innerHeight - half, t.clientY));
+  jBase.classList.add('active'); // before placing, so the move isn't animated
+  placeJoyBase(jCX, jCY);
   jMove(e);
 }
 function jMove(e) {
@@ -1495,9 +1553,7 @@ function jMove(e) {
     let dx = t.clientX - jCX, dy = t.clientY - jCY;
     const d = Math.hypot(dx, dy);
     if (d > JOY_MAX) { dx = dx / d * JOY_MAX; dy = dy / d * JOY_MAX; }
-    jKnob.style.left = `calc(50% + ${dx}px)`;
-    jKnob.style.top  = `calc(50% + ${dy}px)`;
-    jKnob.style.transform = 'translate(-50%,-50%)';
+    jKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
     joy.dx = dx / JOY_MAX; joy.dy = dy / JOY_MAX; joy.active = true;
   }
 }
@@ -1505,15 +1561,30 @@ function jEnd(e) {
   e.preventDefault();
   for (const t of e.changedTouches) {
     if (t.identifier !== jTid) continue;
-    jKnob.style.left = jKnob.style.top = '50%';
     jKnob.style.transform = 'translate(-50%,-50%)';
     joy.dx = joy.dy = 0; joy.active = false; jTid = null;
+    jBase.classList.remove('active'); // re-enables the 150ms ease back
+    settleJoyAtRest();
   }
 }
 jZone.addEventListener('touchstart',  jStart, { passive: false });
 jZone.addEventListener('touchmove',   jMove,  { passive: false });
 jZone.addEventListener('touchend',    jEnd,   { passive: false });
 jZone.addEventListener('touchcancel', jEnd,   { passive: false });
+
+// Rest spot depends on viewport + safe-area — re-seat the idle base whenever
+// that can change (rotation, URL-bar show/hide), but never mid-drag.
+function reseatIdleJoystick() {
+  if (jTid !== null) return;
+  jBase.classList.remove('active');
+  jBase.style.transition = 'none';   // snap, don't slide, into the new spot
+  settleJoyAtRest();
+  void jBase.offsetWidth;            // flush so the snap isn't animated
+  jBase.style.transition = '';
+}
+window.addEventListener('resize', reseatIdleJoystick);
+window.addEventListener('orientationchange', reseatIdleJoystick);
+requestAnimationFrame(reseatIdleJoystick);
 
 // ─────────────────────────────────────────────────────────
 //  UPDATE
