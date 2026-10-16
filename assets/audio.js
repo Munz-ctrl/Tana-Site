@@ -38,6 +38,8 @@
     wave_clear:    { file: 'assets/sfx/wave_clear_new.mp3',    vol: 0.7,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     game_over:     { file: 'assets/sfx/game_over.mp3',     vol: 0.7,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     score_tick:    { file: 'assets/sfx/score_tick.mp3',    vol: 0.25, pitchVar: 0.05, minGap: 60,  maxVoices: 2 },
+    // Looped while the water hose is spraying — started/stopped via startLoop().
+    hose:          { file: 'assets/sfx/hose.mp3',          vol: 0.5,  pitchVar: 0,    minGap: 0,   maxVoices: 1, loop: true },
     score_coins:   { file: 'assets/sfx/score_coins.mp3',   vol: 0.55, pitchVar: 0,    minGap: 0,   maxVoices: 1 },
   };
   const MUSIC = { room1: null, room2: null };  // placeholders — tracks get re-added later (path string, looped)
@@ -249,6 +251,45 @@
     }
   }
 
+  // Looping SFX (e.g. the water hose). Returns { stop(fadeMs) } or null if
+  // the file is missing/failed — callers just treat null as "silent".
+  // The loop fades in over ~20ms and out over `fadeMs` (default 80) on stop().
+  function startLoop(name) {
+    try {
+      if (!ctx) return null;
+      const def = SFX[name];
+      const buf = buffers[name];
+      if (!def || !buf) return null;
+      const src  = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      src.buffer = buf;
+      src.loop = true;
+      gain.gain.value = 0;
+      gain.gain.setTargetAtTime(def.vol, ctx.currentTime, 0.02);
+      src.connect(gain);
+      gain.connect(sfxGain);
+      src.start(0);
+      let done = false;
+      return {
+        stop(fadeMs) {
+          if (done) return;
+          done = true;
+          const f = (fadeMs == null ? 80 : fadeMs) / 1000;
+          try {
+            const t = ctx.currentTime;
+            gain.gain.cancelScheduledValues(t);
+            gain.gain.setValueAtTime(def.vol, t);
+            gain.gain.linearRampToValueAtTime(0, t + f);
+            src.stop(t + f + 0.02);
+          } catch (_) {}
+          src.onended = () => { try { src.disconnect(); gain.disconnect(); } catch (_) {} };
+        },
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
   // ── Music (stubs while MUSIC[key] is null) ───────────────
   function stopMusic() {
     musicKey = null;
@@ -290,6 +331,7 @@
   // ── Public API ───────────────────────────────────────────
   global.TanaAudio = {
     play,
+    startLoop,
     setMusic,
     stopMusic,
     duckMusic,
