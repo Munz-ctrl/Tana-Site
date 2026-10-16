@@ -18,12 +18,16 @@
   //   pitchVar  random playbackRate of 1 ± pitchVar
   //   minGap    min ms between two starts of this sound (0 = none)
   //   maxVoices cap on simultaneously-playing copies (extras are skipped)
+  //   fallback  { name, rate } — if this file failed to load, play that other
+  //             sound instead, with its playbackRate multiplied by `rate`
   const SFX = {
     ui_open:       { file: 'assets/sfx/ui_open_new.mp3',       vol: 0.5,  pitchVar: 0,    minGap: 60,  maxVoices: 2 },
     ui_close:      { file: 'assets/sfx/ui_close.mp3',      vol: 0.5,  pitchVar: 0,    minGap: 60,  maxVoices: 2 },
     ui_click:      { file: 'assets/sfx/ui_click.mp3',      vol: 0.45, pitchVar: 0.03, minGap: 50,  maxVoices: 2 },
     pistol:        { file: 'assets/sfx/pistol_new.mp3',        vol: 0.55, pitchVar: 0.06, minGap: 0,   maxVoices: 4 },
-    smg:           { file: 'assets/sfx/zombie_hit_new.mp3',           vol: 0.45, pitchVar: 0.08, minGap: 0,   maxVoices: 6 },
+    uzi:           { file: 'assets/sfx/zombie_hit_new.mp3',           vol: 0.45, pitchVar: 0.08, minGap: 0,   maxVoices: 6 },
+    // Falls back to the uzi sound at playbackRate 0.8 while draco.mp3 is missing.
+    draco:         { file: 'assets/sfx/draco.mp3',         vol: 0.5,  pitchVar: 0.08, minGap: 0,   maxVoices: 6, fallback: { name: 'uzi', rate: 0.8 } },
     shotgun:       { file: 'assets/sfx/shotgun_new.mp3',       vol: 0.65, pitchVar: 0.05, minGap: 0,   maxVoices: 3 },
     weapon_switch: { file: 'assets/sfx/weapon_switch.mp3', vol: 0.5,  pitchVar: 0,    minGap: 80,  maxVoices: 1 },
     weapon_unlock: { file: 'assets/sfx/weapon_unlock.mp3', vol: 0.6,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
@@ -187,12 +191,18 @@
   // ── SFX ──────────────────────────────────────────────────
   // opts.offset  seconds into the file to start from
   // opts.delay   seconds from now to start (sample-accurate scheduling)
+  // opts.rate    playbackRate multiplier on top of the pitchVar jitter
   // Returns a handle { stop() } or null if the sound was skipped.
   function play(name, opts) {
     try {
       if (!ctx) return null;
       const def = SFX[name];
       const buf = buffers[name];
+      if (def && !buf && def.fallback && SFX[def.fallback.name]) {
+        return play(def.fallback.name, Object.assign({}, opts, {
+          rate: ((opts && opts.rate) || 1) * def.fallback.rate,
+        }));
+      }
       if (!def || !buf) return null;
 
       opts = opts || {};
@@ -212,7 +222,7 @@
       const src  = ctx.createBufferSource();
       const gain = ctx.createGain();
       src.buffer = buf;
-      src.playbackRate.value = 1 + (Math.random() * 2 - 1) * (def.pitchVar || 0);
+      src.playbackRate.value = (1 + (Math.random() * 2 - 1) * (def.pitchVar || 0)) * (opts.rate || 1);
       gain.gain.value = def.vol;
       src.connect(gain);
       gain.connect(sfxGain);
