@@ -3,7 +3,7 @@
 //  zombies.html (room 2). Plain script, no build step: exposes the
 //  global `TanaAudio`.
 //
-//  Graph:  voice gain ─▶ sfxGain ─┐
+//  Graph:  voice gain ─▶ sfxGain ─▶ limiter ─┐
 //                    musicGain ───┴▶ masterGain ─▶ destination
 //
 //  Audio must never block or break the game: a missing/broken file is
@@ -24,12 +24,12 @@
     ui_open:       { file: 'assets/sfx/ui_open_new.mp3',       vol: 0.5,  pitchVar: 0,    minGap: 60,  maxVoices: 2 },
     ui_close:      { file: 'assets/sfx/ui_close.mp3',      vol: 0.5,  pitchVar: 0,    minGap: 60,  maxVoices: 2 },
     ui_click:      { file: 'assets/sfx/ui_click.mp3',      vol: 0.45, pitchVar: 0.03, minGap: 50,  maxVoices: 2 },
-    pistol:        { file: 'assets/sfx/pistol_new.mp3',        vol: 0.55, pitchVar: 0.06, minGap: 0,   maxVoices: 4 },
-    uzi:           { file: 'assets/sfx/zombie_hit_new.mp3',           vol: 0.45, pitchVar: 0.08, minGap: 0,   maxVoices: 6 },
+    pistol:        { file: 'assets/sfx/pistol_new.mp3',        vol: 1.2,  pitchVar: 0.06, minGap: 0,   maxVoices: 4 },
+    uzi:           { file: 'assets/sfx/zombie_hit_new.mp3',           vol: 0.9,  pitchVar: 0.08, minGap: 0,   maxVoices: 6 },
     // Falls back to the uzi sound at playbackRate 0.8 while draco.mp3 is missing.
-    draco:         { file: 'assets/sfx/draco.mp3',         vol: 0.5,  pitchVar: 0.08, minGap: 0,   maxVoices: 6, fallback: { name: 'uzi', rate: 0.8 } },
-    shotgun:       { file: 'assets/sfx/shotgun_new.mp3',       vol: 0.65, pitchVar: 0.05, minGap: 0,   maxVoices: 3 },
-    weapon_switch: { file: 'assets/sfx/weapon_switch.mp3', vol: 0.5,  pitchVar: 0,    minGap: 80,  maxVoices: 1 },
+    draco:         { file: 'assets/sfx/draco.mp3',         vol: 1.0,  pitchVar: 0.08, minGap: 0,   maxVoices: 6, fallback: { name: 'uzi', rate: 0.8 } },
+    shotgun:       { file: 'assets/sfx/shotgun_new.mp3',       vol: 1.1,  pitchVar: 0.05, minGap: 0,   maxVoices: 3 },
+    weapon_switch: { file: 'assets/sfx/weapon_switch_heavy.mp3', vol: 0.6, pitchVar: 0.03, minGap: 120, maxVoices: 1 },
     weapon_unlock: { file: 'assets/sfx/weapon_unlock.mp3', vol: 0.6,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     zombie_hit:    { file: 'assets/sfx/zombie_hit_new_B.mp3',    vol: 0.7,  pitchVar: 0.12, minGap: 40,  maxVoices: 5 },
     zombie_death:  { file: 'assets/sfx/zombie_death.mp3',  vol: 0.5,  pitchVar: 0.10, minGap: 30,  maxVoices: 4 },
@@ -39,8 +39,13 @@
     game_over:     { file: 'assets/sfx/game_over.mp3',     vol: 0.7,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     score_tick:    { file: 'assets/sfx/score_tick.mp3',    vol: 0.25, pitchVar: 0.05, minGap: 60,  maxVoices: 2 },
     // Looped while the water hose is spraying — started/stopped via startLoop().
-    hose:          { file: 'assets/sfx/hose.mp3',          vol: 0.5,  pitchVar: 0,    minGap: 0,   maxVoices: 1, loop: true },
+    // WAV on purpose: MP3 adds encoder padding that clicks at the loop point.
+    hose:          { file: 'assets/sfx/hose_loop.wav',     vol: 0.5,  pitchVar: 0,    minGap: 0,   maxVoices: 1, loop: true },
+    hose_start:    { file: 'assets/sfx/hose_start.mp3',    vol: 0.55, pitchVar: 0.04, minGap: 250, maxVoices: 1 },
     score_coins:   { file: 'assets/sfx/score_coins.mp3',   vol: 0.55, pitchVar: 0,    minGap: 0,   maxVoices: 1 },
+    // Vending machine: the payment, then (0.25 s later) the heal.
+    vend_pay:      { file: 'assets/sfx/vend_pay.mp3',      vol: 0.55, pitchVar: 0,    minGap: 0,   maxVoices: 1 },
+    heal:          { file: 'assets/sfx/heal.mp3',          vol: 0.6,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
   };
   const MUSIC = { room1: null, room2: null };  // placeholders — tracks get re-added later (path string, looped)
   const SFX_VOLUME = 0.8, MUSIC_VOLUME = 0.4;
@@ -50,7 +55,7 @@
   const DUCK_TC         = 0.08; // seconds — time constant for music duck / mute ramps
 
   // ── Shared state ─────────────────────────────────────────
-  let ctx = null, master = null, sfxGain = null, musicGain = null;
+  let ctx = null, master = null, sfxGain = null, limiter = null, musicGain = null;
   let muted = false;
   let musicDucked = false;
   let musicKey = null, musicSrc = null, musicBufCache = {};
@@ -104,7 +109,16 @@
       master.gain.value    = muted ? 0 : 1;
       sfxGain.gain.value   = SFX_VOLUME;
       musicGain.gain.value = musicDucked ? 0 : MUSIC_VOLUME;
-      sfxGain.connect(master);
+      // Soft limiter on the SFX bus only (music is unaffected) so stacked
+      // full-auto shots with gain > 1 don't clip the master.
+      limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -6;
+      limiter.knee.value      = 6;
+      limiter.ratio.value     = 12;
+      limiter.attack.value    = 0.003;
+      limiter.release.value   = 0.12;
+      sfxGain.connect(limiter);
+      limiter.connect(master);
       musicGain.connect(master);
       master.connect(ctx.destination);
     } catch (e) {
