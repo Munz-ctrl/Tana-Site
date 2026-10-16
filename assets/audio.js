@@ -91,6 +91,9 @@
   // ── Context + buses ──────────────────────────────────────
   function init() {
     muted = readMuted();
+    // iPhone: treat the page as media playback so the hardware silent switch
+    // doesn't mute Web Audio. (Safari 16.4+; feature-detected, never throws.)
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
     try {
       const AC = global.AudioContext || global.webkitAudioContext;
       if (!AC) { console.warn('[TanaAudio] Web Audio unavailable — running silent.'); return; }
@@ -150,20 +153,31 @@
   }
 
   // ── Unlock (autoplay policy) + tab visibility ────────────
+  // Resume + play a 1-sample silent buffer (the classic iOS Safari nudge).
+  // Must run synchronously inside a user-gesture handler. Returns the
+  // resume() promise (or null).
+  function nudge() {
+    if (!ctx) return null;
+    let r = null;
+    try {
+      r = ctx.resume();
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+      const b = ctx.createBuffer(1, 1, 22050);
+      const s = ctx.createBufferSource();
+      s.buffer = b;
+      s.connect(ctx.destination);
+      s.start(0);
+    } catch (_) {}
+    return r;
+  }
+
   function installUnlock() {
-    const events = ['pointerdown', 'touchstart', 'keydown'];
+    // touchend + click matter on iOS: Safari doesn't treat touchstart /
+    // pointerdown as an audio-unlocking gesture, only a completed tap.
+    const events = ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'];
     function unlock() {
       if (!ctx) return;
-      try {
-        const r = ctx.resume();
-        if (r && typeof r.catch === 'function') r.catch(() => {});
-        // 1-sample silent buffer — the classic iOS Safari nudge.
-        const b = ctx.createBuffer(1, 1, 22050);
-        const s = ctx.createBufferSource();
-        s.buffer = b;
-        s.connect(ctx.destination);
-        s.start(0);
-      } catch (_) {}
+      nudge();
       if (ctx.state === 'running') events.forEach(e => global.removeEventListener(e, unlock, true));
     }
     events.forEach(e => global.addEventListener(e, unlock, { capture: true, passive: true }));
@@ -211,10 +225,11 @@
       const offset = Math.max(0, opts.offset || 0);
       const delay  = Math.max(0, opts.delay  || 0);
 
-      // A suspended context's clock is frozen, so a timed start (delay /
-      // offset) would drift once it resumes — drop those rather than
-      // play them out of sync.
-      if (ctx.state !== 'running' && (delay > 0 || offset > 0)) return null;
+      // Suspended / interrupted context (no user gesture yet, tab hidden, …):
+      // DROP the sound. Queued sources would all fire in a burst the moment
+      // the context resumes, and a timed start (delay / offset) would be out
+      // of sync anyway.
+      if (ctx.state !== 'running') return null;
       if (offset >= buf.duration) return null;
 
       const now = performance.now();
@@ -259,7 +274,7 @@
       if (!ctx) return null;
       const def = SFX[name];
       const buf = buffers[name];
-      if (!def || !buf) return null;
+      if (!def || !buf || ctx.state !== 'running') return null;
       const src  = ctx.createBufferSource();
       const gain = ctx.createGain();
       src.buffer = buf;
@@ -332,6 +347,13 @@
   global.TanaAudio = {
     play,
     startLoop,
+    // 'running' | 'suspended' | 'interrupted' | 'closed' | 'none' (no Web Audio)
+    state: () => (ctx ? ctx.state : 'none'),
+    // Call from inside a user gesture. Resolves true if audio is running afterwards.
+    resume() {
+      const r = nudge();
+      return Promise.resolve(r).then(() => !!ctx && ctx.state === 'running', () => false);
+    },
     setMusic,
     stopMusic,
     duckMusic,
