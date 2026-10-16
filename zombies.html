@@ -507,7 +507,53 @@ const KNOCKBACK_STAGGER_DURATION = 380; // ms
 //  the same target — the shotgun is the deliberate exception: it's
 //  wide enough to overlap neighboring directions and can multi-hit.
 // ─────────────────────────────────────────────────────────
-const WEAPON_ORDER = ['pistol', 'uzi', 'shotgun', 'draco']; // unlock progression order
+const WEAPON_ORDER = ['pistol', 'uzi', 'shotgun', 'draco', 'hose']; // unlock progression order (hose comes from the secret hydrant, not a wave)
+
+// ─────────────────────────────────────────────────────────
+//  SECRET HYDRANT — hydrant_2 can be shot to pieces; it then spouts a
+//  water jet and drops the WATER HOSE pickup (once per run).
+// ─────────────────────────────────────────────────────────
+const SECRET_HP            = 2000;
+const SECRET_FLASH_MS      = 70;     // white flash on hit
+const SECRET_SHAKE_PX      = 2;      // draw-position shake, decays (visual only)
+const SECRET_SHAKE_MS      = 120;
+const SECRET_BAR_W         = 36;     // tiny hp bar above it
+const SECRET_BAR_H         = 3;
+const SECRET_BAR_HOLD_MS   = 1200;   // fully visible this long after the last hit...
+const SECRET_BAR_FADE_MS   = 300;    // ...then fades out over this
+const SECRET_HIT_RADIUS    = 30;     // px — how "fat" the hydrant is for the aim cone
+const SECRET_PICKUP_OFFSET = { x: 85, y: -12 }; // hose pickup, from the hydrant's ground point
+const SECRET_PICKUP_RADIUS = 46;     // px from the player's feet to grab it
+const SECRET_JET           = { everyMs: 30, speed: [0.22, 0.40], life: [450, 800], gravity: 0.0005, spread: 0.30 };
+const SECRET_BURST_COUNT   = 50;     // water burst when it breaks
+
+// ─────────────────────────────────────────────────────────
+//  HOSE — the water hose weapon. Hold fire to spray; every zombie in the
+//  cone is pushed (continuous force) and damaged (every HOSE_TICK_MS).
+// ─────────────────────────────────────────────────────────
+const HOSE_CONE_DEG        = 50;    // as wide as the shotgun
+const HOSE_RANGE           = 650;   // about twice the shotgun's reach
+const HOSE_TICK_MS         = 150;   // damage/push applied every tick while held
+const HOSE_DAMAGE_NEAR     = 2;     // max damage per tick, close range
+const HOSE_DAMAGE_FAR      = 1;     // damage per tick in the far half of the range
+const HOSE_PUSH_NEAR       = 7;     // px per frame push at point-blank
+const HOSE_PUSH_MIN_FRAC   = 0.15;  // push at max range = 15% of near push
+const HOSE_TANK_MAX        = 100;
+const HOSE_DRAIN_PER_SEC   = 22;    // ~4.5 s of continuous spray from full
+const HOSE_REFILL_PER_SEC  = 12;    // refills only while not spraying
+const HOSE_REFILL_DELAY_MS = 600;   // pause after spraying before refill starts
+// extras
+const HOSE_SPUTTER_RECOVER = 25;    // after running dry, can't spray again until the tank is above this
+const HOSE_RESIST          = { A: 1.0, B: 0.7, C: 0.4 }; // per-tier push resistance
+const HOSE_BEAM_FADE_MS    = 100;   // beam fades in/out over this
+const HOSE_BEAM_ALPHA_NEAR = 0.38;  // beam opacity at the nozzle (fades to 0 at the end)
+const HOSE_BAND_SPACING    = 90;    // px between the flowing bands
+const HOSE_FLOW_SPEED      = 0.45;  // px/ms the bands travel outward
+const HOSE_NOZZLE_PER_FRAME = 3;    // water particles spawned at the tip per 60fps frame
+const HOSE_NOZZLE_SPEED    = [0.8, 1.3];  // px/ms
+const HOSE_NOZZLE_LIFE     = [350, 600];  // ms
+const HOSE_SPLASH_PER_TICK = 3;     // splash particles per zombie in the cone, per tick
+const HOSE_WATER_COLORS    = ['#d6f0ff', '#8fd0ff', '#ffffff', '#4aa3ff'];
 
 // ╔═══════════════════════════════════════════════════════════════════╗
 // ║  ★★★  TWEAK ZONE — SHOTGUN DAMAGE + KNOCKBACK  ★★★                ║
@@ -555,6 +601,9 @@ const WEAPONS = {
     knockback: SHOTGUN_KNOCKBACK, distFalloffMin: SHOTGUN_FALLOFF_MIN },
   draco:   { label: 'DRACO',   short: 'DRC', damage: 13, fireRate: 140, get range() { return WORLD_W; }, coneDeg: 22, multiHit: false,
     knockback: DRACO_KNOCKBACK, knockbackStack: true, spriteFallback: 'uzi' },
+  // Continuous weapon — handled by updateHose(), not fireWeapon()/tryFire().
+  hose:    { label: 'WATER HOSE', short: 'HOSE', damage: HOSE_DAMAGE_NEAR, fireRate: HOSE_TICK_MS, range: HOSE_RANGE, coneDeg: HOSE_CONE_DEG,
+    multiHit: true, continuous: true, spriteFallback: 'pistol' },
 };
 
 // Wave-clear events that unlock each later weapon (pistol is available
@@ -590,7 +639,7 @@ const HIT_FX = {
   particleLife:       [300, 500],
   particleJitter:     8,            // px random offset of the spawn point
   particleColors:     ['#8a1c1c', '#a82424', '#6b1414', '#c43030'],
-  particleMax:        300,          // alive cap, oldest dropped first
+  particleMax:        700,          // alive cap, oldest dropped first
 
   // Ground decals — under all entities, fade out, oldest removed first.
   decalFadeMs:        6000,
@@ -842,7 +891,7 @@ const zombieImgs = {
 const SKIN_LETTERS      = ['A', 'B', 'C'];
 // uzi reuses the existing *SMG.png sheets; draco loads skin{A,B,C}Draco.png
 // if present (currentPlayerImg falls back to the uzi sheet otherwise).
-const WEAPON_FILE_NAMES = { pistol: 'Pistol', uzi: 'SMG', shotgun: 'Shotgun', draco: 'Draco' };
+const WEAPON_FILE_NAMES = { pistol: 'Pistol', uzi: 'SMG', shotgun: 'Shotgun', draco: 'Draco', hose: 'Hose' };
 
 function weaponSheetPath(skinIdx, weaponKey) {
   const letter = SKIN_LETTERS[skinIdx] || 'A';
@@ -1242,13 +1291,15 @@ function updateZombie(z, dt) {
   if (z.animTick >= 14) { z.animTick = 0; z.animFrame ^= 1; }
 }
 
-function damageZombie(z, dmg, shotAngle) {
+// `water` (hose ticks): non-lethal hits skip the blood/decal/flash/shake/sound
+// and only update the number + hp bar — the hose has its own splash FX.
+function damageZombie(z, dmg, shotAngle, water) {
   z.hp -= dmg;
   if (z.hp > 0) {
     // Slight delay so the hit lands after the gunshot instead of under it.
-    TanaAudio.play('zombie_hit', { delay: 0.06 });
+    if (!water) TanaAudio.play('zombie_hit', { delay: 0.06 });
     // Non-lethal hit — blood spray, decal, flash, shake, number (visual only).
-    spawnHitFx(z, dmg, shotAngle, false);
+    spawnHitFx(z, dmg, shotAngle, false, water);
     return;
   }
   const idx = zombies.indexOf(z);
@@ -1262,7 +1313,7 @@ function damageZombie(z, dmg, shotAngle) {
     x: z.x + PW / 2, y: z.y + FEET_OY + FEET_H / 2,
     duration: DEATH_FX_DURATION,
   });
-  spawnHitFx(z, dmg, shotAngle, true);
+  spawnHitFx(z, dmg, shotAngle, true, water);
   onKillFeedback();
 }
 
@@ -1283,13 +1334,14 @@ function _ri(range) { return Math.floor(_rr([range[0], range[1] + 1])); }
 
 function zombieBodyCenter(z) { return { x: z.x + PW / 2, y: z.y + PH * 0.45 }; }
 
-function spawnHitFx(z, dmg, shotAngle, killed) {
+function spawnHitFx(z, dmg, shotAngle, killed, water) {
   const now = performance.now();
+  const dry = !!water && !killed; // hose tick that didn't kill: numbers + hp bar only
   const ang = shotAngle != null ? shotAngle : Math.random() * Math.PI * 2;
   const c = zombieBodyCenter(z);
 
   // Blood spray
-  const n = _ri(killed ? HIT_FX.particleCountKill : HIT_FX.particleCount);
+  const n = dry ? 0 : _ri(killed ? HIT_FX.particleCountKill : HIT_FX.particleCount);
   const spread = HIT_FX.particleSpreadDeg * Math.PI / 180;
   for (let i = 0; i < n; i++) {
     const a = ang + (Math.random() * 2 - 1) * spread;
@@ -1306,6 +1358,7 @@ function spawnHitFx(z, dmg, shotAngle, killed) {
   while (bloodParticles.length > HIT_FX.particleMax) bloodParticles.shift();
 
   // Ground decal under the zombie's feet
+  if (!dry) {
   const cfg = killed ? HIT_FX.decalKill : HIT_FX.decalHit;
   const scatter = killed ? HIT_FX.decalKillSpread : HIT_FX.decalHitSpread;
   const blobs = [];
@@ -1322,11 +1375,14 @@ function spawnHitFx(z, dmg, shotAngle, killed) {
     born: now, blobs, kill: killed,
   });
   while (bloodDecals.length > HIT_FX.decalMax) bloodDecals.shift();
+  }
 
   // Flash + sprite shake (also drives the hp bar)
   z.lastHitAt  = now;
-  z.flashUntil = now + HIT_FX.flashMs;
-  z.shakeStart = now;
+  if (!dry) {
+    z.flashUntil = now + HIT_FX.flashMs;
+    z.shakeStart = now;
+  }
 
   // Damage number — merge rapid hits on the same zombie
   let num = null;
@@ -1342,6 +1398,265 @@ function spawnHitFx(z, dmg, shotAngle, killed) {
   } else {
     damageNumbers.push({ z, value: dmg, born: now, lastHit: now, popAt: now, popAmt: HIT_FX.numPop * 0.5, kill: killed });
   }
+}
+
+// ─────────────────────────────────────────────────────────
+//  SECRET HYDRANT + WATER HOSE — state, logic, drawing
+// ─────────────────────────────────────────────────────────
+let secretHydrant   = null;   // the hydrant_2 scene object (set once the scene is built)
+let secretHp        = SECRET_HP;
+let secretBroken    = false;
+let secretLastHit   = 0, secretFlashUntil = 0, secretShakeStart = 0;
+let secretJetClock  = 0;
+let hosePickup      = null;   // { x, y } while waiting to be grabbed
+let hoseObtained    = false;  // once per run
+const hose = { tank: HOSE_TANK_MAX, sputter: false, lastSprayAt: -1e9, lastTick: 0, lastSputterFx: 0, voice: null };
+let hoseBeam = { alpha: 0, angle: 0, x: 0, y: 0, facing: 'down' };
+
+function spawnWaterParticle(x, y, ang, speed, life, g) {
+  bloodParticles.push({
+    x0: x, y0: y,
+    vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+    size: _ri(HIT_FX.particleSize),
+    born: performance.now(), life,
+    color: HOSE_WATER_COLORS[Math.floor(Math.random() * HOSE_WATER_COLORS.length)],
+    g,
+  });
+  while (bloodParticles.length > HIT_FX.particleMax) bloodParticles.shift();
+}
+
+function secretTop() { return { x: secretHydrant.x + secretHydrant.w / 2, y: secretHydrant.y + 38 }; }
+
+function damageSecretHydrant(dmg) {
+  if (!secretHydrant || secretBroken) return;
+  const now = performance.now();
+  secretHp = Math.max(0, secretHp - dmg);
+  secretLastHit = now; secretFlashUntil = now + SECRET_FLASH_MS; secretShakeStart = now;
+  TanaAudio.play('zombie_hit', { rate: 0.6 }); // dull "clank"
+  if (secretHp <= 0) breakSecretHydrant();
+}
+
+function breakSecretHydrant() {
+  secretBroken = true;
+  const t = secretTop();
+  for (let i = 0; i < SECRET_BURST_COUNT; i++) {
+    spawnWaterParticle(t.x, t.y, -Math.PI / 2 + (Math.random() * 2 - 1) * 1.1,
+      _rr([0.15, 0.50]), _rr([500, 950]), 0.0006);
+  }
+  TanaAudio.play('zombie_death', { rate: 0.5 });
+  addScreenShake(3, 150);
+  if (!hoseObtained && !hosePickup) {
+    hosePickup = { x: secretHydrant.groundX + SECRET_PICKUP_OFFSET.x, y: secretHydrant.groundY + SECRET_PICKUP_OFFSET.y };
+  }
+}
+
+// The broken hydrant keeps spouting a small looping jet (procedural).
+function updateSecretFx(now) {
+  if (!secretHydrant || !secretBroken) return;
+  const t = secretTop();
+  if (wx(t.x) < -60 || wx(t.x) > VIEW_W + 60 || wy(t.y) < -200 || wy(t.y) > VIEW_H + 60) { secretJetClock = now; return; }
+  if (now - secretJetClock > 200) secretJetClock = now;
+  while (now - secretJetClock >= SECRET_JET.everyMs) {
+    secretJetClock += SECRET_JET.everyMs;
+    spawnWaterParticle(t.x, t.y, -Math.PI / 2 + (Math.random() * 2 - 1) * SECRET_JET.spread,
+      _rr(SECRET_JET.speed), _rr(SECRET_JET.life), SECRET_JET.gravity);
+  }
+}
+
+function checkHosePickup() {
+  if (!hosePickup || gameOver) return;
+  const fx = player.x + PW / 2, fy = player.y + FEET_OY + FEET_H / 2;
+  if (Math.hypot(fx - hosePickup.x, fy - hosePickup.y) > SECRET_PICKUP_RADIUS) return;
+  hosePickup = null;
+  hoseObtained = true;
+  unlockedWeapons.add('hose');
+  currentWeapon = 'hose';
+  lastFireTime = 0;
+  hose.tank = HOSE_TANK_MAX; hose.sputter = false;
+  weaponUnlockNotice = { label: WEAPONS.hose.label, start: performance.now() };
+  TanaAudio.play('weapon_unlock');
+}
+
+// Continuous weapon driver — runs every update(). Tank refill/drain, the
+// per-frame push, the per-tick damage, particles, beam fade, and the loop.
+function updateHose(dt, now) {
+  const dtSec = dt * 16.667 / 1000;
+  const equipped = currentWeapon === 'hose' && unlockedWeapons.has('hose');
+  const want = equipped && fireHeld && !vendBuy && !gameOver;
+  if (hose.sputter && hose.tank > HOSE_SPUTTER_RECOVER) hose.sputter = false;
+  const spraying = want && !hose.sputter && hose.tank > 0;
+
+  const dir = AIM_DIRS[player.aimDir];
+  const angle = Math.atan2(dir.dy, dir.dx);
+  const half = (HOSE_CONE_DEG * Math.PI / 180) / 2;
+  const vis = TRACER_VISUAL_ORIGIN[player.facing];
+  const mx = player.x + PW * vis.x, my = player.y + PH * vis.y;
+
+  if (spraying) {
+    hose.tank -= HOSE_DRAIN_PER_SEC * dtSec;
+    hose.lastSprayAt = now;
+    if (hose.tank <= 0) { hose.tank = 0; hose.sputter = true; }
+
+    // Nozzle: continuous water out of the tip, across the cone.
+    let n = HOSE_NOZZLE_PER_FRAME * dt;
+    n = Math.floor(n) + (Math.random() < n - Math.floor(n) ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      spawnWaterParticle(mx, my, angle + (Math.random() * 2 - 1) * half * 0.85,
+        _rr(HOSE_NOZZLE_SPEED), _rr(HOSE_NOZZLE_LIFE), 0.0002);
+    }
+    applyHose(angle, half, dt, now);
+  } else {
+    // Out of water: a few weak drips, no effect.
+    if (want && hose.sputter && now - hose.lastSputterFx > 90) {
+      hose.lastSputterFx = now;
+      spawnWaterParticle(mx, my, angle + (Math.random() * 2 - 1) * half, _rr([0.12, 0.25]), _rr([250, 400]), 0.0008);
+    }
+    if (now - hose.lastSprayAt >= HOSE_REFILL_DELAY_MS) {
+      hose.tank = Math.min(HOSE_TANK_MAX, hose.tank + HOSE_REFILL_PER_SEC * dtSec);
+    }
+  }
+
+  // Looping sound (silent if hose.mp3 is missing — startLoop returns null).
+  if (spraying && !hose.voice) hose.voice = TanaAudio.startLoop('hose');
+  else if (!spraying && hose.voice) { hose.voice.stop(80); hose.voice = null; }
+
+  // Beam fade in/out
+  const step = dt * 16.667 / HOSE_BEAM_FADE_MS;
+  hoseBeam.alpha = Math.max(0, Math.min(1, hoseBeam.alpha + (spraying ? step : -step)));
+  if (spraying) { hoseBeam.angle = angle; hoseBeam.x = mx; hoseBeam.y = my; hoseBeam.facing = player.facing; }
+}
+
+// Every zombie in the cone: continuous push every frame (collision-aware, so
+// they slide along buildings), damage + splash every HOSE_TICK_MS.
+function applyHose(angle, half, dt, now) {
+  const ox = player.x + PW / 2, oy = player.y + FEET_OY + FEET_H / 2;
+  const tick = now - hose.lastTick >= HOSE_TICK_MS;
+  if (tick) hose.lastTick = now;
+  const ux = Math.cos(angle), uy = Math.sin(angle);
+
+  for (const z of zombies.slice()) {
+    const zx = z.x + PW / 2, zy = z.y + FEET_OY + FEET_H / 2;
+    const ddx = zx - ox, ddy = zy - oy;
+    const dist = Math.hypot(ddx, ddy);
+    if (dist < 1 || dist > HOSE_RANGE) continue;
+    let diff = Math.abs(Math.atan2(ddy, ddx) - angle);
+    if (diff > Math.PI) diff = 2 * Math.PI - diff;
+    if (diff > half) continue;
+
+    // Push: lerp(1, MIN_FRAC, dist / RANGE) × near push × tier resistance.
+    const push = HOSE_PUSH_NEAR * (1 + (HOSE_PUSH_MIN_FRAC - 1) * Math.min(1, dist / HOSE_RANGE))
+               * (HOSE_RESIST[z.tier] != null ? HOSE_RESIST[z.tier] : 1) * dt;
+    const px = ux * push, py = uy * push;
+    if (!wouldCollide(z.x + px, z.y, z)) z.x += px;
+    if (!wouldCollide(z.x, z.y + py, z)) z.y += py;
+
+    if (!tick) continue;
+    // Splash on the zombie being hit.
+    const c = zombieBodyCenter(z);
+    for (let i = 0; i < HOSE_SPLASH_PER_TICK; i++) {
+      spawnWaterParticle(c.x, c.y, angle + (Math.random() * 2 - 1) * 1.0, _rr([0.08, 0.2]), _rr([250, 400]), 0.0005);
+    }
+    damageZombie(z, dist <= HOSE_RANGE / 2 ? HOSE_DAMAGE_NEAR : HOSE_DAMAGE_FAR, angle, true);
+  }
+}
+
+// ── Drawing ──
+function drawSecretHydrant(obj, sx, sy) {
+  const now = performance.now();
+  let shx = 0, shy = 0;
+  const age = now - secretShakeStart;
+  if (secretShakeStart && age < SECRET_SHAKE_MS) {
+    const a = SECRET_SHAKE_PX * (1 - age / SECRET_SHAKE_MS);
+    shx = Math.round((Math.random() * 2 - 1) * a);
+    shy = Math.round((Math.random() * 2 - 1) * a);
+  }
+  const iw = obj.img.naturalWidth, ih = obj.img.naturalHeight;
+  if (now < secretFlashUntil) drawFlashTinted(obj.img, 0, 0, iw, ih, sx + shx, sy + shy, obj.w, obj.h, 'rgba(255,255,255,0.85)');
+  else ctx.drawImage(obj.img, sx + shx, sy + shy, obj.w, obj.h);
+
+  // Tiny hp bar — fades in on a hit, out SECRET_BAR_HOLD_MS (+fade) after the last one.
+  if (!secretBroken && secretLastHit) {
+    const since = now - secretLastHit;
+    const fadeOut = (since - SECRET_BAR_HOLD_MS) / SECRET_BAR_FADE_MS;
+    if (fadeOut < 1) {
+      const alpha = Math.min(1, since / 100) * (fadeOut <= 0 ? 1 : 1 - fadeOut);
+      const bx = Math.round(sx + obj.w / 2 - SECRET_BAR_W / 2), by = Math.round(sy - 6);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, alpha);
+      ctx.fillStyle = HIT_FX.hpBarBg;
+      ctx.fillRect(bx - 1, by - 1, SECRET_BAR_W + 2, SECRET_BAR_H + 2);
+      ctx.fillStyle = '#4aa3ff';
+      ctx.fillRect(bx, by, Math.round(SECRET_BAR_W * secretHp / SECRET_HP), SECRET_BAR_H);
+      ctx.restore();
+    }
+  }
+}
+
+function drawHosePickup() {
+  if (!hosePickup) return;
+  const now = performance.now();
+  const sx = wx(hosePickup.x), sy = wy(hosePickup.y);
+  const bob = Math.sin(now / 280) * 3;
+  ctx.save();
+  // ground shadow + glow
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.ellipse(sx, sy + 16, 16, 4, 0, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createRadialGradient(sx, sy + bob, 2, sx, sy + bob, 36);
+  g.addColorStop(0, 'rgba(120,200,255,0.40)'); g.addColorStop(1, 'rgba(120,200,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(sx, sy + bob, 36, 0, Math.PI * 2); ctx.fill();
+  // coiled hose reel + nozzle
+  ctx.lineWidth = 5; ctx.strokeStyle = '#4aa3ff';
+  ctx.beginPath(); ctx.arc(sx, sy + bob, 12, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 3; ctx.strokeStyle = '#bfe8ff';
+  ctx.beginPath(); ctx.arc(sx, sy + bob, 6, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#9aa6b8'; ctx.fillRect(sx + 10, sy + bob - 4, 14, 7);
+  ctx.fillStyle = '#e94560'; ctx.fillRect(sx + 22, sy + bob - 5, 4, 9);
+  ctx.font = '7px "Press Start 2P"'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#bfe8ff'; ctx.fillText('HOSE', sx, sy + bob - 26);
+  ctx.restore();
+}
+
+// Bluish cone with a gradient (bright at the nozzle) and flowing bands +
+// dashed streaks moving outward, so it reads as moving water.
+function drawHoseBeam() {
+  if (hoseBeam.alpha <= 0.01) return;
+  const now = performance.now();
+  const sx = wx(hoseBeam.x), sy = wy(hoseBeam.y);
+  const half = (HOSE_CONE_DEG * Math.PI / 180) / 2, R = HOSE_RANGE, a = hoseBeam.angle;
+  ctx.save();
+  ctx.globalAlpha = hoseBeam.alpha;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.arc(sx, sy, R, a - half, a + half);
+  ctx.closePath();
+  const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, R);
+  grad.addColorStop(0,   `rgba(170,225,255,${HOSE_BEAM_ALPHA_NEAR})`);
+  grad.addColorStop(0.5, `rgba(120,195,255,${(HOSE_BEAM_ALPHA_NEAR * 0.42).toFixed(3)})`);
+  grad.addColorStop(1,   'rgba(90,170,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.clip();
+
+  // flowing bands (arcs sliding outward)
+  ctx.lineCap = 'butt';
+  const flow = (now * HOSE_FLOW_SPEED) % HOSE_BAND_SPACING;
+  for (let r = flow; r < R; r += HOSE_BAND_SPACING) {
+    const k = 1 - r / R;
+    ctx.strokeStyle = `rgba(210,240,255,${(0.20 * k).toFixed(3)})`;
+    ctx.lineWidth = 2 + 4 * k;
+    ctx.beginPath(); ctx.arc(sx, sy, r, a - half, a + half); ctx.stroke();
+  }
+  // dashed streaks racing along the beam
+  ctx.setLineDash([16, 30]);
+  ctx.lineDashOffset = -(now * 0.5);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(235,248,255,0.22)';
+  for (let i = -2; i <= 2; i++) {
+    const ra = a + i * (half / 2.4) + Math.sin(now / 160 + i) * 0.02;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + Math.cos(ra) * R, sy + Math.sin(ra) * R); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // Hitstop / screen shake / vibrate on a killing blow.
@@ -1517,11 +1832,28 @@ function fireWeapon(w) {
     if (diff > Math.PI) diff = 2 * Math.PI - diff;
     if (diff <= halfCone) hits.push({ z, dist });
   }
+  // The secret hydrant is a (very tough) target: it competes with zombies
+  // for "nearest" like any other, and the shotgun's falloff applies to it.
+  if (secretHydrant && !secretBroken) {
+    const c = secretHydrant.collision;
+    const hdx = c.x + c.w / 2 - originX, hdy = c.y + c.h / 2 - originY;
+    const hd = Math.hypot(hdx, hdy);
+    if (hd >= 1 && hd <= w.range) {
+      let diff = Math.abs(Math.atan2(hdy, hdx) - angle);
+      if (diff > Math.PI) diff = 2 * Math.PI - diff;
+      if (diff <= halfCone + Math.atan2(SECRET_HIT_RADIUS, hd)) hits.push({ hydrant: true, dist: hd });
+    }
+  }
   hits.sort((a, b) => a.dist - b.dist);
 
   if (hits.length) {
     if (w.multiHit) {
       for (const h of hits) {
+        if (h.hydrant) {
+          const hm = w.distFalloffMin != null ? 1 + (w.distFalloffMin - 1) * Math.min(1, h.dist / w.range) : 1;
+          damageSecretHydrant(w.damage * hm);
+          continue;
+        }
         // Distance falloff (shotgun): closer zombies take more damage and
         // knockback — lerp(1.0, distFalloffMin, dist / range).
         const mult = w.distFalloffMin != null
@@ -1535,6 +1867,8 @@ function fireWeapon(w) {
           applyZombieKnockback(h.z, originX, originY, (w.knockback[h.z.tier] || 0) * mult, w.knockbackStack);
         }
       }
+    } else if (hits[0].hydrant) {
+      damageSecretHydrant(w.damage);
     } else {
       const target = hits[0].z;
       damageZombie(target, w.damage,
@@ -1574,7 +1908,7 @@ function fireWeapon(w) {
     // Single-target hit: the tracer ends inside this zombie's body and is
     // depth-sorted just behind it (see render()). Kept by reference so the
     // line follows the zombie for the ~100ms it's visible.
-    target: (hits.length && !w.multiHit) ? hits[0].z : null,
+    target: (hits.length && !w.multiHit && hits[0].z) ? hits[0].z : null,
     // Facing at the moment of firing — not re-checked later, since the
     // player could turn while the tracer is still fading — used in
     // render() to draw this behind the player when they were facing away.
@@ -1737,6 +2071,8 @@ bgImg.onload = () => {
   );
 
   vendingObj = sceneObjects.find(o => o.vending) || null;
+  secretHydrant = sceneObjects.find(o => o.id === 'hydrant_2') || null;
+  if (secretHydrant) { secretHydrant.secret = true; secretHydrant.groundX = 2453; secretHydrant.groundY = 1231; }
 
   console.log(`[ZOMBIE STREET] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH}`);
 
@@ -2035,7 +2371,9 @@ function update(dt = 1) {
 
   // Firing happens after the zombie-update pass above (a kill splices
   // `zombies` — safe here since that loop has already finished).
-  if (fireHeld && !vendBuy) tryFire(performance.now());
+  checkHosePickup();
+  updateHose(dt, performance.now());
+  if (fireHeld && !vendBuy && currentWeapon !== 'hose') tryFire(performance.now());
   pruneEffects();
 }
 
@@ -2083,13 +2421,15 @@ _flashCanvas.width  = PW;
 _flashCanvas.height = PH;
 const _flashCtx = _flashCanvas.getContext('2d');
 
-function drawFlashTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh) {
+function drawFlashTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh, color) {
+  if (_flashCanvas.width < dw)  _flashCanvas.width  = dw;   // props can be bigger than a character frame
+  if (_flashCanvas.height < dh) _flashCanvas.height = dh;
   _flashCtx.clearRect(0, 0, dw, dh);
   _flashCtx.imageSmoothingEnabled = false;
   _flashCtx.globalCompositeOperation = 'source-over';
   _flashCtx.drawImage(srcImg, sx0, sy0, sw, sh, 0, 0, dw, dh);
   _flashCtx.globalCompositeOperation = 'source-atop';
-  _flashCtx.fillStyle = HIT_FX.flashColor;
+  _flashCtx.fillStyle = color || HIT_FX.flashColor;
   _flashCtx.fillRect(0, 0, dw, dh);
   _flashCtx.globalCompositeOperation = 'source-over';
   ctx.drawImage(_flashCanvas, 0, 0, dw, dh, dx, dy, dw, dh);
@@ -2366,7 +2706,7 @@ function drawBloodParticles() {
   for (const p of bloodParticles) {
     const age = now - p.born;
     const x = p.x0 + p.vx * age;
-    const y = p.y0 + p.vy * age + 0.5 * HIT_FX.particleGravity * age * age;
+    const y = p.y0 + p.vy * age + 0.5 * (p.g != null ? p.g : HIT_FX.particleGravity) * age * age;
     const k = age / p.life;
     ctx.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
     ctx.fillStyle = p.color;
@@ -2446,12 +2786,14 @@ function drawEffects() {
       drawDeathEffect(e, t);
     }
   }
+  if (hoseBeam.facing !== 'up') drawHoseBeam();
   drawBloodParticles();
   drawDamageNumbers();
 }
 
 function drawUpFacingTracers() {
   const now = performance.now();
+  if (hoseBeam.facing === 'up') drawHoseBeam(); // behind the player when aiming up
   for (const e of effects) {
     if (e.facing !== 'up') continue;
     const t = Math.min(1, (now - e.start) / e.duration);
@@ -2684,10 +3026,22 @@ function drawHUD() {
 
   // Bottom-left weapon readout
   ctx.fillStyle = 'rgba(5,5,10,0.55)';
-  ctx.fillRect(0, screenBtm - 20, 140, 20);
+  const _isHose = currentWeapon === 'hose';
+  ctx.fillRect(0, screenBtm - 20, _isHose ? 230 : 140, 20);
   ctx.fillStyle = '#f9c74f';
   ctx.textAlign = 'left';
-  ctx.fillText(`[${WEAPONS[currentWeapon].label}]`, 8, screenBtm - 10);
+  const _wLabel = `[${WEAPONS[currentWeapon].label}]`;
+  ctx.fillText(_wLabel, 8, screenBtm - 10);
+  if (_isHose) {
+    // Water tank bar next to the weapon name (marker at the sputter-recovery level).
+    const bx = 8 + ctx.measureText(_wLabel).width + 8, by = screenBtm - 15, bw = 76, bh = 9;
+    ctx.fillStyle = 'rgba(10,20,40,0.8)'; ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = hose.sputter ? '#5c7a99' : '#4aa3ff';
+    ctx.fillRect(bx, by, Math.round(bw * hose.tank / HOSE_TANK_MAX), bh);
+    ctx.strokeStyle = 'rgba(190,230,255,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    const mxk = Math.round(bx + bw * HOSE_SPUTTER_RECOVER / HOSE_TANK_MAX);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fillRect(mxk, by, 1, bh);
+  }
 
   // Keep the mobile weapon-switch button's label in sync — cheap to just
   // re-set every frame rather than hooking every currentWeapon assignment.
@@ -2702,6 +3056,7 @@ function drawHUD() {
 // ─────────────────────────────────────────────────────────
 function render() {
   updateBuyButton();
+  updateSecretFx(performance.now());
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.imageSmoothingEnabled = false;
 
@@ -2728,8 +3083,9 @@ function render() {
         if (sx + obj.w < 0 || sx > VIEW_W || sy + obj.h < 0 || sy > VIEW_H) return;
         ctx.imageSmoothingEnabled = false;
         if (obj.img && obj.img.complete && obj.img.naturalWidth > 0) {
-          if (obj.tint) drawNightTinted(obj.img, 0, 0, obj.img.naturalWidth, obj.img.naturalHeight, sx, sy, obj.w, obj.h);
-          else          ctx.drawImage(obj.img, sx, sy, obj.w, obj.h);
+          if (obj.tint)        drawNightTinted(obj.img, 0, 0, obj.img.naturalWidth, obj.img.naturalHeight, sx, sy, obj.w, obj.h);
+          else if (obj.secret) drawSecretHydrant(obj, sx, sy);
+          else                 ctx.drawImage(obj.img, sx, sy, obj.w, obj.h);
         } else {
           obj.draw(ctx, sx, sy);
         }
@@ -2737,6 +3093,7 @@ function render() {
     });
   }
   renderList.push({ baseY: playerBaseY(), fn: drawPlayer });
+  if (hosePickup) renderList.push({ baseY: hosePickup.y + 16, fn: drawHosePickup });
   for (const z of zombies) {
     renderList.push({ baseY: zombieBaseY(z), fn: () => drawZombie(z) });
   }
@@ -3051,6 +3408,8 @@ function triggerGameOver() {
   if (gameOver) return;
   gameOver = true;
   vendBuy = null;
+  if (hose.voice) { hose.voice.stop(80); hose.voice = null; }
+  hoseBeam.alpha = 0;
   if (waveStartVoice) { waveStartVoice.stop(); waveStartVoice = null; }
   // NO-HEAL bonus: never bought a potion → +10% on the final score. Applied
   // to `score` BEFORE the overlay shows / submission runs, so FINAL is what
@@ -3084,6 +3443,12 @@ function resetGame() {
   waveScoreEarned = 0; scoreEarnedLastWave = 0;
   potionsBoughtThisRun = 0; totalSpent = 0;
   vendBuy = null; vendLabelErrUntil = 0; floatTexts.length = 0;
+  // secret hydrant + hose: new run → hydrant restored, hose gone, tank full
+  secretHp = SECRET_HP; secretBroken = false; secretLastHit = 0; secretFlashUntil = 0; secretShakeStart = 0;
+  hosePickup = null; hoseObtained = false;
+  hose.tank = HOSE_TANK_MAX; hose.sputter = false; hose.lastSprayAt = -1e9;
+  if (hose.voice) { hose.voice.stop(80); hose.voice = null; }
+  hoseBeam.alpha = 0;
   runBreakdown = { gross: 0, spent: 0, bonus: 0 };
   recalcVendPrice();
 
