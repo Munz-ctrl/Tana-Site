@@ -524,7 +524,19 @@ const SECRET_BAR_FADE_MS   = 300;    // ...then fades out over this
 const SECRET_HIT_RADIUS    = 30;     // px — how "fat" the hydrant is for the aim cone
 const SECRET_PICKUP_OFFSET = { x: 85, y: -12 }; // hose pickup, from the hydrant's ground point
 const SECRET_PICKUP_RADIUS = 46;     // px from the player's feet to grab it
-const SECRET_JET           = { everyMs: 30, speed: [0.22, 0.40], life: [450, 800], gravity: 0.0005, spread: 0.30 };
+// The broken hydrant's water jet. Starts near the BOTTOM of the sprite
+// (originFromBottom px above its ground point) and is a thick column.
+const SECRET_JET           = {
+  everyMs: 20,              // spawn tick
+  perTick: 3,               // particles per tick (≈150/s)
+  speed: [0.28, 0.48],      // px/ms, mostly upward
+  life: [450, 850],
+  gravity: 0.0005,
+  spread: 0.22,             // rad, fan around straight up
+  originFromBottom: 26,     // px above the sprite's bottom edge
+  originJitter: 7,          // px of random sideways offset (column thickness)
+  size: [3, 6],             // px squares (blood/hose particles use 2–4)
+};
 const SECRET_BURST_COUNT   = 50;     // water burst when it breaks
 
 // ─────────────────────────────────────────────────────────
@@ -536,7 +548,7 @@ const HOSE_RANGE           = 650;   // about twice the shotgun's reach
 const HOSE_TICK_MS         = 150;   // damage/push applied every tick while held
 const HOSE_DAMAGE_NEAR     = 2;     // max damage per tick, close range
 const HOSE_DAMAGE_FAR      = 1;     // damage per tick in the far half of the range
-const HOSE_PUSH_NEAR       = 7;     // px per frame push at point-blank
+const HOSE_PUSH_NEAR       = 18;    // px per frame push at point-blank (was 7 — ~2.6x stronger)
 const HOSE_PUSH_MIN_FRAC   = 0.15;  // push at max range = 15% of near push
 const HOSE_TANK_MAX        = 100;
 const HOSE_DRAIN_PER_SEC   = 22;    // ~4.5 s of continuous spray from full
@@ -862,6 +874,9 @@ function loadImg(src) {
 const bgImg = loadImg('assets/plt2.png');
 const hydrantImg = loadImg('assets/firehydrant.png');
 const vendingImg = loadImg('assets/vendingmachine_game.png');
+// Swapped in when the secret hydrant is destroyed (same size as firehydrant.png).
+// If the file is missing, the normal hydrant art stays.
+const brokenHydrantImg = loadImg('assets/brokenhydrant.png');
 
 // Same base (no-weapon) skin sheets as room 1 — the chosen skin index
 // picks which one to draw the player with.
@@ -1413,11 +1428,11 @@ let hoseObtained    = false;  // once per run
 const hose = { tank: HOSE_TANK_MAX, sputter: false, lastSprayAt: -1e9, lastTick: 0, lastSputterFx: 0, voice: null };
 let hoseBeam = { alpha: 0, angle: 0, x: 0, y: 0, facing: 'down' };
 
-function spawnWaterParticle(x, y, ang, speed, life, g) {
+function spawnWaterParticle(x, y, ang, speed, life, g, sizeRange) {
   bloodParticles.push({
     x0: x, y0: y,
     vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
-    size: _ri(HIT_FX.particleSize),
+    size: _ri(sizeRange || HIT_FX.particleSize),
     born: performance.now(), life,
     color: HOSE_WATER_COLORS[Math.floor(Math.random() * HOSE_WATER_COLORS.length)],
     g,
@@ -1425,7 +1440,7 @@ function spawnWaterParticle(x, y, ang, speed, life, g) {
   while (bloodParticles.length > HIT_FX.particleMax) bloodParticles.shift();
 }
 
-function secretTop() { return { x: secretHydrant.x + secretHydrant.w / 2, y: secretHydrant.y + 38 }; }
+function secretTop() { return { x: secretHydrant.x + secretHydrant.w / 2, y: secretHydrant.y + secretHydrant.h - SECRET_JET.originFromBottom }; }
 
 function damageSecretHydrant(dmg) {
   if (!secretHydrant || secretBroken) return;
@@ -1438,10 +1453,11 @@ function damageSecretHydrant(dmg) {
 
 function breakSecretHydrant() {
   secretBroken = true;
+  secretHydrant.collision = null; // a broken hydrant is walk-through (wouldCollide skips null)
   const t = secretTop();
   for (let i = 0; i < SECRET_BURST_COUNT; i++) {
-    spawnWaterParticle(t.x, t.y, -Math.PI / 2 + (Math.random() * 2 - 1) * 1.1,
-      _rr([0.15, 0.50]), _rr([500, 950]), 0.0006);
+    spawnWaterParticle(t.x + (Math.random() * 2 - 1) * SECRET_JET.originJitter, t.y, -Math.PI / 2 + (Math.random() * 2 - 1) * 1.1,
+      _rr([0.15, 0.50]), _rr([500, 950]), 0.0006, SECRET_JET.size);
   }
   TanaAudio.play('zombie_death', { rate: 0.5 });
   addScreenShake(3, 150);
@@ -1454,12 +1470,15 @@ function breakSecretHydrant() {
 function updateSecretFx(now) {
   if (!secretHydrant || !secretBroken) return;
   const t = secretTop();
-  if (wx(t.x) < -60 || wx(t.x) > VIEW_W + 60 || wy(t.y) < -200 || wy(t.y) > VIEW_H + 60) { secretJetClock = now; return; }
+  if (wx(t.x) < -60 || wx(t.x) > VIEW_W + 60 || wy(t.y) < -300 || wy(t.y) > VIEW_H + 60) { secretJetClock = now; return; }
   if (now - secretJetClock > 200) secretJetClock = now;
   while (now - secretJetClock >= SECRET_JET.everyMs) {
     secretJetClock += SECRET_JET.everyMs;
-    spawnWaterParticle(t.x, t.y, -Math.PI / 2 + (Math.random() * 2 - 1) * SECRET_JET.spread,
-      _rr(SECRET_JET.speed), _rr(SECRET_JET.life), SECRET_JET.gravity);
+    for (let i = 0; i < SECRET_JET.perTick; i++) {
+      spawnWaterParticle(t.x + (Math.random() * 2 - 1) * SECRET_JET.originJitter, t.y,
+        -Math.PI / 2 + (Math.random() * 2 - 1) * SECRET_JET.spread,
+        _rr(SECRET_JET.speed), _rr(SECRET_JET.life), SECRET_JET.gravity, SECRET_JET.size);
+    }
   }
 }
 
@@ -1569,6 +1588,10 @@ function drawSecretHydrant(obj, sx, sy) {
     const a = SECRET_SHAKE_PX * (1 - age / SECRET_SHAKE_MS);
     shx = Math.round((Math.random() * 2 - 1) * a);
     shy = Math.round((Math.random() * 2 - 1) * a);
+  }
+  if (secretBroken && brokenHydrantImg.complete && brokenHydrantImg.naturalWidth > 0) {
+    ctx.drawImage(brokenHydrantImg, sx, sy, obj.w, obj.h);
+    return;
   }
   const iw = obj.img.naturalWidth, ih = obj.img.naturalHeight;
   if (now < secretFlashUntil) drawFlashTinted(obj.img, 0, 0, iw, ih, sx + shx, sy + shy, obj.w, obj.h, 'rgba(255,255,255,0.85)');
@@ -2072,7 +2095,7 @@ bgImg.onload = () => {
 
   vendingObj = sceneObjects.find(o => o.vending) || null;
   secretHydrant = sceneObjects.find(o => o.id === 'hydrant_2') || null;
-  if (secretHydrant) { secretHydrant.secret = true; secretHydrant.groundX = 2453; secretHydrant.groundY = 1231; }
+  if (secretHydrant) { secretHydrant.secret = true; secretHydrant.groundX = 2453; secretHydrant.groundY = 1231; secretHydrant.origCollision = secretHydrant.collision; }
 
   console.log(`[ZOMBIE STREET] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH}`);
 
@@ -3445,6 +3468,7 @@ function resetGame() {
   vendBuy = null; vendLabelErrUntil = 0; floatTexts.length = 0;
   // secret hydrant + hose: new run → hydrant restored, hose gone, tank full
   secretHp = SECRET_HP; secretBroken = false; secretLastHit = 0; secretFlashUntil = 0; secretShakeStart = 0;
+  if (secretHydrant) secretHydrant.collision = secretHydrant.origCollision; // solid again
   hosePickup = null; hoseObtained = false;
   hose.tank = HOSE_TANK_MAX; hose.sputter = false; hose.lastSprayAt = -1e9;
   if (hose.voice) { hose.voice.stop(80); hose.voice = null; }
