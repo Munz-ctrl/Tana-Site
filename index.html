@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>TANA.EXE</title>
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="apple-mobile-web-app-title" content="TANA.EXE">
+  <meta name="theme-color" content="#05050a">
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
@@ -184,6 +189,46 @@
     }
     #popup-body   { font-size: 7.5px; color: #b0b8d0; line-height: 2.2; }
 
+    /* Plaque popup image — the old Phase-1 #reveal-img look: pixelated, gold
+       glow. Hidden for every other popup that shares #popup-overlay. */
+    #popup-img {
+      display: none;
+      margin: 0 auto 14px;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      max-width: 220px;
+      max-height: 240px;
+      max-height: min(240px, 38vh);
+      width: auto; height: auto;
+      filter: drop-shadow(0 0 16px rgba(249,199,79,0.55));
+    }
+    /* …and its gold-framed card look (old #reveal-card). */
+    #popup-box.plaque {
+      border-color: #f9c74f;
+      box-shadow: 0 0 50px rgba(249,199,79,0.55), inset 0 0 0 1px #2a1f08;
+    }
+    #popup-box.plaque #popup-title {
+      color: #f9c74f; border-bottom-color: #2a1f08;
+      text-shadow: 0 0 8px rgba(249,199,79,0.45);
+    }
+
+    /* Fallback "OPEN LINK" button: a real <a>, so the tap itself is the user
+       gesture that lets the browser open the link (iOS Safari blocks
+       window.open() that isn't directly inside a click/touchend). */
+    #popup-link {
+      display: none;
+      align-items: center; justify-content: center;
+      margin-top: 16px;
+      min-height: 52px; padding: 14px 18px;
+      border: 2px solid #f9c74f;
+      background: rgba(249,199,79,0.12);
+      color: #f9c74f;
+      font-family: 'Press Start 2P', monospace; font-size: 10px; letter-spacing: 2px;
+      text-decoration: none; text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #popup-link:active { background: rgba(249,199,79,0.32); }
+
     /* email form */
     #email-wrap { margin-top: 14px; }
     .form-input {
@@ -256,8 +301,8 @@
     #tv-frame-wrap {
       width: min(640px, 92%);
       /* cap height so the close button is never pushed off-screen */
-      max-height: calc(100svh - 80px);
-      max-height: calc(100vh - 80px); /* fallback */
+      max-height: calc(100svh - 120px);
+      max-height: calc(100vh - 120px); /* fallback */
       aspect-ratio: 16/9;
       border: 2px solid #4ecca3;
       box-shadow: 0 0 40px rgba(78,204,163,0.35);
@@ -276,6 +321,15 @@
       transition: background 0.1s;
     }
     #tv-close-btn:hover { background: rgba(78,204,163,0.2); }
+
+    /* Fallback if the YouTube embed refuses to load. */
+    #tv-yt-link {
+      font-family: 'Press Start 2P', monospace; font-size: 7px;
+      color: #b0b8d0; text-decoration: underline; letter-spacing: 1px;
+      padding: 8px 12px; min-height: 28px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #tv-yt-link:hover { color: #4ecca3; }
 
     /* ────────────────────────────────────────
        TOUCH CONTROLS  (body-level fixed overlay)
@@ -649,7 +703,9 @@
       <button id="popup-close">✕</button>
       <div id="popup-icon"></div>
       <div id="popup-title"></div>
+      <img id="popup-img" alt="">
       <div id="popup-body"></div>
+      <a id="popup-link" href="#" target="_blank" rel="noopener">OPEN LINK</a>
       <div id="email-wrap" style="display:none">
         <input id="name-input"  class="form-input" type="text"  placeholder="your name" autocomplete="name">
         <input id="email-input" class="form-input" type="email" placeholder="your@email.com " autocomplete="email">
@@ -666,8 +722,10 @@
   <div id="tv-overlay">
     <div id="tv-frame-wrap">
       <iframe id="tv-iframe" src="" allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"
         allow="autoplay; encrypted-media; picture-in-picture"></iframe>
     </div>
+    <a id="tv-yt-link" href="https://www.youtube.com/" target="_blank" rel="noopener">WATCH ON YOUTUBE ↗</a>
     <button id="tv-close-btn">✕  CLOSE</button>
   </div>
 
@@ -1428,7 +1486,21 @@ const emailSubmit  = document.getElementById('email-submit');
 const formError    = document.getElementById('form-error');
 let popupOpen = false;
 
+// Optional popup parts that only some popups use. Every open*() calls
+// resetPopupExtras() first so nothing leaks from one popup into the next.
+const popupBox  = document.getElementById('popup-box');
+const popupImg  = document.getElementById('popup-img');
+const popupLink = document.getElementById('popup-link');
+function resetPopupExtras() {
+  popupImg.style.display = 'none';
+  popupImg.removeAttribute('src');
+  popupLink.style.display = 'none';
+  popupLink.setAttribute('href', '#');
+  popupBox.classList.remove('plaque');
+}
+
 function openEmailPopup() {
+  resetPopupExtras();
   popupIcon.textContent  = '✉';
   popupTitle.textContent = 'STAY IN THE LOOP';
   popupBody.innerHTML    = `
@@ -1504,8 +1576,12 @@ emailSubmit.addEventListener('click', async () => {
     if (APPS_SCRIPT_URL && !APPS_SCRIPT_URL.startsWith('PASTE_')) {
       // No Content-Type header → simple request → no CORS preflight.
       // Apps Script reads the JSON body via e.postData.contents regardless.
+      // mode:'no-cors': Apps Script answers a POST with a redirect that carries
+      // no CORS headers, so a normal fetch REJECTS even though the row was
+      // saved. We don't need to read the response, so don't ask for it.
       await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
+        mode: 'no-cors',
         body: JSON.stringify({ name, email, phone })
       });
     } else {
@@ -1542,10 +1618,12 @@ window.addEventListener('keydown', e => {
 // ─────────────────────────────────────────────────────────
 const tvOverlay = document.getElementById('tv-overlay');
 const tvIframe  = document.getElementById('tv-iframe');
+const tvYtLink  = document.getElementById('tv-yt-link');
 let tvOpen = false;
 
 function openTV(videoId) {
-  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
+  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+  tvYtLink.href = `https://www.youtube.com/watch?v=${videoId}`;
   tvOverlay.classList.add('active');
   tvOpen = true;
   TanaAudio.duckMusic(true);     // fade music out under YouTube
@@ -1571,6 +1649,10 @@ document.getElementById('tv-close-btn').addEventListener('click', closeTV);
 //  dissolves into a growing blocky mosaic before navigating to /zombies.
 // ─────────────────────────────────────────────────────────
 let roomTransitioning = false;
+// Back/forward cache: leaving for Zombie Street freezes this page with
+// roomTransitioning = true and the dissolve canvas still covering the game.
+// Restoring that snapshot would leave every interaction blocked — reload fresh.
+window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
 const transitionCanvas = document.getElementById('transitionCanvas');
 const tCtx             = transitionCanvas.getContext('2d');
 
@@ -1732,12 +1814,19 @@ jZone.addEventListener('touchcancel', jEnd,   { passive:false });
 //  INPUT — interact button
 // ─────────────────────────────────────────────────────────
 const iBtn = document.getElementById('interact-btn');
+// The action runs on touchend, not touchstart: iOS Safari only lets
+// window.open() through when it's inside a "completed" tap (touchend/click).
+// touchstart just shows the pressed state.
 iBtn.addEventListener('touchstart', e => {
-  e.preventDefault(); iBtn.classList.add('pressed'); tryInteract();
+  e.preventDefault(); iBtn.classList.add('pressed');
 }, { passive:false });
 iBtn.addEventListener('touchend', e => {
   e.preventDefault(); iBtn.classList.remove('pressed');
+  // Only a release that's still on the button counts as a tap.
+  const t = e.changedTouches[0], r = iBtn.getBoundingClientRect();
+  if (t && t.clientX >= r.left - 12 && t.clientX <= r.right + 12 && t.clientY >= r.top - 12 && t.clientY <= r.bottom + 12) tryInteract();
 }, { passive:false });
+iBtn.addEventListener('touchcancel', () => iBtn.classList.remove('pressed'));
 
 function tryInteract() {
   if (roomTransitioning) return;
@@ -1748,7 +1837,7 @@ function tryInteract() {
   if (obj.action === 'video')         openTV(obj.videoId);
   if (obj.action === 'email')         openEmailPopup();
   if (obj.action === 'plaque-info')   openPlaqueInfo();
-  if (obj.action === 'external-link') window.open(obj.url, '_blank', 'noopener');
+  if (obj.action === 'external-link') openExternalLink(obj);
   if (obj.action === 'room-exit')     startRoomTransition();
   if (obj.action === 'npc-talk') {
     const phrase = obj.phrases[Math.floor(Math.random() * obj.phrases.length)];
@@ -1805,9 +1894,42 @@ _chatInput.addEventListener('keydown', e => {
 });
 
 // ─────────────────────────────────────────────────────────
+//  EXTERNAL LINKS — window.open(), with a tap-to-open fallback popup
+// ─────────────────────────────────────────────────────────
+// NOTE: no 'noopener' in the features string — with it, window.open()
+// ALWAYS returns null (even on success), which would make a blocked open
+// indistinguishable from a working one. We null the opener by hand instead.
+function openExternalLink(obj) {
+  let w = null;
+  try { w = window.open(obj.url, '_blank'); } catch (_) {}
+  if (w) { try { w.opener = null; } catch (_) {} return; }
+  openLinkPopup(obj); // blocked → show a real <a> the user can tap
+}
+
+function openLinkPopup(obj) {
+  resetPopupExtras();
+  popupIcon.textContent  = '↗';
+  popupTitle.textContent = String(obj.label || 'LINK').toUpperCase();
+  popupBody.textContent  = 'Tap below to open the link.';
+  emailWrap.style.display = 'none';
+  popupLink.setAttribute('href', obj.url);
+  popupLink.style.display = 'flex';
+  popupOverlay.classList.add('active');
+  popupOpen = true;
+  TanaAudio.play('ui_open');
+}
+popupLink.addEventListener('click', () => setTimeout(closePopup, 150)); // the <a> navigates natively
+
+// ─────────────────────────────────────────────────────────
 //  PLAQUE — info popup
 // ─────────────────────────────────────────────────────────
 function openPlaqueInfo() {
+  resetPopupExtras();
+  // Plaque image (restored from the Phase-1 reveal card) between title and text.
+  popupBox.classList.add('plaque');
+  popupImg.src = 'assets/plaq.png';
+  popupImg.alt = 'Gold record plaque';
+  popupImg.style.display = 'block';
   popupIcon.textContent  = '★';
   popupTitle.textContent = 'GOLD RECORD';
   popupBody.innerHTML    = `
