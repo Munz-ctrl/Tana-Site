@@ -823,6 +823,15 @@ function angleToAimDir(ix, iy) {
   return ((idx % 8) + 8) % 8;
 }
 
+// 4-way sprite-row direction for an angle (0 = right, +y down) — the same
+// rule the movement facing uses: horizontal wins ties, so a pure diagonal
+// reads as left/right. The epsilon absorbs cos/sin float noise at 45°.
+function angleToFacing(angle) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  if (Math.abs(c) >= Math.abs(s) - 1e-9) return c > 0 ? 'right' : 'left';
+  return s > 0 ? 'down' : 'up';
+}
+
 // ─────────────────────────────────────────────────────────
 //  CANVAS
 // ─────────────────────────────────────────────────────────
@@ -1068,7 +1077,9 @@ const player = {
   animTick: 0,
   idleFrame: 0,
   idleTick: 0,
-  aimDir: 2, // index into AIM_DIRS — starts facing "down", matches `facing`
+  aimAngle: Math.PI / 2, // radians, 0 = right, +y down (atan2 convention) — the source of truth for aim
+  aimDir: 2,             // index into AIM_DIRS — nearest 8-way to aimAngle, kept in sync for legacy readers
+  aimFacing: 'down',     // sprite row ('up'|'down'|'left'|'right') derived from aimAngle; not drawn from yet
   hp: PLAYER_MAX_HP,
   invulnUntil: 0, // performance.now() timestamp — i-frames until this passes
 };
@@ -1558,11 +1569,10 @@ function updateHose(dt, now) {
   if (hose.sputter && hose.tank > HOSE_SPUTTER_RECOVER) hose.sputter = false;
   const spraying = want && !hose.sputter && hose.tank > 0;
 
-  const dir = AIM_DIRS[player.aimDir];
-  const angle = Math.atan2(dir.dy, dir.dx);
+  const angle = player.aimAngle;
   const half = (HOSE_CONE_DEG * Math.PI / 180) / 2;
-  const vis = TRACER_VISUAL_ORIGIN[player.facing];
-  const mx = player.x + PW * vis.x, my = player.y + PH * vis.y;
+  const muzzle = muzzlePoint();
+  const mx = muzzle.x, my = muzzle.y;
 
   if (spraying) {
     hose.tank -= HOSE_DRAIN_PER_SEC * dtSec;
@@ -1599,7 +1609,7 @@ function updateHose(dt, now) {
   // Beam fade in/out
   const step = dt * 16.667 / HOSE_BEAM_FADE_MS;
   hoseBeam.alpha = Math.max(0, Math.min(1, hoseBeam.alpha + (spraying ? step : -step)));
-  if (spraying) { hoseBeam.angle = angle; hoseBeam.x = mx; hoseBeam.y = my; hoseBeam.facing = player.facing; }
+  if (spraying) { hoseBeam.angle = angle; hoseBeam.x = mx; hoseBeam.y = my; hoseBeam.facing = muzzle.facing; }
 }
 
 // Every zombie in the cone: continuous push every frame (collision-aware, so
@@ -1884,7 +1894,28 @@ function pruneEffects() {
 // direction is derived from this, independent of collision-adjusted
 // actual movement, so aiming still works even when pressed into a wall.
 function updateAim(ix, iy) {
-  if (ix !== 0 || iy !== 0) player.aimDir = angleToAimDir(ix, iy);
+  if (ix === 0 && iy === 0) return;
+  // Snapped to the 8 AIM_DIRS for now (so aim == today's movement-driven
+  // aim); a free-aim source can call setAimAngle() with any angle instead.
+  const dir = AIM_DIRS[angleToAimDir(ix, iy)];
+  setAimAngle(Math.atan2(dir.dy, dir.dx));
+}
+
+// Single writer for the aim fields, so aimAngle / aimDir / aimFacing never drift.
+function setAimAngle(angle) {
+  player.aimAngle  = angle;
+  player.aimDir    = angleToAimDir(Math.cos(angle), Math.sin(angle));
+  player.aimFacing = angleToFacing(angle);
+}
+
+// World-space point the gun fires from (tracer, muzzle flash, hose nozzle),
+// plus the facing it was looked up with (also used for draw order). Every
+// consumer goes through here — it currently follows the movement facing;
+// switch `facing` to player.aimFacing to key it off the aim instead.
+function muzzlePoint() {
+  const facing = player.facing;
+  const vis = TRACER_VISUAL_ORIGIN[facing];
+  return { x: player.x + PW * vis.x, y: player.y + PH * vis.y, facing };
 }
 
 function tryFire(now) {
@@ -1896,8 +1927,7 @@ function tryFire(now) {
 
 function fireWeapon(w) {
   TanaAudio.play(currentWeapon); // 'pistol' | 'uzi' | 'shotgun' | 'draco' — one per trigger pull
-  const dir = AIM_DIRS[player.aimDir];
-  const angle = Math.atan2(dir.dy, dir.dx);
+  const angle = player.aimAngle;
   const halfCone = (w.coneDeg * Math.PI / 180) / 2;
   const originX = player.x + PW / 2;
   const originY = player.y + FEET_OY + FEET_H / 2;
@@ -1964,15 +1994,15 @@ function fireWeapon(w) {
   // origin is chest-height (visual only), separate from originX/originY
   // above which stay feet-anchored for hit detection.
   const tracerDist = hits.length ? hits[0].dist : w.range;
-  const visOff = TRACER_VISUAL_ORIGIN[player.facing];
+  const muzzle = muzzlePoint();
 
   // Weight (visual only): muzzle flash sprite at the tracer origin, recoil
   // nudge of the player sprite, and a screen kick on the heavy guns.
   addEffect({
     type: 'muzzle',
-    x: player.x + PW * visOff.x, y: player.y + PH * visOff.y, angle,
+    x: muzzle.x, y: muzzle.y, angle,
     big: !!w.multiHit,
-    facing: player.facing,
+    facing: muzzle.facing,
     duration: HIT_FX.muzzleMs,
   });
   lastShot = { angle, at: performance.now() };
@@ -1980,7 +2010,7 @@ function fireWeapon(w) {
   if (shotShake) addScreenShake(shotShake.amp, shotShake.ms);
   addEffect({
     type: 'tracer',
-    x: player.x + PW * visOff.x, y: player.y + PH * visOff.y, angle, dist: tracerDist,
+    x: muzzle.x, y: muzzle.y, angle, dist: tracerDist,
     range: w.range,
     coneDeg: w.coneDeg, // the shotgun's light wedge spans the cone that was actually checked
     multiHit: w.multiHit, // only multi-hit weapons (the shotgun) draw the wedge instead of a line
@@ -1996,7 +2026,7 @@ function fireWeapon(w) {
     // Facing at the moment of firing — not re-checked later, since the
     // player could turn while the tracer is still fading — used in
     // render() to draw this behind the player when they were facing away.
-    facing: player.facing,
+    facing: muzzle.facing,
     duration: TRACER_FX_DURATION,
   });
 }
@@ -3291,13 +3321,12 @@ function render() {
     ctx.fillStyle = '#4ecca3'; ctx.font = '11px monospace'; ctx.textAlign = 'left';
     ctx.fillText(`WORLD ${WORLD_W}x${WORLD_H}  PLAYER (${Math.round(player.x)},${Math.round(player.y)})`, 6, 24);
     ctx.fillText(`WAVE state=${waveState} spawned=${waveSpawnedCount}/${waveTotalCount} zombies=${zombies.length}  [K]=clear wave`, 6, 38);
-    ctx.fillText(`WEAPON=${currentWeapon} aimDir=${player.aimDir} unlocked=[${[...unlockedWeapons].join(',')}]`, 6, 52);
+    ctx.fillText(`WEAPON=${currentWeapon} aimDir=${player.aimDir} aimAngle=${(player.aimAngle * 180 / Math.PI).toFixed(0)}° aimFacing=${player.aimFacing} unlocked=[${[...unlockedWeapons].join(',')}]`, 6, 52);
     ctx.fillText(`HP=${player.hp.toFixed(1)}/${PLAYER_MAX_HP} invuln=${performance.now() < player.invulnUntil} SCORE=${score}  [H]=-25hp`, 6, 66);
 
     // Aim cone — shows the exact hitscan wedge for the current weapon.
     const w = WEAPONS[currentWeapon];
-    const dir = AIM_DIRS[player.aimDir];
-    const aimAngle = Math.atan2(dir.dy, dir.dx);
+    const aimAngle = player.aimAngle;
     const half = (w.coneDeg * Math.PI / 180) / 2;
     const ox = wx(player.x + PW / 2), oy = wy(player.y + FEET_OY + FEET_H / 2);
     ctx.strokeStyle = 'rgba(249,199,79,0.7)'; ctx.lineWidth = 1;
@@ -3567,7 +3596,7 @@ function resetGame() {
   player.hp = PLAYER_MAX_HP;
   player.invulnUntil = 0;
   player.facing = 'down';
-  player.aimDir = 2;
+  setAimAngle(Math.PI / 2);
   player.moving = false;
 
   zombies.length = 0;
