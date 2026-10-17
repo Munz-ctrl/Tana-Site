@@ -197,6 +197,41 @@
       box-shadow: 0 0 22px rgba(233,69,96,0.55);
     }
 
+    /* Right (aim) stick: the fire button is the stick. While held, #aim-ring
+       fades in centred on the button and #aim-knob follows the thumb. The
+       ring's size comes from AIM_JOY_MAX in JS (travel radius + knob radius). */
+    #aim-ring {
+      position: absolute;
+      left: 0; top: 0;                   /* set from JS on touch start */
+      width: 162px; height: 162px;       /* overwritten from AIM_JOY_MAX in JS */
+      border-radius: 50%;
+      background: rgba(233,69,96,0.06);
+      border: 2px solid rgba(233,69,96,0.4);
+      box-shadow: 0 0 18px rgba(233,69,96,0.18);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease-out;
+    }
+    #aim-ring.active { opacity: 1; transition: opacity 0.08s linear; }
+    #aim-knob {
+      position: absolute;
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #e94560, #5c1a28);
+      border: 2px solid rgba(233,69,96,0.9);
+      box-shadow: 0 0 14px rgba(233,69,96,0.5);
+      top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      pointer-events: none;
+      transition: transform 0.1s ease-out; /* the spring back on release */
+    }
+    #aim-ring.active #aim-knob { transition: none; }
+
+    /* Desktop mouse aim: small crosshair cursor over the game. */
+    @media (hover: hover) and (pointer: fine) {
+      #gameCanvas { cursor: crosshair; }
+    }
+
     /* weapon-switch button — same bottom-right cluster as fire-btn, sits
        just above it. Tap cycles to the next unlocked weapon; shows its
        short label so the player can see what's equipped without
@@ -381,6 +416,7 @@
   <div id="joystick-zone"></div>
   <div id="joystick-rest"></div>
   <div id="joystick-base"><div id="joystick-knob"></div></div>
+  <div id="aim-ring"><div id="aim-knob"></div></div>
   <div id="buy-btn">BUY</div>
   <div id="weapon-btn">PST</div>
   <div id="fire-btn">⊕</div>
@@ -822,6 +858,37 @@ function angleToAimDir(ix, iy) {
   let idx = Math.round(angle / (Math.PI / 4));
   return ((idx % 8) + 8) % 8;
 }
+
+// ─────────────────────────────────────────────────────────
+//  AIM_STICK — dual-stick / mouse aim tuning. Hand-tune freely.
+// ─────────────────────────────────────────────────────────
+const AIM_DEADZONE          = 0.25;  // fraction of AIM_JOY_MAX before the stick aims
+const AIM_JOY_MAX           = 55;    // px the right knob can travel
+const FIRE_MOVE_SPEED_MULT  = 0.7;   // movement speed while firing
+const AIM_RELEASE_HOLD_MS   = 350;   // after releasing fire, aim stays put this long
+const AIM_EASE_BACK_MS      = 180;   // then rotates back to movement direction over this
+const AIM_LINE_LENGTH       = 140;   // px, faint aim indicator
+const MOUSE_AIM_IDLE_MS     = 2500;  // mouse aim counts as active if moved within this
+
+// Live aim-input state (the constants above are the only tunables).
+const aim = {
+  // right stick (touch)
+  tid: null,            // touch identifier driving the stick, null when idle
+  originX: 0, originY: 0, // client coords where the thumb landed — the stick's zero point
+  stickPast: false,     // thumb is beyond the dead zone
+  stickAngle: 0,        // stick angle (radians), valid while stickPast
+  releaseAt: -1e9,      // performance.now() when the stick was released
+  // mouse (desktop)
+  mouseViewX: 0, mouseViewY: 0, // cursor in canvas view coords (VIEW_W × VIEW_H space)
+  mouseOver: false,     // cursor is inside the canvas rect
+  mouseMoveAt: -1e9,    // last time the cursor moved over the canvas
+  mouseDown: false,     // left button held (keeps mouse aim alive while shooting)
+  lastTouchAt: -1e9,    // ignore the compatibility mouse events a touch generates
+  // derived each update()
+  active: false,        // aiming override in effect (stick / mouse / release window)
+  mode: null,           // 'stick' | 'mouse' | 'release' | null
+  wasActive: false,
+};
 
 // 4-way sprite-row direction for an angle (0 = right, +y down) — the same
 // rule the movement facing uses: horizontal wins ties, so a pure diagonal
@@ -1901,6 +1968,58 @@ function updateAim(ix, iy) {
   setAimAngle(Math.atan2(dir.dy, dir.dx));
 }
 
+function wrapAngle(a) { // → (-π, π]
+  while (a >   Math.PI) a -= Math.PI * 2;
+  while (a <= -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+// Mouse aim is live while the cursor is over the canvas and has moved within
+// MOUSE_AIM_IDLE_MS (or the button is held — shooting keeps it alive).
+function mouseAimActive(now) {
+  return aim.mouseOver && (aim.mouseDown || now - aim.mouseMoveAt < MOUSE_AIM_IDLE_MS);
+}
+
+// Decides where the player is aiming this frame. Priority: right stick held
+// → mouse aim → release hold/ease window → (nothing) old behaviour, aim
+// follows movement snapped to 8 directions. `moving` = movement input present.
+function updateAimControl(ix, iy, moving, now, dtMs) {
+  let mode = null;
+  if (aim.tid !== null) {
+    mode = 'stick';
+    // Inside the dead zone (a tap, or a hold without dragging) aimAngle is
+    // left alone, so fire goes in the current aim direction.
+    if (aim.stickPast) setAimAngle(aim.stickAngle);
+  } else if (mouseAimActive(now)) {
+    mode = 'mouse';
+    const mx = aim.mouseViewX + cam.x, my = aim.mouseViewY + cam.y;
+    const cx = player.x + PW / 2,      cy = player.y + PH / 2;
+    if (mx !== cx || my !== cy) setAimAngle(Math.atan2(my - cy, mx - cx));
+  } else {
+    const since = now - aim.releaseAt;
+    if (since < AIM_RELEASE_HOLD_MS + AIM_EASE_BACK_MS) {
+      mode = 'release';
+      // After the hold, swing (shortest way round) to the snapped movement
+      // direction, arriving exactly as the window closes. Standing still:
+      // the last aim is kept.
+      if (since > AIM_RELEASE_HOLD_MS && moving && (ix !== 0 || iy !== 0)) {
+        const d = AIM_DIRS[angleToAimDir(ix, iy)];
+        const delta = wrapAngle(Math.atan2(d.dy, d.dx) - player.aimAngle);
+        const left = AIM_RELEASE_HOLD_MS + AIM_EASE_BACK_MS - since;
+        setAimAngle(wrapAngle(player.aimAngle + delta * (left <= dtMs ? 1 : dtMs / left)));
+      }
+    }
+  }
+  if (!mode) updateAim(ix, iy);
+
+  const aiming = mode !== null;
+  // Aim override just ended while standing still: adopt the aim facing as the
+  // movement facing so the sprite doesn't snap back to a stale direction.
+  if (aim.wasActive && !aiming && !moving) player.facing = player.aimFacing;
+  aim.wasActive = aim.active = aiming;
+  aim.mode = mode;
+}
+
 // Single writer for the aim fields, so aimAngle / aimDir / aimFacing never drift.
 function setAimAngle(angle) {
   player.aimAngle  = angle;
@@ -1908,12 +2027,19 @@ function setAimAngle(angle) {
   player.aimFacing = angleToFacing(angle);
 }
 
+// Which sprite row / gun pose is on screen: the aim facing while aiming
+// (stick held, release hold/ease window, or mouse aim), else the movement
+// facing. drawPlayer() and muzzlePoint() both use this so shots leave the
+// gun the sprite is pointing.
+function spriteFacing() {
+  return aim.active ? player.aimFacing : player.facing;
+}
+
 // World-space point the gun fires from (tracer, muzzle flash, hose nozzle),
 // plus the facing it was looked up with (also used for draw order). Every
-// consumer goes through here — it currently follows the movement facing;
-// switch `facing` to player.aimFacing to key it off the aim instead.
+// consumer goes through here.
 function muzzlePoint() {
-  const facing = player.facing;
+  const facing = spriteFacing();
   const vis = TRACER_VISUAL_ORIGIN[facing];
   return { x: player.x + PW * vis.x, y: player.y + PH * vis.y, facing };
 }
@@ -2300,19 +2426,96 @@ window.addEventListener('keyup', e => {
 // ─────────────────────────────────────────────────────────
 //  INPUT — fire (desktop: space or left-click; mobile: fire-btn below)
 // ─────────────────────────────────────────────────────────
-canvas.addEventListener('mousedown', e => { if (e.button === 0) fireHeld = true; });
-window.addEventListener('mouseup',   e => { if (e.button === 0) fireHeld = false; });
+// Touches make browsers fire compatibility mouse events (mousemove/down/up)
+// at the tap point; remember recent touches so they don't count as mouse aim.
+const TOUCH_MOUSE_GUARD_MS = 800;
+const noteTouch = () => { aim.lastTouchAt = performance.now(); };
+window.addEventListener('touchstart', noteTouch, { capture: true, passive: true });
+window.addEventListener('touchend',   noteTouch, { capture: true, passive: true });
+const touchRecent = () => performance.now() - aim.lastTouchAt < TOUCH_MOUSE_GUARD_MS;
 
-const fireBtn = document.getElementById('fire-btn');
-fireBtn.addEventListener('touchstart', e => {
-  e.preventDefault(); fireHeld = true; fireBtn.classList.add('pressed');
-}, { passive: false });
-fireBtn.addEventListener('touchend', e => {
-  e.preventDefault(); fireHeld = false; fireBtn.classList.remove('pressed');
-}, { passive: false });
-fireBtn.addEventListener('touchcancel', () => {
-  fireHeld = false; fireBtn.classList.remove('pressed');
+// Cursor → canvas view coords (undoes the canvas CSS scaling; update() adds
+// the camera offset to get world coords).
+function trackMouse(e) {
+  const r = canvas.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  aim.mouseViewX = (e.clientX - r.left) / r.width  * VIEW_W;
+  aim.mouseViewY = (e.clientY - r.top)  / r.height * VIEW_H;
+  aim.mouseOver = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  if (aim.mouseOver) aim.mouseMoveAt = performance.now();
+}
+window.addEventListener('mousemove', e => { if (!touchRecent()) trackMouse(e); });
+document.documentElement.addEventListener('mouseleave', () => { aim.mouseOver = false; });
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0 || touchRecent()) return;
+  trackMouse(e); // aim at the click point even if the mouse hasn't moved
+  aim.mouseDown = true;
+  fireHeld = true;
 });
+window.addEventListener('mouseup', e => {
+  if (e.button !== 0) return;
+  aim.mouseDown = false;
+  if (aim.tid === null) fireHeld = false; // a stray compat mouseup must not cut off the stick's fire
+});
+
+// ── Right stick: #fire-btn is the aim joystick. A touch has to START on the
+//    button; its own touch identifier is tracked so it runs alongside the left
+//    movement stick. The stick's zero point is where the thumb landed (so a
+//    tap off-centre is still "no drag"); the ring/knob are drawn around the
+//    button. Touches that start on the weapon/buy buttons never reach here —
+//    those are different elements — so they stay tappable. ──
+const fireBtn  = document.getElementById('fire-btn');
+const aimRing  = document.getElementById('aim-ring');
+const aimKnob  = document.getElementById('aim-knob');
+{
+  const ringSize = AIM_JOY_MAX * 2 + 52; // travel diameter + knob diameter
+  aimRing.style.width = aimRing.style.height = ringSize + 'px';
+}
+
+function aimStickEnd() {
+  if (aim.tid === null) return;
+  aim.tid = null;
+  aim.stickPast = false;
+  aim.releaseAt = performance.now();
+  fireHeld = false;
+  fireBtn.classList.remove('pressed');
+  aimRing.classList.remove('active');
+  aimKnob.style.transform = 'translate(-50%,-50%)'; // springs back via the CSS transition
+}
+function aimStickMove(t) {
+  let dx = t.clientX - aim.originX, dy = t.clientY - aim.originY;
+  const d = Math.hypot(dx, dy);
+  aim.stickPast = d / AIM_JOY_MAX > AIM_DEADZONE;
+  if (aim.stickPast) aim.stickAngle = Math.atan2(dy, dx);
+  if (d > AIM_JOY_MAX) { dx = dx / d * AIM_JOY_MAX; dy = dy / d * AIM_JOY_MAX; }
+  aimKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
+fireBtn.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (aim.tid !== null) return; // one thumb drives the aim stick
+  const t = e.changedTouches[0];
+  aim.tid = t.identifier;
+  aim.originX = t.clientX; aim.originY = t.clientY;
+  aim.stickPast = false;
+  fireHeld = true;              // fire immediately, in the current aim direction
+  fireBtn.classList.add('pressed');
+  const r = fireBtn.getBoundingClientRect();
+  const half = aimRing.offsetWidth / 2;
+  aimRing.style.left = (r.left + r.width  / 2 - half) + 'px';
+  aimRing.style.top  = (r.top  + r.height / 2 - half) + 'px';
+  aimRing.classList.add('active');
+}, { passive: false });
+fireBtn.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === aim.tid) aimStickMove(t);
+}, { passive: false });
+function aimStickTouchEnd(e) {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === aim.tid) aimStickEnd();
+}
+fireBtn.addEventListener('touchend',    aimStickTouchEnd, { passive: false });
+fireBtn.addEventListener('touchcancel', aimStickTouchEnd, { passive: false });
 
 // ─────────────────────────────────────────────────────────
 //  INPUT — weapon switch (desktop: Q; mobile: weapon-btn tap)
@@ -2484,7 +2687,11 @@ function update(dt = 1) {
   // Frozen at the machine while a purchase is in progress.
   if (vendBuy) { vx = vy = 0; ix = iy = 0; }
 
-  updateAim(ix, iy);
+  // Slower while the trigger is held (keyboard and stick alike); full speed
+  // returns the instant fire is released.
+  if (fireHeld) { vx *= FIRE_MOVE_SPEED_MULT; vy *= FIRE_MOVE_SPEED_MULT; }
+
+  updateAimControl(ix, iy, Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1, performance.now(), dt * 16.667);
 
   if (Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1) {
     const ax = Math.abs(vx), ay = Math.abs(vy);
@@ -2748,7 +2955,7 @@ function drawPlayer() {
     const cols = Math.max(1, Math.floor(_sImg.naturalWidth / FRAME_W));
     const col  = moving ? player.animFrame : (cols >= 3 && player.idleFrame === 1 ? 2 : 0);
     const srcX = col * FRAME_W;
-    const srcY = DIR_ROW[player.facing] * FRAME_H;
+    const srcY = DIR_ROW[spriteFacing()] * FRAME_H;
 
     drawNightTinted(_sImg, srcX, srcY, FRAME_W, FRAME_H, sx, sy, PW, PH);
   } else {
@@ -3219,6 +3426,29 @@ function drawHUD() {
   if (gameStarted) drawWaveBanner();
 }
 
+// Faint dotted line + small reticle from the muzzle along aimAngle. Only while
+// aiming with the right stick or the mouse (not in the release window, not
+// keyboard-only play).
+function drawAimLine() {
+  if (gameOver || tapPromptActive) return;
+  if (aim.mode !== 'stick' && aim.mode !== 'mouse') return;
+  const m = muzzlePoint();
+  const sx = wx(m.x), sy = wy(m.y);
+  const ex = sx + Math.cos(player.aimAngle) * AIM_LINE_LENGTH;
+  const ey = sy + Math.sin(player.aimAngle) * AIM_LINE_LENGTH;
+  ctx.save();
+  ctx.globalAlpha = 0.28;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([1, 9]);
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(ex, ey, 5, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
 // ─────────────────────────────────────────────────────────
 //  MAIN RENDER — Y-sort by baseY, same as room 1
 // ─────────────────────────────────────────────────────────
@@ -3237,6 +3467,8 @@ function render() {
   drawBackground();
   drawVendingGlow();  // ground glow in front of the machine — under every entity
   drawBloodDecals(); // ground splats — under every entity
+
+  drawAimLine(); // faint indicator — under every entity, zombies included
 
   // Tracers fired while facing up are drawn here, before drawPlayer() runs
   // below (via the Y-sorted renderList), so they land behind the player.
@@ -3597,6 +3829,7 @@ function resetGame() {
   player.invulnUntil = 0;
   player.facing = 'down';
   setAimAngle(Math.PI / 2);
+  aim.releaseAt = -1e9; aim.active = aim.wasActive = false; aim.mode = null;
   player.moving = false;
 
   zombies.length = 0;
