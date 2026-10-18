@@ -12,6 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="assets/audio.js"></script>
+  <script src="assets/leaderboard.js"></script>
   <script>
     // If audio.js ever fails to load, every TanaAudio call becomes a harmless no-op.
     window.TanaAudio = window.TanaAudio || new Proxy({}, { get: () => () => null });
@@ -327,30 +328,54 @@
 
     #go-name-static { font-size: 9px; color: #4ecca3; margin-bottom: 12px; }
 
-    #go-submit-btn, #go-playagain-btn {
+    #go-submit-btn, #go-playagain-btn, #go-crib-btn {
       width: 100%;
       font-family: 'Press Start 2P', monospace; font-size: 8px;
       padding: 10px; cursor: pointer;
       background: rgba(78,204,163,0.08); border: 1px solid #4ecca3; color: #4ecca3;
       transition: background 0.1s;
     }
-    #go-submit-btn:hover, #go-playagain-btn:hover { background: rgba(78,204,163,0.22); }
+    #go-submit-btn:hover, #go-playagain-btn:hover, #go-crib-btn:hover { background: rgba(78,204,163,0.22); }
     #go-submit-btn:disabled { opacity: 0.4; cursor: default; }
 
     #go-submit-status { font-size: 7px; color: #f9c74f; margin: 8px 0; min-height: 10px; }
 
-    #go-leaderboard { margin: 16px 0; border-top: 1px solid #2a1420; padding-top: 12px; }
-    #go-leaderboard-title { font-size: 9px; color: #e94560; margin-bottom: 8px; letter-spacing: 1px; }
-    #go-leaderboard-list { list-style: none; font-size: 7.5px; color: #b0b8d0; text-align: left; }
-    #go-leaderboard-list li {
-      display: flex; justify-content: space-between; gap: 8px;
-      padding: 4px 2px; border-bottom: 1px solid #1a1020;
+    /* Placement acknowledgement + contact claim (shown after a successful submit) */
+    #go-result { margin: 4px 0 10px; }
+    .go-ack-big {
+      font-size: 11px; color: #f9c74f; line-height: 1.8; letter-spacing: 1px;
+      text-shadow: 0 0 12px rgba(249,199,79,0.6);
     }
-    #go-leaderboard-list li span:first-child { color: #f9c74f; flex-shrink: 0; }
-    #go-leaderboard-empty { font-size: 7px; color: #4a4a5a; }
+    .go-ack-plain { font-size: 8px; color: #b0b8d0; line-height: 1.8; }
+
+    #go-claim { margin: 12px 0; padding: 12px 10px; border: 1px solid #f9c74f; background: rgba(249,199,79,0.05); }
+    #go-claim-title { font-size: 7px; color: #f9c74f; line-height: 1.8; margin-bottom: 8px; }
+    #go-claim-input {
+      width: 100%;
+      background: #080818; border: 1px solid #4ecca3; color: #4ecca3;
+      font-family: 'Press Start 2P', monospace; font-size: 8px;
+      padding: 9px 10px; outline: none; text-align: center;
+    }
+    #go-claim-input::placeholder { color: #1a3a2a; }
+    #go-claim-error { font-size: 7px; color: #e94560; min-height: 10px; margin: 6px 0 2px; }
+    #go-claim-btns { display: flex; gap: 6px; margin-top: 6px; }
+    #go-claim-btns button {
+      flex: 1; font-family: 'Press Start 2P', monospace; font-size: 8px;
+      padding: 9px; cursor: pointer;
+      background: rgba(78,204,163,0.08); border: 1px solid #4ecca3; color: #4ecca3;
+    }
+    #go-claim-btns button:hover { background: rgba(78,204,163,0.22); }
+    #go-claim-btns button:disabled { opacity: 0.4; cursor: default; }
+    #go-claim-skip { border-color: #4a4a5a !important; color: #6a6a80 !important; background: transparent !important; }
+    #go-claim-ok { font-size: 9px; color: #4ecca3; padding: 6px 0; }
+    #go-claim-fine { font-size: 6px; color: #6a6a80; line-height: 1.8; margin-top: 8px; }
+
+    #go-board { margin: 16px 0; border-top: 1px solid #2a1420; padding-top: 12px; }
+    #go-board-title { font-size: 9px; color: #e94560; margin-bottom: 8px; letter-spacing: 1px; text-align: left; }
 
     #go-playagain-btn { margin-top: 4px; border-color: #e94560; color: #e94560; background: rgba(233,69,96,0.08); }
     #go-playagain-btn:hover { background: rgba(233,69,96,0.22); }
+    #go-crib-btn { margin-top: 8px; }
 
     /* ── TAP TO FIGHT — shown after the intro when audio is still locked ── */
     #tap-prompt {
@@ -448,12 +473,29 @@
     <button id="go-submit-btn">SUBMIT SCORE</button>
     <div id="go-submit-status"></div>
 
-    <div id="go-leaderboard">
-      <div id="go-leaderboard-title">▸ TOP 10</div>
-      <ol id="go-leaderboard-list"></ol>
+    <div id="go-result" style="display:none"></div>
+
+    <div id="go-claim" style="display:none">
+      <div id="go-claim-title">LINK YOUR EMAIL OR PHONE TO CLAIM PRIZES</div>
+      <div id="go-claim-form">
+        <input id="go-claim-input" type="text" inputmode="email" maxlength="80" placeholder="EMAIL OR PHONE" autocomplete="email">
+        <div id="go-claim-error"></div>
+        <div id="go-claim-btns">
+          <button id="go-claim-link" type="button">LINK</button>
+          <button id="go-claim-skip" type="button">SKIP</button>
+        </div>
+      </div>
+      <div id="go-claim-ok" style="display:none">LINKED ✓</div>
+      <div id="go-claim-fine">Winners are verified before prizes are awarded.</div>
+    </div>
+
+    <div id="go-board">
+      <div id="go-board-title">▸ TOP 10</div>
+      <div id="go-board-body"></div>
     </div>
 
     <button id="go-playagain-btn">PLAY AGAIN</button>
+    <button id="go-crib-btn">GO BACK TO THE CRIB</button>
   </div>
 </div>
 
@@ -923,45 +965,13 @@ try {
 } catch (_) {}
 
 // ─────────────────────────────────────────────────────────
-//  SCORING / LEADERBOARD — plain REST insert/select via supabase-js,
-//  same project + anon key room 1 uses for presence, but a completely
-//  separate concern from its realtime broadcast channel: this is a
-//  one-off write to a plain table, not a live channel.
+//  SCORING / LEADERBOARD — all Supabase + Apps Script traffic lives in
+//  assets/leaderboard.js (global TanaBoard). Per-run stats sent with the
+//  score (duration_s / kills / spent) are tracked below.
 // ─────────────────────────────────────────────────────────
-const sb = supabase.createClient(
-  'https://bqhltjtktpaoctymmjrc.supabase.co',
-  'sb_publishable_75Z_fkmYckjBRFmI2jol6A_Czi0estn'
-);
-
-async function submitScore(name, finalScore, waveReached) {
-  try {
-    const { error } = await sb.from('zombie_scores').insert({
-      name: (name || 'ANON').slice(0, 20),
-      score: finalScore,
-      wave: waveReached,
-    });
-    if (error) throw error;
-    return true;
-  } catch (e) {
-    console.error('[ZOMBIE STREET] score submit failed:', e);
-    return false;
-  }
-}
-
-async function fetchLeaderboard() {
-  try {
-    const { data, error } = await sb
-      .from('zombie_scores')
-      .select('name,score,wave')
-      .order('score', { ascending: false })
-      .limit(10);
-    if (error) throw error;
-    return data || [];
-  } catch (e) {
-    console.error('[ZOMBIE STREET] leaderboard fetch failed:', e);
-    return [];
-  }
-}
+let runStartAt = 0; // performance.now() when wave 1 started (set by startWave(1))
+let runKills   = 0; // zombies killed this run (damageZombie's lethal path)
+let runStats   = { duration_s: 0, kills: 0, spent: 0 }; // frozen at game over
 
 // Reserved for a future score-based unlock reward (not scoped yet) — e.g.
 // unlocking a cosmetic or weapon skin once the player crosses some score
@@ -1451,6 +1461,7 @@ function damageZombie(z, dmg, shotAngle, water) {
   const idx = zombies.indexOf(z);
   if (idx === -1) return; // already removed (e.g. a shotgun blast hit it twice)
   zombies.splice(idx, 1);
+  runKills++;
   TanaAudio.play('zombie_death');
   TanaAudio.play('score_tick');
   addScore(SCORE_PER_KILL[z.tier] || 0);
@@ -2261,6 +2272,7 @@ function waveZombieCount(wave) {
 }
 
 function startWave(n) {
+  if (n === 1) runStartAt = performance.now(); // run clock: wave 1 start, after any TAP TO FIGHT wait
   waveNumber       = n;
   waveState        = 'INTRO';
   waveStateSince   = performance.now();
@@ -3698,32 +3710,132 @@ const goNameInput    = document.getElementById('go-name-input');
 const goNameStatic   = document.getElementById('go-name-static');
 const goSubmitBtn    = document.getElementById('go-submit-btn');
 const goSubmitStatus = document.getElementById('go-submit-status');
-const goLeaderList   = document.getElementById('go-leaderboard-list');
+const goBoardBody    = document.getElementById('go-board-body');
+const goResult       = document.getElementById('go-result');
+const goClaim        = document.getElementById('go-claim');
+const goClaimForm    = document.getElementById('go-claim-form');
+const goClaimInput   = document.getElementById('go-claim-input');
+const goClaimError   = document.getElementById('go-claim-error');
+const goClaimLink    = document.getElementById('go-claim-link');
+const goClaimSkip    = document.getElementById('go-claim-skip');
+const goClaimOk      = document.getElementById('go-claim-ok');
 const goPlayAgainBtn = document.getElementById('go-playagain-btn');
+const goCribBtn      = document.getElementById('go-crib-btn');
 
 let goSubmitted = false;
+let goSession   = 0;   // bumped on every overlay open/close so late async results are dropped
+let goShownAt   = 0;   // performance.now() when the overlay opened (for the score_coins timing)
+let goAckTimer  = 0;
+let goLastRun = null; // { rowId, score, name } of the submitted run, for the contact link
 
-async function renderLeaderboard() {
-  goLeaderList.innerHTML = '<li id="go-leaderboard-empty">LOADING...</li>';
-  const rows = await fetchLeaderboard();
-  if (!rows.length) {
-    goLeaderList.innerHTML = '<li id="go-leaderboard-empty">NO SCORES YET</li>';
-    return;
+function renderLeaderboard(opts) {
+  TanaBoard.render(goBoardBody, opts || {});
+}
+
+// Contact check: a plausible email, or a phone of 7–15 digits (spaces, dashes,
+// parentheses and a leading + allowed). Returns the trimmed contact or null.
+function parseContact(raw) {
+  const v = String(raw || '').trim();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return v;
+  if (/^\+?[\d\s\-()]+$/.test(v)) {
+    const digits = v.replace(/\D/g, '').length;
+    if (digits >= 7 && digits <= 15) return v;
   }
-  goLeaderList.innerHTML = rows.map((r, i) =>
-    `<li><span>#${i + 1} ${(r.name || 'ANON').toUpperCase()}</span><span>${r.score} (W${r.wave})</span></li>`
-  ).join('');
+  return null;
+}
+
+function showClaimPrompt() {
+  goClaim.style.display = 'block';
+  goClaimForm.style.display = '';
+  goClaimOk.style.display = 'none';
+  goClaimError.textContent = '';
+  goClaimLink.disabled = goClaimSkip.disabled = false;
+  goClaimInput.value = TanaBoard.getContact(); // prefilled from room 1 / an earlier run
+}
+
+function showPlacement(rankWeek, rankAll) {
+  const topWeek = rankWeek != null && rankWeek <= 10;
+  const topAll  = rankAll  != null && rankAll  <= 10;
+  goResult.textContent = '';
+  const line = (cls, text) => {
+    const d = document.createElement('div'); d.className = cls; d.textContent = text; goResult.appendChild(d);
+  };
+  if (topWeek || topAll) {
+    if (topWeek) line('go-ack-big', `NEW #${rankWeek} THIS WEEK!`);
+    if (topAll)  line('go-ack-big', topWeek ? `#${rankAll} ALL TIME` : `NEW #${rankAll} ALL TIME!`);
+    // score_coins is also the score count-up's sound (1 voice) — wait for it to finish.
+    const wait = Math.max(0, goShownAt + GO_COUNT_DELAY + GO_COUNT_DURATION - performance.now());
+    clearTimeout(goAckTimer);
+    goAckTimer = setTimeout(() => TanaAudio.play('score_coins'), wait);
+    showClaimPrompt();
+  } else if (rankWeek != null || rankAll != null) {
+    const parts = [];
+    if (rankWeek != null) parts.push(`#${rankWeek} THIS WEEK`);
+    if (rankAll  != null) parts.push(`#${rankAll} ALL TIME`);
+    line('go-ack-plain', 'YOU PLACED ' + parts.join(' · '));
+  }
+  goResult.style.display = goResult.childNodes.length ? 'block' : 'none';
 }
 
 async function doSubmit(name) {
   if (goSubmitted) return;
   goSubmitted = true;
+  const session = goSession;
   goSubmitBtn.disabled = true;
   goSubmitStatus.textContent = 'SUBMITTING...';
-  const ok = await submitScore(name, score, waveNumber);
-  goSubmitStatus.textContent = ok ? '✓ SUBMITTED' : 'SUBMIT FAILED — SCORE NOT SAVED';
-  renderLeaderboard();
+  const finalScore = score, finalWave = waveNumber;
+  let rowId;
+  try {
+    rowId = await TanaBoard.submit({
+      name, score: finalScore, wave: finalWave,
+      duration_s: runStats.duration_s, kills: runStats.kills, spent: runStats.spent,
+    });
+  } catch (e) {
+    console.error('[ZOMBIE STREET] score submit failed:', e);
+    if (session !== goSession) return;
+    goSubmitStatus.textContent = 'SUBMIT FAILED — SCORE NOT SAVED';
+    return;
+  }
+  if (session !== goSession) return; // player already hit PLAY AGAIN
+  goSubmitStatus.textContent = '✓ SUBMITTED';
+  goLastRun = { rowId, score: finalScore, name };
+
+  const [rankWeek, rankAll] = await Promise.all([
+    TanaBoard.fetchRank(finalScore, 'weekly'),
+    TanaBoard.fetchRank(finalScore, 'alltime'),
+  ]);
+  if (session !== goSession) return;
+  showPlacement(rankWeek, rankAll);
+  // Open on the tab where the run placed, so its highlighted row is visible.
+  const tab = (rankWeek != null && rankWeek <= 10) || !(rankAll != null && rankAll <= 10) ? 'weekly' : 'alltime';
+  renderLeaderboard({ highlightId: rowId, tab });
 }
+
+goClaimLink.addEventListener('click', async () => {
+  TanaAudio.play('ui_click');
+  const contact = parseContact(goClaimInput.value);
+  if (!contact) {
+    goClaimError.textContent = 'ENTER A VALID EMAIL OR PHONE (7-15 DIGITS)';
+    return;
+  }
+  if (!goLastRun) return;
+  goClaimError.textContent = '';
+  goClaimLink.disabled = goClaimSkip.disabled = true;
+  try {
+    // Apps Script only — never Supabase (the scores table is public).
+    await TanaBoard.linkContact({ ...goLastRun, contact });
+    goClaimForm.style.display = 'none';
+    goClaimOk.style.display = 'block';
+  } catch (e) {
+    console.error('[ZOMBIE STREET] contact link failed:', e);
+    goClaimError.textContent = 'COULD NOT LINK — TRY AGAIN';
+    goClaimLink.disabled = goClaimSkip.disabled = false;
+  }
+});
+goClaimSkip.addEventListener('click', () => {
+  TanaAudio.play('ui_click');
+  goClaim.style.display = 'none';
+});
 
 // Score counts up 0 → final over GO_COUNT_DURATION while score_coins plays,
 // starting GO_COUNT_DELAY after the overlay appears so ui_open / game_over
@@ -3767,7 +3879,13 @@ function showGameOverOverlay() {
   goSubmitted = false;
   goSubmitBtn.disabled = false;
   goSubmitStatus.textContent = '';
-  goLeaderList.innerHTML = '';
+  goSession++;
+  goShownAt = performance.now();
+  clearTimeout(goAckTimer);
+  goLastRun = null;
+  goResult.style.display = 'none'; goResult.textContent = '';
+  goClaim.style.display  = 'none';
+  goBoardBody.textContent = '';
 
   if (hasStoredName) {
     // Already have a name from room 1 — skip straight to submitting.
@@ -3792,6 +3910,8 @@ function showGameOverOverlay() {
 
 function hideGameOverOverlay() {
   cancelGameOverCount();
+  goSession++;               // drop any submit / rank result still in flight
+  clearTimeout(goAckTimer);
   if (!goOverlay.classList.contains('active')) return;
   goOverlay.classList.remove('active');
   TanaAudio.play('ui_close');
@@ -3816,6 +3936,11 @@ function triggerGameOver() {
   const bonus = potionsBoughtThisRun === 0 ? Math.round(score * NO_HEAL_BONUS_FRACTION) : 0;
   runBreakdown = { gross: score + totalSpent, spent: totalSpent, bonus };
   score += bonus;
+  runStats = {
+    duration_s: runStartAt ? Math.max(0, Math.round((performance.now() - runStartAt) / 1000)) : 0,
+    kills: runKills,
+    spent: totalSpent,
+  };
   showGameOverOverlay();   // plays ui_open first
   TanaAudio.play('game_over');
 }
@@ -3841,7 +3966,7 @@ function resetGame() {
   screenShake = { amp: 0, start: 0, ms: 0 };
   score = 0;
   waveScoreEarned = 0; scoreEarnedLastWave = 0;
-  potionsBoughtThisRun = 0; totalSpent = 0;
+  potionsBoughtThisRun = 0; totalSpent = 0; runKills = 0;
   vendBuy = null; vendLabelErrUntil = 0; floatTexts.length = 0;
   // secret hydrant + hose: new run → hydrant restored, hose gone, tank full
   secretHp = SECRET_HP; secretBroken = false; secretLastHit = 0; secretFlashUntil = 0; secretShakeStart = 0;
@@ -3867,6 +3992,14 @@ function resetGame() {
 }
 
 goPlayAgainBtn.addEventListener('click', resetGame);
+
+// Back to room 1. 'tana-return' tells index.html the player is coming back
+// from the street (read on that side in the next step).
+function goToCrib() {
+  try { sessionStorage.setItem('tana-return', '1'); } catch (_) {}
+  location.href = '/';
+}
+goCribBtn.addEventListener('click', () => { TanaAudio.play('ui_click'); goToCrib(); });
 
 // ─────────────────────────────────────────────────────────
 //  GAME LOOP
