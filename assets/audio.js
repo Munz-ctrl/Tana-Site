@@ -29,7 +29,7 @@
     // Falls back to the uzi sound at playbackRate 0.8 while draco.mp3 is missing.
     draco:         { file: 'assets/sfx/draco.mp3',         vol: 1.0,  pitchVar: 0.08, minGap: 0,   maxVoices: 6, fallback: { name: 'uzi', rate: 0.8 } },
     shotgun:       { file: 'assets/sfx/shotgun_new.mp3',       vol: 1.1,  pitchVar: 0.05, minGap: 0,   maxVoices: 3 },
-    weapon_switch: { file: 'assets/sfx/weapon_switch_heavy.mp3', vol: 0.6, pitchVar: 0.03, minGap: 120, maxVoices: 1 },
+    weapon_switch: { file: 'assets/sfx/weapon_switch_new.mp3', vol: 0.6, pitchVar: 0.03, minGap: 120, maxVoices: 1 },
     weapon_unlock: { file: 'assets/sfx/weapon_unlock.mp3', vol: 0.6,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     zombie_hit:    { file: 'assets/sfx/zombie_hit_new_B.mp3',    vol: 0.7,  pitchVar: 0.12, minGap: 40,  maxVoices: 5 },
     zombie_death:  { file: 'assets/sfx/zombie_death.mp3',  vol: 0.5,  pitchVar: 0.10, minGap: 30,  maxVoices: 4 },
