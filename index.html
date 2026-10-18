@@ -212,6 +212,11 @@
       text-shadow: 0 0 8px rgba(249,199,79,0.45);
     }
 
+    /* Scoreboard popup — a little wider; the board itself is TanaBoard.render(). */
+    #popup-box.board { width: min(400px, 92%); border-color: #e94560; box-shadow: 0 0 40px rgba(233,69,96,0.3), 0 0 0 1px #0a0a14; }
+    #popup-box.board #popup-title { color: #e94560; text-shadow: 0 0 8px rgba(233,69,96,0.4); }
+    #popup-board { margin-top: 4px; }
+
     /* Fallback "OPEN LINK" button: a real <a>, so the tap itself is the user
        gesture that lets the browser open the link (iOS Safari blocks
        window.open() that isn't directly inside a click/touchend). */
@@ -705,6 +710,7 @@
       <div id="popup-title"></div>
       <img id="popup-img" alt="">
       <div id="popup-body"></div>
+      <div id="popup-board" style="display:none"></div>
       <a id="popup-link" href="#" target="_blank" rel="noopener">OPEN LINK</a>
       <div id="email-wrap" style="display:none">
         <input id="name-input"  class="form-input" type="text"  placeholder="your name" autocomplete="name">
@@ -769,6 +775,7 @@
 </div>
 
 <script src="assets/audio.js"></script>
+<script src="assets/leaderboard.js"></script>
 <script>
 // If audio.js ever fails to load, every TanaAudio call becomes a harmless no-op.
 window.TanaAudio = window.TanaAudio || new Proxy({}, { get: () => () => null });
@@ -781,6 +788,10 @@ const playerId    = crypto.randomUUID();
 let   playerName  = 'ANON';
 let   playerSkin  = 0;
 let   nameScreenOpen = true;
+// True when we arrived from Zombie Street's GO BACK TO THE CRIB button (see the
+// entry-screen block near the end of this script): the entry screen is skipped
+// and bgImg.onload spawns the player by the street exit instead of the default spot.
+let   returningFromStreet = false;
 const remotePlayers  = new Map();
 
 const ROOM_CAP   = 50;
@@ -948,8 +959,27 @@ bgImg.onload = () => {
   room2ExitObj.interactY = FLOOR_BTM - room2ExitObj.h * 0.2;
   room2ExitObj.promptY   = room2ExitObj.y - 10;
 
+  if (returningFromStreet) spawnAtStreetExit();
+
   console.log(`[TANA.EXE] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH} | Floor: ${FLOOR_TOP}–${FLOOR_BTM}`);
 };
+
+// Player returning from Zombie Street: stand just above the street-exit decal
+// (bottom middle), facing up into the room. If something blocks that exact
+// spot, try nearby ones.
+function spawnAtStreetExit() {
+  const cx = room2ExitObj.x + room2ExitObj.w / 2 - PW / 2;
+  // feet bottom (player.y + PH) sits 8px above the decal's top edge
+  const y0 = room2ExitObj.y - 8 - PH;
+  const tries = [[0, 0], [0, -30], [-70, 0], [70, 0], [-70, -30], [70, -30], [-140, 0], [140, 0]];
+  let spot = { x: cx, y: y0 };
+  for (const [dx, dy] of tries) {
+    if (!wouldCollide(cx + dx, y0 + dy)) { spot = { x: cx + dx, y: y0 + dy }; break; }
+  }
+  player.x = spot.x;
+  player.y = spot.y;
+  player.facing = 'up';
+}
 
 // ─────────────────────────────────────────────────────────
 //  CAMERA
@@ -1181,9 +1211,11 @@ const USB_FRAME_H  = 179;
 
 const usbDropObj = {
   id: 'usb_drop',
-  // Placeholder x/y — fine-tune in-game with the debug overlay (` backtick key).
-  // Sits in the bottom-right, roughly under/near the studio desk.
-  x: 1180, y: 455, w: USB_FRAME_W, h: USB_FRAME_H,
+  // Fine-tune in-game with the debug overlay (` backtick key).
+  // Left side of the room: just left of the floor speaker (speaker_left starts
+  // at x 460) and clear of the bed (ends at x 260). Its old bottom-right spot
+  // now holds the SCOREBOARD.
+  x: 305, y: 455, w: USB_FRAME_W, h: USB_FRAME_H,
   baseY: 620,
   interactY: 640,   // floor level the player stands on to reach it
   promptY: 460,     // world Y where the [E] prompt floats
@@ -1228,6 +1260,68 @@ const usbDropObj = {
 };
 
 sceneObjects.push(usbDropObj);
+
+
+// ─────────────────────────────────────────────────────────
+//  SCOREBOARD — Zombie Street leaderboard prop, in the spot the USB drop used
+//  to occupy (just right of Chris). Height is fixed (SCOREBOARD_H); width
+//  follows assets/scoreboard.png's aspect ratio, centred on SCOREBOARD_CX, so
+//  swapping the art never distorts it. Until the PNG loads (or if it is
+//  missing) a placeholder board is drawn at a 3:4 aspect.
+//  Depth-sorted by baseY like any prop; only a small footprint at its base
+//  blocks the player — tune the red box with the debug overlay (` key).
+// ─────────────────────────────────────────────────────────
+const scoreboardImg = loadImg('assets/scoreboard.png');
+const SCOREBOARD_H      = 140;   // px tall (~ a player)
+const SCOREBOARD_CX     = 1250;  // world x of its centre (the USB drop's old centre)
+const SCOREBOARD_BASE_Y = 620;   // feet line — same depth as the USB drop was
+const SCOREBOARD_FOOT_H = 26;    // collision strip height at its base
+const SCOREBOARD_FOOT_INSET = 0.15; // collision is inset this fraction of w each side
+
+const scoreboardObj = {
+  id: 'scoreboard',
+  x: 0, y: 0, w: 105, h: SCOREBOARD_H,   // x/y/w set by layoutScoreboard()
+  baseY: SCOREBOARD_BASE_Y,
+  interactY: SCOREBOARD_BASE_Y + 20,     // floor level the player stands on
+  promptY: 0,                            // set by layoutScoreboard()
+  collision: { x: 0, y: SCOREBOARD_BASE_Y - SCOREBOARD_FOOT_H, w: 0, h: SCOREBOARD_FOOT_H },
+  interactable: true,
+  action: 'scoreboard',
+  label: 'SCOREBOARD',
+  img: scoreboardImg,
+  // Placeholder, used only while the PNG is missing/unloaded.
+  draw(ctx, sx, sy) {
+    const w = this.w, h = this.h;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#14101c'; ctx.fillRect(sx, sy, w, h - 14);
+    ctx.strokeStyle = '#f9c74f'; ctx.lineWidth = 3; ctx.strokeRect(sx + 1.5, sy + 1.5, w - 3, h - 17);
+    ctx.fillStyle = '#e94560'; ctx.font = '8px "Press Start 2P"';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('TOP 10', sx + w / 2, sy + 16);
+    ctx.fillStyle = '#4ecca3';
+    for (let i = 0; i < 6; i++) ctx.fillRect(sx + 12, sy + 32 + i * 13, w - 24, 5);
+    ctx.fillStyle = '#3a3048'; ctx.fillRect(sx + w / 2 - 4, sy + h - 14, 8, 14); // post
+  },
+};
+
+function layoutScoreboard() {
+  const ratio = (scoreboardImg.complete && scoreboardImg.naturalWidth > 0)
+    ? scoreboardImg.naturalWidth / scoreboardImg.naturalHeight
+    : 0.75;
+  const o = scoreboardObj;
+  o.h = SCOREBOARD_H;
+  o.w = Math.round(o.h * ratio);
+  o.x = Math.round(SCOREBOARD_CX - o.w / 2);
+  o.y = SCOREBOARD_BASE_Y - o.h;
+  o.promptY = o.y + 5;
+  const inset = Math.round(o.w * SCOREBOARD_FOOT_INSET);
+  o.collision.x = o.x + inset;
+  o.collision.w = o.w - inset * 2;
+}
+scoreboardImg.addEventListener('load', layoutScoreboard);
+layoutScoreboard();
+
+sceneObjects.push(scoreboardObj);
 
 
 // ─────────────────────────────────────────────────────────
@@ -1491,12 +1585,15 @@ let popupOpen = false;
 const popupBox  = document.getElementById('popup-box');
 const popupImg  = document.getElementById('popup-img');
 const popupLink = document.getElementById('popup-link');
+const popupBoard = document.getElementById('popup-board');
 function resetPopupExtras() {
   popupImg.style.display = 'none';
   popupImg.removeAttribute('src');
   popupLink.style.display = 'none';
   popupLink.setAttribute('href', '#');
-  popupBox.classList.remove('plaque');
+  popupBox.classList.remove('plaque', 'board');
+  popupBoard.style.display = 'none';
+  popupBoard.textContent = '';
 }
 
 function openEmailPopup() {
@@ -1587,6 +1684,11 @@ emailSubmit.addEventListener('click', async () => {
     } else {
       console.log('[TANA.EXE] (no APPS_SCRIPT_URL set) Captured:', { name, email, phone });
     }
+
+    // Remember the contact (email, else phone) locally so Zombie Street's
+    // game-over "claim prizes" prompt can prefill it. localStorage only —
+    // never sent anywhere but the Apps Script call above.
+    try { localStorage.setItem('tana-contact', email || phone); } catch (_) {}
 
     nameInput.style.display    = 'none';
     emailInput.style.display   = 'none';
@@ -1837,6 +1939,7 @@ function tryInteract() {
   if (obj.action === 'video')         openTV(obj.videoId);
   if (obj.action === 'email')         openEmailPopup();
   if (obj.action === 'plaque-info')   openPlaqueInfo();
+  if (obj.action === 'scoreboard')    openScoreboard();
   if (obj.action === 'external-link') openExternalLink(obj);
   if (obj.action === 'room-exit')     startRoomTransition();
   if (obj.action === 'npc-talk') {
@@ -1937,6 +2040,29 @@ function openPlaqueInfo() {
     A gold record. The real deal.
   `;
   emailWrap.style.display = 'none';
+  popupOverlay.classList.add('active');
+  popupOpen = true;
+  TanaAudio.play('ui_open');
+}
+
+// ─────────────────────────────────────────────────────────
+//  SCOREBOARD — Zombie Street leaderboard popup (assets/leaderboard.js).
+//  Same board as the game-over screen: WEEKLY | ALL TIME, the player's own
+//  rows highlighted, and their best placed on an 11th row if outside the top 10.
+// ─────────────────────────────────────────────────────────
+function openScoreboard() {
+  resetPopupExtras();
+  popupBox.classList.add('board');
+  popupIcon.textContent  = '♛';
+  popupTitle.textContent = 'ZOMBIE STREET';
+  emailWrap.style.display = 'none';
+  if (window.TanaBoard) {
+    popupBody.textContent = '';
+    popupBoard.style.display = 'block';
+    TanaBoard.render(popupBoard, {});
+  } else {
+    popupBody.textContent = 'SCOREBOARD OFFLINE';
+  }
   popupOverlay.classList.add('active');
   popupOpen = true;
   TanaAudio.play('ui_open');
@@ -2653,6 +2779,33 @@ setTimeout(resizeGame, 100);
 
   confirmBtn.addEventListener('click', confirm);
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') confirm(); });
+
+  // ── Returning from Zombie Street (its GO BACK TO THE CRIB button sets
+  //    sessionStorage 'tana-return' = '1' and navigates here). If the player's
+  //    name + skin are still in localStorage, skip this screen and take the
+  //    exact path confirm() takes — so the bouncer / room-cap logic still runs
+  //    inside initMultiplayer(). Anything missing → normal entry screen.
+  //    The flag is consumed either way, so a plain reload shows the entry screen. ──
+  let retName = null, retSkin = NaN, retFlag = null;
+  try {
+    retFlag = sessionStorage.getItem('tana-return');
+    if (retFlag !== null) sessionStorage.removeItem('tana-return');
+    retName = localStorage.getItem('tana-player-name');
+    retSkin = parseInt(localStorage.getItem('tana-player-skin'), 10);
+  } catch (_) {}
+  retName = String(retName || '').trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase();
+  if (retFlag === '1' && retName && retSkin >= 0 && retSkin < skinImgs.length) {
+    playerName  = retName;
+    playerSkin  = retSkin;
+    nameScreenOpen = false;
+    returningFromStreet = true;   // bgImg.onload → spawnAtStreetExit()
+    screen.remove();
+    // Deferred to a microtask: initMultiplayer's surroundings (the game loop's
+    // `let`s further down this script) must have initialised first.
+    Promise.resolve().then(initMultiplayer);
+    return;
+  }
+
   inp.focus();
 })();
 
