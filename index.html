@@ -266,6 +266,7 @@
     }
     /* body has touch-action:none for the game; let taps work in the player */
     #tv-overlay, #tv-overlay * { touch-action: manipulation; }
+    body.modal-open #touch-ui { display: none !important; }
 
     #tv-close-btn {
       font-family: 'Press Start 2P', monospace;
@@ -1503,18 +1504,33 @@ const tvIframe  = document.getElementById('tv-iframe');
 const tvYtLink  = document.getElementById('tv-yt-link');
 let tvOpen = false;
 
+// Mobile fixes for a black YouTube embed:
+//  • Move the overlay to <body> level so it isn't nested inside the fixed,
+//    overflow-hidden game container (and so it stacks above touch controls).
+//  • Show the overlay first, then load the embed on the next frame, so iOS
+//    isn't asked to paint an iframe that was created inside an opacity:0 layer.
+//  • While the TV is open, pause the in-room loop video and stop redrawing the
+//    full-screen canvas, freeing the phone's video decoder and GPU for YouTube.
+document.body.appendChild(tvOverlay);
+
 function openTV(videoId) {
-  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
   tvYtLink.href = `https://www.youtube.com/watch?v=${videoId}`;
   tvOverlay.classList.add('active');
   tvOpen = true;
+  try { tvVideo.pause(); } catch (_) {}
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!tvOpen) return;
+    tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+  }));
   duckBGMForTV();                // fade soundtrack out under YouTube
 }
 
 function closeTV() {
+  if (!tvOpen) return;
   tvIframe.src = '';
   tvOverlay.classList.remove('active');
   tvOpen = false;
+  playTvLoop();                  // resume the in-room TV loop
   unduckBGMFromTV();             // fade soundtrack back in
 }
 
@@ -2793,7 +2809,9 @@ let _lastFrameTime = 0;
   const dt = _lastFrameTime ? Math.min((ts - _lastFrameTime) / 16.667, 3) : 1;
   _lastFrameTime = ts;
   update(dt);
-  render();
+  if (!tvOpen) render();         // canvas is fully covered while the TV popup is open
+  // Hide the joystick / chat / ACT buttons while a popup is open
+  document.body.classList.toggle('modal-open', popupOpen || tvOpen);
   requestAnimationFrame(loop);
 })();
 
