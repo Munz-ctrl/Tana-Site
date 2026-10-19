@@ -246,16 +246,26 @@
     #tv-overlay.active { opacity: 1; pointer-events: all; }
 
     #tv-frame-wrap {
-      width: min(640px, 92%);
-      /* cap height so the close button is never pushed off-screen */
-      max-height: calc(100svh - 80px);
-      max-height: calc(100vh - 80px); /* fallback */
+      /* Size from width only, capped so the 16:9 box plus the link and close
+         button always fit the screen height. iOS Safari collapses an iframe
+         with height:100% inside an aspect-ratio flex item to 0px (which
+         showed as a black box), so the iframe is absolutely positioned. */
+      position: relative;
+      flex: 0 0 auto;
+      width: min(640px, 92vw, calc((100vh - 140px) * 16 / 9));
+      width: min(640px, 92vw, calc((100svh - 140px) * 16 / 9));
       aspect-ratio: 16/9;
       border: 2px solid #4ecca3;
       box-shadow: 0 0 40px rgba(78,204,163,0.35);
       background: #000;
     }
-    #tv-frame-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
+    #tv-frame-wrap iframe {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      border: none; display: block;
+    }
+    /* body has touch-action:none for the game; let taps work in the player */
+    #tv-overlay, #tv-overlay * { touch-action: manipulation; }
 
     #tv-close-btn {
       font-family: 'Press Start 2P', monospace;
