@@ -20,16 +20,25 @@
   <style>
     /* ── Touch-control tuning — tweak these ── */
     :root {
-      --ctrl-bottom: calc(env(safe-area-inset-bottom, 0px) + 70px); /* button cluster + joystick rest spot, from the bottom */
+      --ctrl-bottom-base: calc(env(safe-area-inset-bottom, 0px) + 70px); /* bottom edge of the weapon bar + the left joystick's rest spot, from the bottom */
+      --bar-h:       46px;   /* #weapon-bar height */
+      --bar-gap:     30px;   /* gap between the bar and the aim stick (clears the aim ring's 29px overhang) */
+      --ctrl-bottom: calc(var(--ctrl-bottom-base) + var(--bar-h) + var(--bar-gap)); /* aim stick + BUY button, from the bottom */
+      --bar-w:       236px;  /* #weapon-bar width (shrinks on very narrow screens) */
       --ctrl-side:   16px;   /* inset from the left/right edge (safe-area is added on top) */
       --hud-h:       44px;   /* top strip the floating joystick ignores (HUD + mute button) */
       --joy-zone-w:  45%;    /* touches starting in this left share of the screen drive the joystick */
       --joy-base:    170px;
       --joy-knob:    64px;
       --fire-size:   104px;
-      --weapon-size: 64px;
-      --buy-size:    64px;   /* vending BUY button, left of the fire button */
-      --ctrl-gap:    10px;   /* gap between the weapon and fire buttons */
+      --buy-size:    64px;   /* vending BUY button, left of the aim stick */
+      --ctrl-gap:    32px;   /* gap between the BUY button and the aim stick (clears the aim ring's 29px overhang) */
+    }
+
+    /* Narrow (portrait-width) screens: shrink the left joystick's rest ring so it
+       clears the weapon bar and the BUY button (the game itself is landscape-only). */
+    @media (max-width: 520px) {
+      :root { --joy-base: 118px; }
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -140,7 +149,7 @@
     }
     #joystick-rest {
       position: absolute;
-      bottom: var(--ctrl-bottom);
+      bottom: var(--ctrl-bottom-base);
       left:   calc(env(safe-area-inset-left, 0px) + var(--ctrl-side));
       width: var(--joy-base); height: var(--joy-base);
       visibility: hidden;
@@ -233,33 +242,79 @@
       #gameCanvas { cursor: crosshair; }
     }
 
-    /* weapon-switch button — same bottom-right cluster as fire-btn, sits
-       just above it. Tap cycles to the next unlocked weapon; shows its
-       short label so the player can see what's equipped without
-       checking the HUD. */
-    #weapon-btn {
+    /* Reload progress as an arc around the aim stick's outline (set from JS). */
+    #aim-progress {
       position: absolute;
-      bottom: calc(var(--ctrl-bottom) + var(--fire-size) + var(--ctrl-gap));
-      right:  calc(env(safe-area-inset-right, 0px) + var(--ctrl-side) + (var(--fire-size) - var(--weapon-size)) / 2);
-      width: var(--weapon-size); height: var(--weapon-size);
-      border-radius: 50%;
-      background: rgba(249,199,79,0.09);
+      bottom: var(--ctrl-bottom);
+      right:  calc(env(safe-area-inset-right, 0px) + var(--ctrl-side));
+      width: var(--fire-size); height: var(--fire-size);
+      pointer-events: none;
+      opacity: 0; transition: opacity 0.12s linear;
+      transform: rotate(-90deg);          /* arc starts at 12 o'clock */
+    }
+    #aim-progress.on { opacity: 1; }
+    #aim-progress circle { fill: none; stroke: #f9c74f; stroke-width: 3.5; stroke-linecap: round;
+      filter: drop-shadow(0 0 3px rgba(249,199,79,0.6)); }
+
+    /* ── WEAPON BAR — one dark translucent pill under the aim stick, three touch
+       targets:  [⇄ SHORTNAME] │ [ 24 / 32 + fill meter ] │ [↻].
+       Left = switch weapon, middle = ammo readout (or WATER for the hose),
+       right = manual reload. The bottom edge fills as the reload progress line. ── */
+    #weapon-bar {
+      position: absolute;
+      bottom: var(--ctrl-bottom-base);
+      right:  calc(env(safe-area-inset-right, 0px) + var(--ctrl-side));
+      width: min(var(--bar-w), calc(100vw - 2 * var(--ctrl-side)));
+      height: var(--bar-h);
+      display: flex; align-items: stretch;
+      border-radius: calc(var(--bar-h) / 2);
+      background: rgba(8,8,20,0.72);
       border: 2px solid rgba(249,199,79,0.5);
-      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 14px rgba(249,199,79,0.12);
+      overflow: hidden;                   /* clips the progress line to the pill's curve */
       pointer-events: all; touch-action: none;
+      font-family: 'Press Start 2P', monospace;
+      color: #f9c74f;
+    }
+    .wb-sec {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 44px;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
-      transition: background 0.08s, box-shadow 0.08s;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 10px; color: #f9c74f;
-      text-align: center;
+      touch-action: none;
+      transition: background 0.08s;
+      position: relative;
     }
-    #weapon-btn.pressed {
-      background: rgba(249,199,79,0.32);
-      box-shadow: 0 0 22px rgba(249,199,79,0.55);
-    }
+    .wb-sec.pressed { background: rgba(249,199,79,0.22); }
+    .wb-div { width: 1px; align-self: stretch; margin: 8px 0; background: rgba(249,199,79,0.28); flex: none; }
+    #wb-switch { flex: 0 0 78px; gap: 5px; padding-left: 8px; }
+    #wb-switch svg { width: 13px; height: 13px; flex: none; }
+    #wb-name { font-size: 9px; letter-spacing: 0; white-space: nowrap; }
+    #wb-ammo { flex: 1 1 auto; flex-direction: column; gap: 4px; cursor: default; min-width: 0; padding: 0 6px; }
+    #wb-count { line-height: 1; white-space: nowrap; height: 14px; display: flex; align-items: baseline; justify-content: center; }
+    #wb-cur { font-size: 13px; font-weight: normal; }
+    #wb-max { font-size: 8px; color: rgba(249,199,79,0.55); margin-left: 4px; }
+    #wb-meter { width: 72px; max-width: 100%; height: 3px; background: rgba(249,199,79,0.18); }
+    #wb-meter i { display: block; height: 100%; width: 0; background: #f9c74f; }
+    #wb-ammo.low  #wb-cur, #wb-ammo.low  #wb-max { color: #ff4d5e; animation: wbPulse 0.7s ease-in-out infinite; }
+    #wb-ammo.low  #wb-meter i { background: #ff4d5e; }
+    #wb-ammo.empty #wb-cur { color: #ff4d5e; font-size: 11px; animation: wbFlash 0.5s steps(1) infinite; }
+    #wb-ammo.busy #wb-cur { color: #b0b8d0; font-size: 8px; }
+    #wb-ammo.water #wb-cur { color: #8fd0ff; font-size: 11px; }
+    #wb-ammo.water #wb-meter { background: rgba(74,163,255,0.2); }
+    #wb-ammo.water #wb-meter i { background: #4aa3ff; }
+    #wb-ammo.water.sputter #wb-meter i { background: #5c7a99; }
+    #wb-reload { flex: 0 0 56px; }
+    #wb-reload svg { width: 18px; height: 18px; }
+    #wb-reload.off { opacity: 0.32; cursor: default; }
+    #weapon-bar.reloading #wb-reload svg { animation: wbSpin 0.8s linear infinite; }
+    #wb-progress { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: #f9c74f; pointer-events: none; opacity: 0; }
+    #weapon-bar.reloading #wb-progress { opacity: 1; }
+    @keyframes wbPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @keyframes wbFlash { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+    @keyframes wbSpin  { to { transform: rotate(360deg); } }
 
-    /* vending BUY button — same look as weapon-btn, sits just left of fire.
+    /* vending BUY button — same look as the old weapon button, sits just left of the aim stick.
        Only displayed while the player is within VEND_RANGE of the machine. */
     #buy-btn {
       position: absolute;
@@ -443,8 +498,26 @@
   <div id="joystick-base"><div id="joystick-knob"></div></div>
   <div id="aim-ring"><div id="aim-knob"></div></div>
   <div id="buy-btn">BUY</div>
-  <div id="weapon-btn">PST</div>
   <div id="fire-btn">⊕</div>
+  <svg id="aim-progress" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="100" stroke-dasharray="0 100"/></svg>
+  <!-- Weapon bar: after the joystick zone in the DOM (so it sits above it, even where the zone's
+       left 45% reaches under it on narrow screens); never overlaps the aim stick above it. -->
+  <div id="weapon-bar">
+    <div id="wb-switch" class="wb-sec">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M2 5h11M10 2l3 3-3 3M14 11H3M6 8l-3 3 3 3"/></svg>
+      <span id="wb-name">PST</span>
+    </div>
+    <div class="wb-div"></div>
+    <div id="wb-ammo" class="wb-sec">
+      <div id="wb-count"><b id="wb-cur">12</b><span id="wb-max">/ 12</span></div>
+      <div id="wb-meter"><i></i></div>
+    </div>
+    <div class="wb-div"></div>
+    <div id="wb-reload" class="wb-sec">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"><path d="M16 10a6 6 0 1 1-2-4.5M16 3v4h-4"/></svg>
+    </div>
+    <div id="wb-progress"></div>
+  </div>
 </div>
 
 <button id="mute-toggle" type="button" aria-label="Mute all sound" title="Mute all sound (M)"><span>♪</span></button>
@@ -2126,10 +2199,25 @@ function startReload() {
   return true;
 }
 
-// R key / (later) the on-screen reload button. Only with a non-full mag and no reload running.
+// Can a manual reload start right now? (Drives the weapon bar's ↻ dimming too.)
+function reloadAvailable() {
+  const mg = MAGS[currentWeapon];
+  return !!mg && !reload && ammo[currentWeapon] < mg.size && !gameOver && !tapPromptActive && !vendBuy;
+}
+
+// R key / the weapon bar's ↻ button. Only with a non-full mag and no reload running.
 function manualReload() {
-  if (gameOver || tapPromptActive || vendBuy) return false;
-  return startReload();
+  return reloadAvailable() ? startReload() : false;
+}
+
+// 0..1 progress of the running reload (whole mag, or the current shell for the
+// shotgun); -1 when nothing is reloading.
+function reloadProgress(now) {
+  if (!reload) return -1;
+  const mg = MAGS[reload.weapon];
+  return reload.mode === 'mag'
+    ? Math.min(1, (now - reload.start) / mg.reloadMs)
+    : Math.min(1, (now - reload.shellStart) / mg.shellMs);
 }
 
 function updateReload(now) {
@@ -2275,9 +2363,7 @@ function drawEjecta(landedPass) {
 function drawReloadRing() {
   if (!reload || gameOver) return;
   const now = performance.now(), mg = MAGS[reload.weapon], R = RELOAD_RING;
-  const k = reload.mode === 'mag'
-    ? Math.min(1, (now - reload.start) / mg.reloadMs)
-    : Math.min(1, (now - reload.shellStart) / mg.shellMs);
+  const k = reloadProgress(now);
   const cx = wx(player.x + PW / 2), cy = wy(player.y) + R.dy + (vendBuy ? R.stackDy : 0);
   ctx.save();
   ctx.lineWidth = R.lineW;
@@ -2416,7 +2502,7 @@ function checkWeaponUnlocks(clearedWave) {
   }
 }
 
-// Manual weapon switch (desktop Q key / mobile weapon-btn) — cycles to the
+// Manual weapon switch (desktop Q key / mobile weapon bar) — cycles to the
 // next weapon in WEAPON_ORDER that's actually unlocked, wrapping back to
 // the first. A no-op with only one weapon unlocked.
 function switchToNextWeapon() {
@@ -2768,22 +2854,79 @@ fireBtn.addEventListener('touchend',    aimStickTouchEnd, { passive: false });
 fireBtn.addEventListener('touchcancel', aimStickTouchEnd, { passive: false });
 
 // ─────────────────────────────────────────────────────────
-//  INPUT — weapon switch (desktop: Q; mobile: weapon-btn tap)
+//  INPUT — mobile WEAPON BAR (desktop: Q switches, R reloads).
+//  Three separate touch targets in #weapon-bar: switch / ammo readout / reload.
+//  None of them is the aim stick (that listens on #fire-btn only), so a thumb
+//  on the bar never starts it and the stick keeps working while one is down —
+//  each touch has its own identifier.
 // ─────────────────────────────────────────────────────────
-const weaponBtn = document.getElementById('weapon-btn');
-weaponBtn.addEventListener('touchstart', e => {
-  e.preventDefault();
-  weaponBtn.classList.add('pressed');
+const touchUiMQ   = window.matchMedia('(hover: none) and (pointer: coarse)'); // same query that shows #touch-ui
+const weaponBar   = document.getElementById('weapon-bar');
+const wbSwitch    = document.getElementById('wb-switch');
+const wbAmmo      = document.getElementById('wb-ammo');
+const wbReload    = document.getElementById('wb-reload');
+const wbName      = document.getElementById('wb-name');
+const wbCur       = document.getElementById('wb-cur');
+const wbMax       = document.getElementById('wb-max');
+const wbMeterFill = document.querySelector('#wb-meter i');
+const wbProgress  = document.getElementById('wb-progress');
+const aimProgress = document.getElementById('aim-progress');
+const aimProgressArc = aimProgress.querySelector('circle');
+
+// Press-and-release wiring shared by the three sections. `onPress` runs on touchstart
+// (like the old weapon button); the ammo section just swallows its touches.
+function wireBarSection(el, onPress) {
+  el.addEventListener('touchstart', e => {
+    e.preventDefault();
+    el.classList.add('pressed');
+    if (onPress) onPress();
+  }, { passive: false });
+  el.addEventListener('touchend', e => { e.preventDefault(); el.classList.remove('pressed'); }, { passive: false });
+  el.addEventListener('touchcancel', () => el.classList.remove('pressed'));
+}
+wireBarSection(wbSwitch, () => {
   // weapon_switch plays inside switchToNextWeapon(); with only one weapon
   // unlocked it's a no-op, so give the press a plain click instead.
   if (!switchToNextWeapon()) TanaAudio.play('ui_click');
-}, { passive: false });
-weaponBtn.addEventListener('touchend', e => {
-  e.preventDefault(); weaponBtn.classList.remove('pressed');
-}, { passive: false });
-weaponBtn.addEventListener('touchcancel', () => {
-  weaponBtn.classList.remove('pressed');
 });
+wireBarSection(wbReload, () => { manualReload(); }); // inert (and silent) unless a reload is possible
+wireBarSection(wbAmmo, null);
+
+// Re-set from drawHUD() every frame; DOM is only touched when a value changed.
+const _wbCache = {};
+function _wbSet(key, val, apply) { if (_wbCache[key] !== val) { _wbCache[key] = val; apply(val); } }
+
+function updateWeaponBar(now) {
+  const w = WEAPONS[currentWeapon], mg = MAGS[currentWeapon];
+  _wbSet('name', w.short || w.label, v => { wbName.textContent = v; });
+
+  let cur, max = '', frac, cls = '';
+  if (!mg) {                                   // water hose: tank level instead of rounds
+    cur = 'WATER'; frac = hose.tank / HOSE_TANK_MAX; cls = 'water' + (hose.sputter ? ' sputter' : '');
+  } else {
+    const n = ammo[currentWeapon];
+    frac = n / mg.size;
+    if (reload)       { cur = 'RELOADING'; cls = 'busy'; }
+    else if (n <= 0)  { cur = 'RELOAD';    cls = 'empty'; }
+    else              { cur = String(n); max = '/ ' + mg.size; if (frac <= AMMO_LOW_FRAC) cls = 'low'; }
+  }
+  _wbSet('cur', cur, v => { wbCur.textContent = v; });
+  _wbSet('max', max, v => { wbMax.textContent = v; });
+  _wbSet('cls', cls, v => { wbAmmo.className = 'wb-sec ' + v; });
+  const fillPct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
+  _wbSet('fill', fillPct, v => { wbMeterFill.style.width = v + '%'; });
+
+  // Reload button: dim + inert unless a manual reload can start right now.
+  _wbSet('rl', reloadAvailable(), ok => wbReload.classList.toggle('off', !ok));
+
+  // Reload progress: the pill's bottom edge, and an arc round the aim stick.
+  const k = reloadProgress(now);
+  _wbSet('rloading', k >= 0, on => { weaponBar.classList.toggle('reloading', on); aimProgress.classList.toggle('on', on); });
+  if (k >= 0) {
+    wbProgress.style.width = (k * 100).toFixed(1) + '%';
+    aimProgressArc.setAttribute('stroke-dasharray', (k * 100).toFixed(1) + ' 100');
+  }
+}
 
 // ─────────────────────────────────────────────────────────
 //  INPUT — vending BUY button (mobile; desktop uses E). Shown by
@@ -3669,7 +3812,7 @@ function drawHUD() {
     }
   }
   const _labelW = ctx.measureText(_wLabel).width;
-  const _boxW = _isHose ? 230 : Math.max(140, 8 + _labelW + (_ammoTxt ? 8 + ctx.measureText(_ammoTxt).width : 0) + 8);
+  const _boxW = (_isHose && !touchUiMQ.matches) ? 230 : Math.max(140, 8 + _labelW + (_ammoTxt ? 8 + ctx.measureText(_ammoTxt).width : 0) + 8);
   ctx.fillStyle = 'rgba(5,5,10,0.55)';
   ctx.fillRect(0, screenBtm - 20, _boxW, 20);
   ctx.fillStyle = '#f9c74f';
@@ -3681,7 +3824,7 @@ function drawHUD() {
     ctx.fillText(_ammoTxt, 8 + _labelW + 8, screenBtm - 10);
     ctx.globalAlpha = 1;
   }
-  if (_isHose) {
+  if (_isHose && !touchUiMQ.matches) { // on touch devices the tank level lives in the weapon bar instead
     // Water tank bar next to the weapon name (marker at the sputter-recovery level).
     const bx = 8 + ctx.measureText(_wLabel).width + 8, by = screenBtm - 15, bw = 76, bh = 9;
     ctx.fillStyle = 'rgba(10,20,40,0.8)'; ctx.fillRect(bx, by, bw, bh);
@@ -3692,10 +3835,9 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fillRect(mxk, by, 1, bh);
   }
 
-  // Keep the mobile weapon-switch button's label in sync — cheap to just
-  // re-set every frame rather than hooking every currentWeapon assignment.
-  const _wbLabel = WEAPONS[currentWeapon].short || WEAPONS[currentWeapon].label;
-  if (weaponBtn.textContent !== _wbLabel) weaponBtn.textContent = _wbLabel;
+  // Keep the mobile weapon bar in sync — cheap to just re-set every frame
+  // rather than hooking every currentWeapon / ammo change.
+  updateWeaponBar(performance.now());
 
   if (gameStarted) drawWaveBanner();
 }
