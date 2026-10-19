@@ -942,7 +942,7 @@ const sceneObjects = [
     baseY: 200, collision: null,
     interactable: true, action: 'video',
     label: 'PLAY VIDEO',
-    videoId: 'ZjRhoTnFpZE',
+    videoId: 'UQiQ74AbvQ8',
     img: null,
     draw(ctx, sx, sy) {
       if (tvVideo.readyState >= 2) {
@@ -1465,7 +1465,7 @@ const tvIframe  = document.getElementById('tv-iframe');
 let tvOpen = false;
 
 function openTV(videoId) {
-  tvIframe.src = `https://www.youtube.com/watch?v=UQiQ74AbvQ8&list=RDUQiQ74AbvQ8&start_radio=1`;
+  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
   tvOverlay.classList.add('active');
   tvOpen = true;
   duckBGMForTV();                // fade soundtrack out under YouTube
