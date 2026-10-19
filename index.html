@@ -269,6 +269,15 @@
     }
     #tv-close-btn:hover { background: rgba(78,204,163,0.2); }
 
+    /* Fallback if the YouTube embed refuses to load. */
+    #tv-yt-link {
+      font-family: 'Press Start 2P', monospace; font-size: 7px;
+      color: #b0b8d0; text-decoration: underline; letter-spacing: 1px;
+      padding: 8px 12px; min-height: 28px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #tv-yt-link:hover { color: #4ecca3; }
+
     /* ────────────────────────────────────────
        TOUCH CONTROLS  (body-level fixed overlay)
        Sits at viewport edges so controls land in the
@@ -657,8 +666,10 @@
   <div id="tv-overlay">
     <div id="tv-frame-wrap">
       <iframe id="tv-iframe" src="" allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"
         allow="autoplay; encrypted-media; picture-in-picture"></iframe>
     </div>
+    <a id="tv-yt-link" href="https://www.youtube.com/" target="_blank" rel="noopener">WATCH ON YOUTUBE ↗</a>
     <button id="tv-close-btn">✕  CLOSE</button>
   </div>
 
@@ -827,12 +838,29 @@ const trunkImg          = loadImg('assets/livingroom_trunkrecord.webp');
 const carpetImg         = loadImg('assets/carpet.png');
 
 // ── TV loop video — sampled straight onto the canvas by the TV object's draw() ──
+//  Mobile notes: iOS only autoplays a video that is muted + playsinline as
+//  real attributes, and decodes far more reliably when the element is in
+//  the DOM. If autoplay is still refused (e.g. Low Power Mode), we retry
+//  on the player's first tap/key.
 const tvVideo = document.createElement('video');
-tvVideo.src = 'assets/tvloopvidnew.mp4';
-tvVideo.loop = true;
+tvVideo.setAttribute('muted', '');
+tvVideo.setAttribute('playsinline', '');
+tvVideo.setAttribute('webkit-playsinline', '');
+tvVideo.setAttribute('autoplay', '');
+tvVideo.setAttribute('loop', '');
+tvVideo.setAttribute('preload', 'auto');
 tvVideo.muted = true;
+tvVideo.loop = true;
 tvVideo.playsInline = true;
-tvVideo.play();
+tvVideo.src = 'assets/tvloop_web.mp4';
+tvVideo.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:-1;';
+document.body.appendChild(tvVideo);
+function playTvLoop() { const p = tvVideo.play(); if (p && p.catch) p.catch(() => {}); }
+playTvLoop();
+['touchend', 'pointerdown', 'keydown', 'click'].forEach(evt => {
+  window.addEventListener(evt, () => { if (tvVideo.paused) playTvLoop(); }, { capture: true, passive: true });
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && tvVideo.paused) playTvLoop(); });
 
 // Bedroom
 const bedUnpackedImg    = loadImg('assets/bed_unpacked.png');
@@ -1462,10 +1490,12 @@ window.addEventListener('keydown', e => {
 // ─────────────────────────────────────────────────────────
 const tvOverlay = document.getElementById('tv-overlay');
 const tvIframe  = document.getElementById('tv-iframe');
+const tvYtLink  = document.getElementById('tv-yt-link');
 let tvOpen = false;
 
 function openTV(videoId) {
-  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
+  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+  tvYtLink.href = `https://www.youtube.com/watch?v=${videoId}`;
   tvOverlay.classList.add('active');
   tvOpen = true;
   duckBGMForTV();                // fade soundtrack out under YouTube
@@ -1645,12 +1675,18 @@ jZone.addEventListener('touchcancel', jEnd,   { passive:false });
 //  INPUT — interact button
 // ─────────────────────────────────────────────────────────
 const iBtn = document.getElementById('interact-btn');
+// The action runs on touchend, not touchstart: iOS Safari only treats a
+// "completed" tap (touchend/click) as a user gesture for media and links.
 iBtn.addEventListener('touchstart', e => {
-  e.preventDefault(); iBtn.classList.add('pressed'); tryInteract();
+  e.preventDefault(); iBtn.classList.add('pressed');
 }, { passive:false });
 iBtn.addEventListener('touchend', e => {
   e.preventDefault(); iBtn.classList.remove('pressed');
+  // Only a release that's still on the button counts as a tap.
+  const t = e.changedTouches[0], r = iBtn.getBoundingClientRect();
+  if (t && t.clientX >= r.left - 12 && t.clientX <= r.right + 12 && t.clientY >= r.top - 12 && t.clientY <= r.bottom + 12) tryInteract();
 }, { passive:false });
+iBtn.addEventListener('touchcancel', () => iBtn.classList.remove('pressed'));
 
 function tryInteract() {
   if (popupOpen) { closePopup(); return; }
