@@ -828,7 +828,7 @@ const carpetImg         = loadImg('assets/carpet.png');
 
 // ── TV loop video — sampled straight onto the canvas by the TV object's draw() ──
 const tvVideo = document.createElement('video');
-tvVideo.src = 'assets/tvloop.webm';
+tvVideo.src = 'assets/tvloopvidnew.mp4';
 tvVideo.loop = true;
 tvVideo.muted = true;
 tvVideo.playsInline = true;
@@ -1465,7 +1465,7 @@ const tvIframe  = document.getElementById('tv-iframe');
 let tvOpen = false;
 
 function openTV(videoId) {
-  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
+  tvIframe.src = `https://www.youtube.com/watch?v=UQiQ74AbvQ8&list=RDUQiQ74AbvQ8&start_radio=1`;
   tvOverlay.classList.add('active');
   tvOpen = true;
   duckBGMForTV();                // fade soundtrack out under YouTube
