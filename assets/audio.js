@@ -51,7 +51,7 @@
     pistol_mag_out:   { file: 'assets/sfx/pistol_mag_out.mp3',   vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     pistol_mag_in:    { file: 'assets/sfx/draco_mag_in_new.mp3',    vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     uzi_mag_out:      { file: 'assets/sfx/uzi_mag_out.mp3',      vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
-    uzi_mag_in:       { file: 'assets/sfx/uzi_mag_in.mp3',       vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    uzi_mag_in:       { file: 'assets/sfx/draco_mag_in_new.mp3',       vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     draco_mag_out:    { file: 'assets/sfx/draco_mag_out.mp3',    vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     draco_mag_in:     { file: 'assets/sfx/draco_mag_in_new.mp3',     vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     shotgun_shell_in: { file: 'assets/sfx/shotgun_shell_in_new.mp3', vol: 0.6, pitchVar: 0.06, minGap: 0,   maxVoices: 2 },
