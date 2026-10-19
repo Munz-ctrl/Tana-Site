@@ -49,14 +49,14 @@
     // Reloads (zombies.html). *_mag_in is scheduled with play(..., { endIn }) so it
     // finishes exactly when the reload does; shotgun loads shell by shell.
     pistol_mag_out:   { file: 'assets/sfx/pistol_mag_out.mp3',   vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
-    pistol_mag_in:    { file: 'assets/sfx/pistol_mag_in.mp3',    vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    pistol_mag_in:    { file: 'assets/sfx/draco_mag_in_new.mp3',    vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     uzi_mag_out:      { file: 'assets/sfx/uzi_mag_out.mp3',      vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     uzi_mag_in:       { file: 'assets/sfx/uzi_mag_in.mp3',       vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     draco_mag_out:    { file: 'assets/sfx/draco_mag_out.mp3',    vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
-    draco_mag_in:     { file: 'assets/sfx/draco_mag_in.mp3',     vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
-    shotgun_shell_in: { file: 'assets/sfx/shotgun_shell_in.mp3', vol: 0.6, pitchVar: 0.06, minGap: 0,   maxVoices: 2 },
-    shotgun_pump:     { file: 'assets/sfx/shotgun_pump.mp3',     vol: 0.7, pitchVar: 0.02, minGap: 0,   maxVoices: 1 },
-    dry_fire:         { file: 'assets/sfx/dry_fire.mp3',         vol: 0.4, pitchVar: 0.05, minGap: 250, maxVoices: 1 },
+    draco_mag_in:     { file: 'assets/sfx/draco_mag_in_new.mp3',     vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    shotgun_shell_in: { file: 'assets/sfx/shotgun_shell_in_new.mp3', vol: 0.6, pitchVar: 0.06, minGap: 0,   maxVoices: 2 },
+    shotgun_pump:     { file: 'assets/sfx/shotgun_pump_new.mp3',     vol: 0.7, pitchVar: 0.02, minGap: 0,   maxVoices: 1 },
+    dry_fire:         { file: 'assets/sfx/dry_fire_new.mp3',         vol: 0.4, pitchVar: 0.05, minGap: 250, maxVoices: 1 },
   };
   const MUSIC = { room1: null, room2: null };  // placeholders — tracks get re-added later (path string, looped)
   const SFX_VOLUME = 0.8, MUSIC_VOLUME = 0.4;
