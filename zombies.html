@@ -741,6 +741,34 @@ const WEAPON_UNLOCK_WAVE = {
 
 const WEAPON_UNLOCK_NOTICE_DURATION = 2400; // ms the "WEAPON UNLOCKED" banner shows
 
+// ─────────────────────────────────────────────────────────
+//  RELOAD — magazines. Ammo is UNLIMITED in total; only the magazine is
+//  limited. The water hose has no magazine and never reloads. Hand-tune freely.
+//    mode 'mag'   — the whole magazine refills after reloadMs (no firing meanwhile)
+//    mode 'shell' — one shell goes in every shellMs until full; firing with
+//                   1+ shells loaded interrupts the reload
+// ─────────────────────────────────────────────────────────
+const MAGS = {
+  pistol:  { size: 12, mode: 'mag',   reloadMs: 2000 },
+  uzi:     { size: 32, mode: 'mag',   reloadMs: 1500 },
+  draco:   { size: 40, mode: 'mag',   reloadMs: 1500 },
+  shotgun: { size: 12, mode: 'shell', shellMs: 400 },
+};
+const DRY_FIRE_GAP_MS = 250;  // max one 'dry_fire' per this many ms
+const AMMO_LOW_FRAC   = 0.25; // HUD count turns red + pulses at/below this fraction
+// Reload ring above the player's head (same look as the vending ring).
+const RELOAD_RING = { dy: -38, r: 11, lineW: 4, color: '#f9c74f', stackDy: -30 /* extra lift while the vending ring is up */ };
+const SHELL_PIP   = { w: 3, h: 4, gap: 1.5, loaded: '#f9c74f', empty: 'rgba(249,199,79,0.25)' };
+// Ejected junk (visual only). Motion units: px and ms. `drop` = px it falls from the
+// muzzle to the ground; one bounce (bounce × impact speed), then it rests restMs and
+// fades over fadeMs. `max` = alive at once (oldest removed first).
+const MAG_DROP = { w: 6, h: 10, fill: '#3a3f48', edge: '#8a919c',
+  speed: 0.07, kick: 0.12, drop: 20, gravity: 0.0009, bounce: 0.35, spin: 0.012,
+  restMs: 5000, fadeMs: 600, max: 20 };
+const SHELL_CASING = { w: 3, h: 6, body: '#c4302b', brass: '#d4a63a',
+  speed: 0.08, kick: 0.14, drop: 20, gravity: 0.0009, bounce: 0.35, spin: 0.016,
+  restMs: 4000, fadeMs: 600, max: 20 };
+
 // Transient combat FX durations (procedural, no art assets).
 const TRACER_FX_DURATION = 110; // ms a shot's tracer/muzzle-flash is visible
 const DEATH_FX_DURATION  = 420; // ms a zombie's death burst plays
@@ -1631,6 +1659,7 @@ function checkHosePickup() {
   hosePickup = null;
   hoseObtained = true;
   unlockedWeapons.add('hose');
+  cancelReload();          // picking up the hose auto-equips it (no magazine)
   currentWeapon = 'hose';
   lastFireTime = 0;
   hose.tank = HOSE_TANK_MAX; hose.sputter = false;
@@ -2055,11 +2084,216 @@ function muzzlePoint() {
   return { x: player.x + PW * vis.x, y: player.y + PH * vis.y, facing };
 }
 
+// ─────────────────────────────────────────────────────────
+//  RELOAD — state + rules (see the RELOAD constants). One reload at a time,
+//  always for the equipped weapon.
+//  Starts:     auto when a mag hits 0 (tryFire), auto when the trigger is pulled
+//              on an empty weapon with no reload running, manual via R
+//              (manualReload()).
+//  Ends:       completes (updateReload), or is cancelled: weapon switch /
+//              weapon-unlock auto-equip / hose pickup (cancelReload), a shotgun
+//              firing with 1+ shells (interrupt, in tryFire), new run, game over.
+// ─────────────────────────────────────────────────────────
+const ammo = {};      // weapon key → rounds currently in its magazine
+let reload = null;    // null | { weapon, mode, start, end | shellStart, voices[] }
+let shotgunPumpOwed = false; // a from-empty shell reload was interrupted before its pump
+let lastDryFireAt = -1e9;
+
+function refillAmmo(key) { if (MAGS[key]) ammo[key] = MAGS[key].size; }
+function refillAllAmmo() { for (const k in MAGS) refillAmmo(k); shotgunPumpOwed = false; }
+refillAllAmmo();
+
+function cancelReload() {
+  if (!reload) return;
+  for (const v of reload.voices) { try { v && v.stop(); } catch (_) {} }
+  reload = null;
+}
+
+function startReload() {
+  const mg = MAGS[currentWeapon];
+  if (!mg || reload || gameOver || ammo[currentWeapon] >= mg.size) return false;
+  const now = performance.now();
+  if (mg.mode === 'mag') {
+    reload = { weapon: currentWeapon, mode: 'mag', start: now, end: now + mg.reloadMs, voices: [] };
+    reload.voices.push(TanaAudio.play(currentWeapon + '_mag_out'));
+    // mag_in is scheduled to END exactly when the reload completes.
+    reload.voices.push(TanaAudio.play(currentWeapon + '_mag_in', { endIn: mg.reloadMs / 1000 }));
+    spawnEjecta('mag', player.aimAngle, muzzlePoint());
+  } else {
+    if (ammo[currentWeapon] === 0) shotgunPumpOwed = true; // began empty → needs a pump when it finishes (or before the next shot)
+    reload = { weapon: currentWeapon, mode: 'shell', start: now, shellStart: now, voices: [] };
+  }
+  return true;
+}
+
+// R key / (later) the on-screen reload button. Only with a non-full mag and no reload running.
+function manualReload() {
+  if (gameOver || tapPromptActive || vendBuy) return false;
+  return startReload();
+}
+
+function updateReload(now) {
+  if (!reload) return;
+  if (reload.weapon !== currentWeapon) { cancelReload(); return; } // safety net
+  const mg = MAGS[reload.weapon];
+  if (reload.mode === 'mag') {
+    if (now >= reload.end) { ammo[reload.weapon] = mg.size; reload = null; }
+    return;
+  }
+  // shell mode: one shell per shellMs (catch up if a frame was long)
+  while (reload && now - reload.shellStart >= mg.shellMs) {
+    ammo[reload.weapon]++;
+    reload.shellStart += mg.shellMs;
+    TanaAudio.play('shotgun_shell_in');
+    if (ammo[reload.weapon] >= mg.size) {
+      if (shotgunPumpOwed) { TanaAudio.play('shotgun_pump'); shotgunPumpOwed = false; }
+      reload = null;
+    }
+  }
+}
+
+function dryFire(now) {
+  if (now - lastDryFireAt < DRY_FIRE_GAP_MS) return;
+  lastDryFireAt = now;
+  TanaAudio.play('dry_fire');
+}
+
 function tryFire(now) {
   const w = WEAPONS[currentWeapon];
+  const mg = MAGS[currentWeapon];
+  if (mg) {
+    if (reload) {
+      // 'mag' reload in progress, or a shotgun with no shell loaded yet: can't
+      // fire, and a press doesn't interrupt anything. Shotgun with 1+ shells
+      // falls through — firing interrupts its reload (below).
+      if (reload.mode === 'mag' || ammo[currentWeapon] < 1) { dryFire(now); return; }
+    } else if (ammo[currentWeapon] < 1) {
+      // Empty with nothing running (e.g. switched back to an empty gun): click, then reload.
+      dryFire(now);
+      startReload();
+      return;
+    }
+  }
   if (now - lastFireTime < w.fireRate) return;
+  if (mg && reload) cancelReload();        // shotgun: the shell in progress is lost, loaded ones stay
+  if (currentWeapon === 'shotgun' && shotgunPumpOwed) { // interrupted from-empty reload → pump before this first shot
+    TanaAudio.play('shotgun_pump');
+    shotgunPumpOwed = false;
+  }
   lastFireTime = now;
+  if (mg) ammo[currentWeapon]--;
   fireWeapon(w);
+  if (currentWeapon === 'shotgun') spawnEjecta('casing', player.aimAngle, muzzlePoint());
+  if (mg && ammo[currentWeapon] <= 0) startReload(); // auto reload right after the last shot
+}
+
+// ─────────────────────────────────────────────────────────
+//  EJECTA — dropped magazines + shotgun shells (visual only). Closed-form
+//  motion from the spawn time (fall → one bounce → rest → fade), so it needs
+//  no per-frame update and keeps playing through hitstop.
+// ─────────────────────────────────────────────────────────
+const ejecta = []; // { kind, born, x0, y0 (ground y at spawn), vx, vy, h0, vh, g, t1, vb, t2, rot0, spin, cfg }
+
+function spawnEjecta(kind, angle, mz) {
+  const cfg = kind === 'mag' ? MAG_DROP : SHELL_CASING;
+  const fx = Math.cos(angle), fy = Math.sin(angle);
+  const px = -fy, py = fx; // the player's right-hand side (screen coords, y down)
+  let dx = px * 0.8 - fx * 0.4, dy = py * 0.8 - fy * 0.4;
+  const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+  const sp = cfg.speed * (0.8 + Math.random() * 0.4);
+  const vh = cfg.kick  * (0.8 + Math.random() * 0.4);
+  const g = cfg.gravity, h0 = cfg.drop;
+  const t1 = (vh + Math.sqrt(vh * vh + 2 * g * h0)) / g;   // time to first touchdown
+  const vb = (g * t1 - vh) * cfg.bounce;                   // upward speed after the bounce
+  const e = {
+    kind, cfg, born: performance.now(),
+    x0: mz.x, y0: mz.y + h0,           // drawn at y0 - h → starts exactly at the muzzle
+    vx: dx * sp, vy: dy * sp * 0.5,
+    h0, vh, g, t1, vb, t2: 2 * vb / g,
+    rot0: Math.random() * Math.PI * 2,
+    spin: (Math.random() < 0.5 ? -1 : 1) * cfg.spin * (0.7 + Math.random() * 0.6),
+  };
+  ejecta.push(e);
+  // Cap per kind — drop the oldest of this kind first.
+  while (ejecta.filter(o => o.kind === kind).length > cfg.max) {
+    ejecta.splice(ejecta.findIndex(o => o.kind === kind), 1);
+  }
+}
+
+function ejectaState(e, now) {
+  const age = now - e.born, air = e.t1 + e.t2;
+  let x, y, h, landed = false;
+  if (age < e.t1) {
+    x = e.x0 + e.vx * age; y = e.y0 + e.vy * age;
+    h = e.h0 + e.vh * age - 0.5 * e.g * age * age;
+  } else {
+    const a2 = Math.min(age - e.t1, e.t2);
+    x = e.x0 + e.vx * e.t1 + e.vx * 0.5 * a2; y = e.y0 + e.vy * e.t1 + e.vy * 0.5 * a2;
+    h = Math.max(0, e.vb * a2 - 0.5 * e.g * a2 * a2);
+    landed = age >= air;
+  }
+  const restAge = age - air;
+  const alpha = restAge > e.cfg.restMs ? 1 - (restAge - e.cfg.restMs) / e.cfg.fadeMs : 1;
+  return { x, y, h: Math.max(0, h), rot: e.rot0 + e.spin * Math.min(age, air), landed, alpha, dead: alpha <= 0 };
+}
+
+function pruneEjecta(now) {
+  for (let i = ejecta.length - 1; i >= 0; i--) if (ejectaState(ejecta[i], now).dead) ejecta.splice(i, 1);
+}
+
+// landedPass=true: resting junk, drawn UNDER every entity. false: still-airborne junk, drawn on top.
+function drawEjecta(landedPass) {
+  const now = performance.now();
+  for (const e of ejecta) {
+    const s = ejectaState(e, now);
+    if (s.landed !== landedPass || s.dead) continue;
+    const sx = wx(s.x), sy = wy(s.y - s.h);
+    if (sx < -20 || sx > VIEW_W + 20 || sy < -20 || sy > VIEW_H + 20) continue;
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = s.alpha;
+    if (!s.landed) { // little ground shadow while falling
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath(); ctx.ellipse(wx(s.x), wy(s.y), 4, 2, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.translate(sx, sy);
+    ctx.rotate(s.rot);
+    const c = e.cfg;
+    if (e.kind === 'mag') {
+      ctx.fillStyle = c.edge; ctx.fillRect(-c.w / 2 - 1, -c.h / 2 - 1, c.w + 2, c.h + 2); // 1px lighter edge
+      ctx.fillStyle = c.fill; ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+    } else {
+      ctx.fillStyle = c.body;  ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+      ctx.fillStyle = c.brass; ctx.fillRect(-c.w / 2, c.h / 2 - 2, c.w, 2);
+    }
+    ctx.restore();
+  }
+}
+
+// Reload ring above the player's head (same style as the vending ring). 'mag':
+// one fill over reloadMs. Shotgun: one fill per shell + a row of pips under it.
+function drawReloadRing() {
+  if (!reload || gameOver) return;
+  const now = performance.now(), mg = MAGS[reload.weapon], R = RELOAD_RING;
+  const k = reload.mode === 'mag'
+    ? Math.min(1, (now - reload.start) / mg.reloadMs)
+    : Math.min(1, (now - reload.shellStart) / mg.shellMs);
+  const cx = wx(player.x + PW / 2), cy = wy(player.y) + R.dy + (vendBuy ? R.stackDy : 0);
+  ctx.save();
+  ctx.lineWidth = R.lineW;
+  ctx.strokeStyle = 'rgba(5,5,10,0.7)';
+  ctx.beginPath(); ctx.arc(cx, cy, R.r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = R.color;
+  ctx.beginPath(); ctx.arc(cx, cy, R.r, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
+  if (reload.mode === 'shell') {
+    const P = SHELL_PIP, total = mg.size, rowW = total * P.w + (total - 1) * P.gap;
+    const px0 = cx - rowW / 2, py = cy + R.r + R.lineW / 2 + 3;
+    for (let i = 0; i < total; i++) {
+      ctx.fillStyle = i < ammo[reload.weapon] ? P.loaded : P.empty;
+      ctx.fillRect(Math.round(px0 + i * (P.w + P.gap)), Math.round(py), P.w, P.h);
+    }
+  }
+  ctx.restore();
 }
 
 function fireWeapon(w) {
@@ -2173,6 +2407,8 @@ function checkWeaponUnlocks(clearedWave) {
     const unlockWave = WEAPON_UNLOCK_WAVE[key];
     if (unlockWave != null && clearedWave === unlockWave && !unlockedWeapons.has(key)) {
       unlockedWeapons.add(key);
+      cancelReload();      // the unlock auto-equips the new weapon
+      refillAmmo(key);     // a newly unlocked weapon starts with a full magazine
       currentWeapon = key;
       weaponUnlockNotice = { label: WEAPONS[key].label, start: performance.now() };
       TanaAudio.play('weapon_unlock');
@@ -2187,6 +2423,7 @@ function switchToNextWeapon() {
   const unlocked = WEAPON_ORDER.filter(k => unlockedWeapons.has(k));
   if (unlocked.length <= 1) return false;
   const idx = unlocked.indexOf(currentWeapon);
+  cancelReload(); // switching cancels any reload (partial mag / loaded shells are kept)
   currentWeapon = unlocked[(idx + 1) % unlocked.length];
   // Don't let a fast weapon's cooldown carry over into an instant first
   // shot with a slower one.
@@ -2427,6 +2664,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'q' || e.key === 'Q') switchToNextWeapon();
   // Vending machine (when within VEND_RANGE). Ignore while typing a name.
   if ((e.key === 'e' || e.key === 'E') && !(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'))) tryVend();
+  if ((e.key === 'r' || e.key === 'R') && !e.repeat && !(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'))) manualReload();
   if (e.key === ' ') fireHeld = true;
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
@@ -2744,8 +2982,11 @@ function update(dt = 1) {
   // `zombies` — safe here since that loop has already finished).
   checkHosePickup();
   updateHose(dt, performance.now());
+  // Reload first, so a reload that completes this frame lets a held trigger fire at once.
+  updateReload(performance.now());
   if (fireHeld && !vendBuy && currentWeapon !== 'hose') tryFire(performance.now());
   pruneEffects();
+  pruneEjecta(performance.now());
 }
 
 // ─────────────────────────────────────────────────────────
@@ -3412,13 +3653,34 @@ function drawHUD() {
   // Bottom-left weapon readout (font set explicitly — it used to inherit
   // whatever the HUD code above happened to draw last)
   ctx.font = '9px "Press Start 2P"';
-  ctx.fillStyle = 'rgba(5,5,10,0.55)';
   const _isHose = currentWeapon === 'hose';
-  ctx.fillRect(0, screenBtm - 20, _isHose ? 230 : 140, 20);
+  const _wLabel = `[${WEAPONS[currentWeapon].label}]`;
+  // Magazine readout next to the name: "24/32" (red + pulsing at/below AMMO_LOW_FRAC),
+  // "RELOADING" while a reload runs, flashing "RELOAD" at 0 with nothing running.
+  const _mg = MAGS[currentWeapon];
+  let _ammoTxt = '', _ammoColor = '#f9c74f', _ammoAlpha = 1;
+  if (_mg) {
+    const _n = ammo[currentWeapon], _t = performance.now();
+    if (reload)         { _ammoTxt = 'RELOADING'; _ammoColor = '#b0b8d0'; }
+    else if (_n <= 0)   { _ammoTxt = 'RELOAD'; _ammoColor = '#ff4d5e'; _ammoAlpha = Math.floor(_t / 250) % 2 ? 1 : 0.25; }
+    else {
+      _ammoTxt = `${_n}/${_mg.size}`;
+      if (_n / _mg.size <= AMMO_LOW_FRAC) { _ammoColor = '#ff4d5e'; _ammoAlpha = 0.65 + 0.35 * Math.sin(_t / 110); }
+    }
+  }
+  const _labelW = ctx.measureText(_wLabel).width;
+  const _boxW = _isHose ? 230 : Math.max(140, 8 + _labelW + (_ammoTxt ? 8 + ctx.measureText(_ammoTxt).width : 0) + 8);
+  ctx.fillStyle = 'rgba(5,5,10,0.55)';
+  ctx.fillRect(0, screenBtm - 20, _boxW, 20);
   ctx.fillStyle = '#f9c74f';
   ctx.textAlign = 'left';
-  const _wLabel = `[${WEAPONS[currentWeapon].label}]`;
   ctx.fillText(_wLabel, 8, screenBtm - 10);
+  if (_ammoTxt) {
+    ctx.globalAlpha = _ammoAlpha;
+    ctx.fillStyle = _ammoColor;
+    ctx.fillText(_ammoTxt, 8 + _labelW + 8, screenBtm - 10);
+    ctx.globalAlpha = 1;
+  }
   if (_isHose) {
     // Water tank bar next to the weapon name (marker at the sputter-recovery level).
     const bx = 8 + ctx.measureText(_wLabel).width + 8, by = screenBtm - 15, bw = 76, bh = 9;
@@ -3479,6 +3741,7 @@ function render() {
   drawBackground();
   drawVendingGlow();  // ground glow in front of the machine — under every entity
   drawBloodDecals(); // ground splats — under every entity
+  drawEjecta(true);  // dropped mags / shells that have landed — also under every entity
 
   drawAimLine(); // faint indicator — under every entity, zombies included
 
@@ -3525,8 +3788,10 @@ function render() {
 
   // Combat FX draw on top of everything — transient, screen-space overlay.
   drawEffects();
+  drawEjecta(false); // mags / shells still in the air
   drawVendingLabel();
   drawVendRing();
+  drawReloadRing();
   drawPlayerFloats();
 
   ctx.restore(); // end of the shaken world layer
@@ -3927,6 +4192,7 @@ function triggerGameOver() {
   if (gameOver) return;
   gameOver = true;
   vendBuy = null;
+  cancelReload();
   if (hose.voice) { hose.voice.stop(80); hose.voice = null; }
   hoseBeam.alpha = 0;
   if (waveStartVoice) { waveStartVoice.stop(); waveStartVoice = null; }
@@ -3982,6 +4248,10 @@ function resetGame() {
   currentWeapon = 'pistol';
   unlockedWeapons.clear();
   unlockedWeapons.add('pistol');
+  cancelReload();       // new run: nothing mid-reload, every magazine full, no leftover junk
+  refillAllAmmo();
+  ejecta.length = 0;
+  lastDryFireAt = -1e9;
 
   gameOver = false;
   gameStarted = true; // in case this fires before the initial startup buffer's setTimeout does

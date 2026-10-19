@@ -46,6 +46,17 @@
     // Vending machine: the payment, then (0.25 s later) the heal.
     vend_pay:      { file: 'assets/sfx/pay_new2.mp3',      vol: 0.55, pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     heal:          { file: 'assets/sfx/heal.mp3',          vol: 0.6,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
+    // Reloads (zombies.html). *_mag_in is scheduled with play(..., { endIn }) so it
+    // finishes exactly when the reload does; shotgun loads shell by shell.
+    pistol_mag_out:   { file: 'assets/sfx/pistol_mag_out.mp3',   vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    pistol_mag_in:    { file: 'assets/sfx/pistol_mag_in.mp3',    vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    uzi_mag_out:      { file: 'assets/sfx/uzi_mag_out.mp3',      vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    uzi_mag_in:       { file: 'assets/sfx/uzi_mag_in.mp3',       vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    draco_mag_out:    { file: 'assets/sfx/draco_mag_out.mp3',    vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    draco_mag_in:     { file: 'assets/sfx/draco_mag_in.mp3',     vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
+    shotgun_shell_in: { file: 'assets/sfx/shotgun_shell_in.mp3', vol: 0.6, pitchVar: 0.06, minGap: 0,   maxVoices: 2 },
+    shotgun_pump:     { file: 'assets/sfx/shotgun_pump.mp3',     vol: 0.7, pitchVar: 0.02, minGap: 0,   maxVoices: 1 },
+    dry_fire:         { file: 'assets/sfx/dry_fire.mp3',         vol: 0.4, pitchVar: 0.05, minGap: 250, maxVoices: 1 },
   };
   const MUSIC = { room1: null, room2: null };  // placeholders — tracks get re-added later (path string, looped)
   const SFX_VOLUME = 0.8, MUSIC_VOLUME = 0.4;
@@ -222,6 +233,10 @@
   // opts.offset  seconds into the file to start from
   // opts.delay   seconds from now to start (sample-accurate scheduling)
   // opts.rate    playbackRate multiplier on top of the pitchVar jitter
+  // opts.endIn   seconds from now at which the sound should END (overrides delay):
+  //              it is scheduled so its last sample lands there, using the final
+  //              (jittered) playbackRate. If it is longer than endIn, the head is
+  //              skipped instead, so the ending still lines up.
   // Returns a handle { stop() } or null if the sound was skipped.
   function play(name, opts) {
     try {
@@ -236,8 +251,8 @@
       if (!def || !buf) return null;
 
       opts = opts || {};
-      const offset = Math.max(0, opts.offset || 0);
-      const delay  = Math.max(0, opts.delay  || 0);
+      let offset = Math.max(0, opts.offset || 0);
+      let delay  = Math.max(0, opts.delay  || 0);
 
       // Suspended / interrupted context (no user gesture yet, tab hidden, …):
       // DROP the sound. Queued sources would all fire in a burst the moment
@@ -253,7 +268,14 @@
       const src  = ctx.createBufferSource();
       const gain = ctx.createGain();
       src.buffer = buf;
-      src.playbackRate.value = (1 + (Math.random() * 2 - 1) * (def.pitchVar || 0)) * (opts.rate || 1);
+      const rate = (1 + (Math.random() * 2 - 1) * (def.pitchVar || 0)) * (opts.rate || 1);
+      src.playbackRate.value = rate;
+      if (opts.endIn != null) {
+        const lead = opts.endIn - (buf.duration - offset) / rate; // seconds to wait so the end lands on endIn
+        if (lead >= 0) { delay = lead; }
+        else { delay = 0; offset += -lead * rate; }
+        if (offset >= buf.duration) return null;
+      }
       gain.gain.value = def.vol;
       src.connect(gain);
       gain.connect(sfxGain);
@@ -368,6 +390,8 @@
       const r = nudge();
       return Promise.resolve(r).then(() => !!ctx && ctx.state === 'running', () => false);
     },
+    // Length in seconds of a decoded sound at normal speed (0 if not loaded / failed).
+    duration: (name) => (buffers[name] ? buffers[name].duration : 0),
     setMusic,
     stopMusic,
     duckMusic,
