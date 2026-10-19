@@ -1520,7 +1520,7 @@ function openTV(videoId) {
   try { tvVideo.pause(); } catch (_) {}
   requestAnimationFrame(() => requestAnimationFrame(() => {
     if (!tvOpen) return;
-    tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+    tvIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
   }));
   duckBGMForTV();                // fade soundtrack out under YouTube
 }
