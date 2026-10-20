@@ -18,6 +18,7 @@
   const TABLE        = 'zombie_scores';
   const IDS_KEY      = 'tana-my-score-ids';
   const CONTACT_KEY  = 'tana-contact';
+  const OWNER_KEY    = 'tana-score-owner'; // { rowId: normalized contact } on this device
   const MAX_SAVED_IDS = 50;
   const TOP_N        = 10;
   const BOARD_TZ     = 'America/New_York';
@@ -44,6 +45,41 @@
   }
   function getContact() {
     try { return localStorage.getItem(CONTACT_KEY) || ''; } catch (_) { return ''; }
+  }
+
+  // ── "YOU" ownership ──
+  // Each run saved on this device is tagged with the contact (email/phone) it
+  // belongs to: the contact saved when it was played, or the one it was
+  // claimed with. "YOU" only marks runs owned by the contact currently saved
+  // on this device, so a different email on a shared device starts fresh.
+  // Runs with no contact count as "YOU" only while no contact is saved.
+  // Same normalization as the Apps Script: lowercase email, phone digits + '+'.
+  function normContact(c) {
+    const v = String(c || '').trim();
+    if (!v) return '';
+    return v.indexOf('@') !== -1 ? v.toLowerCase() : v.replace(/[^\d+]/g, '');
+  }
+  function getOwners() {
+    try {
+      const o = JSON.parse(localStorage.getItem(OWNER_KEY) || '{}');
+      return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+    } catch (_) { return {}; }
+  }
+  function setOwner(id, contact) {
+    try {
+      const key = normContact(contact);
+      const keep = new Set(getIds().map(String));
+      const o = getOwners();
+      Object.keys(o).forEach(k => { if (!keep.has(k)) delete o[k]; }); // drop ids no longer saved
+      if (key) o[String(id)] = key; else delete o[String(id)];
+      localStorage.setItem(OWNER_KEY, JSON.stringify(o));
+    } catch (_) {}
+  }
+  // Row ids that should show "YOU" for whoever is on this device right now.
+  function myIds() {
+    const me = normContact(getContact());
+    const o = getOwners();
+    return getIds().filter(id => (o[String(id)] || '') === me);
   }
 
   // ── Week boundary: Monday 00:00 America/New_York, as an ISO UTC string ──
@@ -106,6 +142,7 @@
     const { data, error } = await client().from(TABLE).insert(row).select('id').single();
     if (error) throw error;
     saveId(data.id);
+    setOwner(data.id, getContact()); // belongs to whoever's contact is saved now (or nobody)
     return data.id;
   }
 
@@ -137,7 +174,7 @@
 
   // The player's best saved row for this tab, plus its rank (or null).
   async function myBest(tab) {
-    const ids = getIds();
+    const ids = myIds();
     if (!ids.length) return null;
     let q = client().from(TABLE).select('id,name,score,wave').in('id', ids);
     q = weeklyFilter(q, tab).order('score', { ascending: false }).limit(1);
@@ -159,6 +196,7 @@
       mode: 'no-cors',
       body: JSON.stringify({ type: 'score', rowId, score, name, contact: c }),
     });
+    setOwner(rowId, c); // this run now shows "YOU" for this contact only
     return true;
   }
 
@@ -249,7 +287,7 @@
         ]);
         if (my !== token) return; // a newer tab switch superseded this one
         if (!rows.length) { msg('NO SCORES YET'); return; }
-        const mine = new Set(getIds().map(String));
+        const mine = new Set(myIds().map(String));
         const ol = el('ol', 'tb-list');
         let hiEl = null;
         rows.forEach((r, i) => {
@@ -292,6 +330,6 @@
   window.TanaBoard = {
     APPS_SCRIPT_URL,
     weekStartISO, submit, fetchTop, fetchRank, myBest, linkContact, render,
-    getIds, getContact,
+    getIds, getContact, myIds,
   };
 })();

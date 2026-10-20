@@ -4134,6 +4134,7 @@ let goSession   = 0;   // bumped on every overlay open/close so late async resul
 let goShownAt   = 0;   // performance.now() when the overlay opened (for the score_coins timing)
 let goAckTimer  = 0;
 let goLastRun = null; // { rowId, score, name } of the submitted run, for the contact link
+let goLastTab = 'weekly'; // board tab shown after submit, reused when the claim re-renders it
 
 function renderLeaderboard(opts) {
   TanaBoard.render(goBoardBody, opts || {});
@@ -4215,6 +4216,7 @@ async function doSubmit(name) {
   showPlacement(rankWeek, rankAll);
   // Open on the tab where the run placed, so its highlighted row is visible.
   const tab = (rankWeek != null && rankWeek <= 10) || !(rankAll != null && rankAll <= 10) ? 'weekly' : 'alltime';
+  goLastTab = tab;
   renderLeaderboard({ highlightId: rowId, tab });
 }
 
@@ -4233,6 +4235,8 @@ goClaimLink.addEventListener('click', async () => {
     await TanaBoard.linkContact({ ...goLastRun, contact });
     goClaimForm.style.display = 'none';
     goClaimOk.style.display = 'block';
+    // Redraw so "YOU" now follows the contact just entered.
+    renderLeaderboard({ highlightId: goLastRun.rowId, tab: goLastTab });
   } catch (e) {
     console.error('[ZOMBIE STREET] contact link failed:', e);
     goClaimError.textContent = 'COULD NOT LINK — TRY AGAIN';
