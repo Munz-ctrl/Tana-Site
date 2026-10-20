@@ -18,6 +18,8 @@
   //   pitchVar  random playbackRate of 1 ± pitchVar
   //   minGap    min ms between two starts of this sound (0 = none)
   //   maxVoices cap on simultaneously-playing copies (extras are skipped)
+  //   steal     true = at maxVoices, stop the OLDEST playing copy (15 ms fade) and play the
+  //             new one instead of skipping it — for sounds that must always be heard
   //   fallback  { name, rate } — if this file failed to load, play that other
   //             sound instead, with its playbackRate multiplied by `rate`
   const SFX = {
@@ -29,7 +31,7 @@
     // Falls back to the uzi sound at playbackRate 0.8 while draco.mp3 is missing.
     draco:         { file: 'assets/sfx/draco.mp3',         vol: 1.0,  pitchVar: 0.08, minGap: 0,   maxVoices: 6, fallback: { name: 'uzi', rate: 0.8 } },
     shotgun:       { file: 'assets/sfx/shotgun_new.mp3',       vol: 1.1,  pitchVar: 0.05, minGap: 0,   maxVoices: 3 },
-    weapon_switch: { file: 'assets/sfx/weapon_switch_new.mp3', vol: 0.6, pitchVar: 0.03, minGap: 120, maxVoices: 1 },
+    weapon_switch: { file: 'assets/sfx/weapon_switch_new.mp3', vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1, steal: true },
     weapon_unlock: { file: 'assets/sfx/weapon_unlock.mp3', vol: 0.6,  pitchVar: 0,    minGap: 0,   maxVoices: 1 },
     zombie_hit:    { file: 'assets/sfx/zombie_hit_new_B.mp3',    vol: 0.7,  pitchVar: 0.12, minGap: 40,  maxVoices: 5 },
     zombie_death:  { file: 'assets/sfx/zombie_death.mp3',  vol: 0.5,  pitchVar: 0.10, minGap: 30,  maxVoices: 4 },
@@ -55,7 +57,8 @@
     draco_mag_out:    { file: 'assets/sfx/uzi_mag_out_new.mp3',    vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     draco_mag_in:     { file: 'assets/sfx/draco_mag_in_new.mp3',     vol: 0.6, pitchVar: 0.03, minGap: 0,   maxVoices: 1 },
     shotgun_shell_in: { file: 'assets/sfx/shotgun_shell_in_new.mp3', vol: 0.6, pitchVar: 0.06, minGap: 0,   maxVoices: 2 },
-    shotgun_pump:     { file: 'assets/sfx/shotgun_pump_new.mp3',     vol: 0.7, pitchVar: 0.02, minGap: 0,   maxVoices: 1 },
+    // maxVoices 2: with a pump after every blast, one pump's tail can still be ringing when the next is scheduled.
+    shotgun_pump:     { file: 'assets/sfx/shotgun_pump_new.mp3',     vol: 0.7, pitchVar: 0.02, minGap: 0,   maxVoices: 2 },
     dry_fire:         { file: 'assets/sfx/dry_fire_new.mp3',         vol: 0.4, pitchVar: 0.05, minGap: 250, maxVoices: 1 },
   };
   const MUSIC = { room1: null, room2: null };  // placeholders — tracks get re-added later (path string, looped)
@@ -73,6 +76,8 @@
   const buffers   = {};   // name -> AudioBuffer | null (null = failed → silent)
   const lastStart = {};   // name -> performance.now() of last accepted start
   const voices    = {};   // name -> live voice count
+  const live      = {};   // name -> [{ fade() }] playing copies, oldest first (for `steal`)
+  const STEAL_FADE_S = 0.015; // fade-out when a voice is stolen
   const warned    = {};   // file -> true once warned
   const muteListeners = [];
 
@@ -263,7 +268,10 @@
 
       const now = performance.now();
       if (def.minGap && lastStart[name] != null && now - lastStart[name] < def.minGap) return null;
-      if (def.maxVoices && (voices[name] || 0) >= def.maxVoices) return null;
+      if (def.maxVoices && (voices[name] || 0) >= def.maxVoices) {
+        if (!(def.steal && live[name] && live[name].length)) return null;
+        live[name].shift().fade();   // free the slot: the oldest copy fades out, this one plays
+      }
 
       const src  = ctx.createBufferSource();
       const gain = ctx.createGain();
@@ -282,11 +290,31 @@
 
       lastStart[name] = now;
       voices[name] = (voices[name] || 0) + 1;
-      let done = false;
+      let done = false, counted = true;
+      const release = () => { // give the voice slot back exactly once
+        if (!counted) return;
+        counted = false;
+        voices[name] = Math.max(0, (voices[name] || 1) - 1);
+      };
+      const entry = {
+        // Stolen by a newer copy: short fade, slot freed now, nodes cleaned up when it ends.
+        fade() {
+          release();
+          try {
+            const t = ctx.currentTime;
+            gain.gain.cancelScheduledValues(t);
+            gain.gain.setValueAtTime(gain.gain.value, t);
+            gain.gain.linearRampToValueAtTime(0, t + STEAL_FADE_S);
+            src.stop(t + STEAL_FADE_S + 0.005);
+          } catch (_) {}
+        },
+      };
+      if (def.steal) (live[name] || (live[name] = [])).push(entry);
       const finish = () => {
         if (done) return;
         done = true;
-        voices[name] = Math.max(0, (voices[name] || 1) - 1);
+        release();
+        if (live[name]) { const i = live[name].indexOf(entry); if (i >= 0) live[name].splice(i, 1); }
         try { src.disconnect(); gain.disconnect(); } catch (_) {}
       };
       src.onended = finish;

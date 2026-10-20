@@ -1105,6 +1105,36 @@ function wy(worldY) { return Math.round(worldY - cam.y); }
 //    2. Set  sceneObjects.find(o=>o.id==='myId').img = myImg;
 //    3. Done — engine draws the PNG at (x,y,w,h) automatically
 // ─────────────────────────────────────────────────────────
+// Speakers flanking the TV (x 640, w 245 → 640–885), 6px gap each side.
+const SPEAKER_W = 104, SPEAKER_H = 140, SPEAKER_BASE_Y = 250;
+const SPEAKER_LEFT_X  = 640 - 6 - SPEAKER_W;   // 530
+const SPEAKER_RIGHT_X = 640 + 245 + 6;         // 891
+
+function makeSpeaker(id, x, mirrored) {
+  return {
+    id,
+    x, y: SPEAKER_BASE_Y - SPEAKER_H, w: SPEAKER_W, h: SPEAKER_H,   // y = 110
+    baseY: SPEAKER_BASE_Y,
+    collision: { x: x + 10, y: SPEAKER_BASE_Y - 14, w: SPEAKER_W - 20, h: 14 }, // thin strip at the base
+    interactable: false,
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerLeftImg;
+      if (!(img.complete && img.naturalWidth > 0)) return;
+      if (!mirrored) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      } else {
+        ctx.save();
+        ctx.translate(sx + this.w, sy);   // flip horizontally around the sprite's own box
+        ctx.scale(-1, 1);
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, 0, 0, this.w, this.h);
+        ctx.restore();
+      }
+    }
+  };
+}
+
 const sceneObjects = [
 
   // ── TV (wall-mounted, always visible, interactable) ──
@@ -1224,23 +1254,12 @@ const sceneObjects = [
     interactable: false, img: null, draw() {}
   },
 
-  // ── Speaker — floor-standing, mid-left. Animated via speakerFrame.
-  //    (The party pass added a matched set; this is the one kept.)
-  {
-    id: 'speaker_left',
-    x: 460, y: 390, w: 168, h: 226,
-    baseY: 590,
-    collision: null,
-    interactable: false,
-    img: null,
-    draw(ctx, sx, sy) {
-      ctx.imageSmoothingEnabled = false;
-      const img = speakerLeftImg;
-      if (img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
-      }
-    }
-  },
+  // ── Speakers — a pair standing on the back floor either side of the TV (TV: x 640–885).
+  //    Same sprite and 2-frame beat (speakerFrame) as the old single floor speaker; the
+  //    right one is drawn mirrored. Thin collision at the base only, so nothing behind
+  //    the couch / carpet changes. See makeSpeaker().
+  makeSpeaker('speaker_left',  SPEAKER_LEFT_X,  false),
+  makeSpeaker('speaker_right', SPEAKER_RIGHT_X, true),
 
 ];
 
@@ -1280,9 +1299,8 @@ const USB_FRAME_H  = 179;
 const usbDropObj = {
   id: 'usb_drop',
   // Fine-tune in-game with the debug overlay (` backtick key).
-  // Left side of the room: just left of the floor speaker (speaker_left starts
-  // at x 460) and clear of the bed (ends at x 260). Its old bottom-right spot
-  // now holds the SCOREBOARD.
+  // Left side of the room, clear of the bed (ends at x 260). Its old bottom-right
+  // spot now holds the SCOREBOARD.
   x: 305, y: 455, w: USB_FRAME_W, h: USB_FRAME_H,
   baseY: 620,
   interactY: 640,   // floor level the player stands on to reach it
@@ -1341,8 +1359,8 @@ sceneObjects.push(usbDropObj);
 // ─────────────────────────────────────────────────────────
 const scoreboardImg = loadImg('assets/scoreboard.png');
 const SCOREBOARD_H      = 140;   // px tall (~ a player)
-const SCOREBOARD_CX     = 1250;  // world x of its centre (the USB drop's old centre)
-const SCOREBOARD_BASE_Y = 620;   // feet line — same depth as the USB drop was
+const SCOREBOARD_CX     = 1118;  // world x of its centre — just right of Chris, slightly behind him
+const SCOREBOARD_BASE_Y = 585;   // feet line — Chris's base is 603, so Chris draws in front of it
 const SCOREBOARD_FOOT_H = 26;    // collision strip height at its base
 const SCOREBOARD_FOOT_INSET = 0.15; // collision is inset this fraction of w each side
 
@@ -1611,6 +1629,10 @@ const INTERACT_RANGE = 160; // world pixels
 function getNearbyObject() {
   const px = player.x + PW / 2;
   const py = player.y + FEET_OY + FEET_H / 2;
+  // The NEAREST thing in range wins (objects and NPCs alike), so two interactables
+  // whose ranges overlap — Chris and the scoreboard beside him — each take over
+  // when the player stands closer to them.
+  let best = null, bestD = INTERACT_RANGE;
   for (const obj of sceneObjects) {
     if (!obj.interactable) continue;
     const ocx = obj.x + obj.w / 2;
@@ -1618,15 +1640,17 @@ function getNearbyObject() {
     // Decouples interaction range from depth-sort anchor so wall-mounted
     // objects can be reached from the floor without breaking rendering.
     const ocy = (obj.interactY != null) ? obj.interactY : obj.baseY;
-    if (Math.hypot(px - ocx, py - ocy) < INTERACT_RANGE) return obj;
+    const d = Math.hypot(px - ocx, py - ocy);
+    if (d < bestD) { best = obj; bestD = d; }
   }
   for (const npc of npcs) {
     if (!npc.action) continue;
     const ocx = npc.x + npc.w / 2;
     const ocy = npc.baseY;
-    if (Math.hypot(px - ocx, py - ocy) < INTERACT_RANGE) return npc;
+    const d = Math.hypot(px - ocx, py - ocy);
+    if (d < bestD) { best = npc; bestD = d; }
   }
-  return null;
+  return best;
 }
 
 // ─────────────────────────────────────────────────────────

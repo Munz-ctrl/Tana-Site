@@ -40,9 +40,13 @@
     }
 
     /* Narrow (portrait-width) screens: shrink the left joystick's rest ring so it
-       clears the BUY button (the game itself is landscape-only). */
+       clears the BUY button, and lift both sticks so the held aim ring stays >= 24px
+       above the weapon row (the game itself is landscape-only). */
     @media (max-width: 520px) {
-      :root { --joy-base: 118px; }
+      :root {
+        --joy-base: 118px;
+        --ctrl-bottom-base: calc(env(safe-area-inset-bottom, 0px) + 90px);
+      }
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -246,14 +250,15 @@
       #gameCanvas { cursor: crosshair; }
     }
 
-    /* ── BOTTOM WEAPON ROW (touch only) — three SEPARATE elements, centred, styled like the
+    /* ── BOTTOM WEAPON ROW (touch only) — three SEPARATE elements, styled like the
        canvas bottom-left readout (dark 55% box, square corners, gold Press Start 2P):
          [⇄ SWITCH]   [PISTOL] 24/32   [↻ RELOAD]
        The text is the same on-screen size as that readout: 9 canvas px × --hud-scale
-       (set from JS in resizeGame). Lives after the joystick zone with a z-index, so it sits above it. ── */
+       (set from JS in resizeGame). Bottom-right corner, below the aim stick (>= 24px clear of the held
+       aim ring). Lives after the joystick zone with a z-index, so it sits above it. ── */
     #weapon-row {
       position: absolute;
-      left: 50%; transform: translateX(-50%);
+      right: calc(env(safe-area-inset-right, 0px) + var(--ctrl-side));   /* bottom-right corner, under the aim stick */
       bottom: var(--row-bottom);
       display: flex; align-items: center; gap: 10px;
       z-index: 3;
@@ -716,7 +721,9 @@ const HOSE_REFILL_PER_SEC  = 12;    // refills only while not spraying
 const HOSE_REFILL_DELAY_MS = 600;   // pause after spraying before refill starts
 // extras
 const HOSE_SPUTTER_RECOVER = 25;    // after running dry, can't spray again until the tank is above this
-const HOSE_RESIST          = { A: 1.0, B: 0.7, C: 0.4 }; // per-tier push resistance
+const HOSE_RESIST          = { A: 1.0, B: 0.95, C: 0.9 }; // per-tier push resistance (nearly equal: the chase slowdown below does the rest)
+const HOSE_HOLD_LINGER_MS  = 150;   // a zombie stays "held" this long after it last left the cone
+const HOSE_HOLD_CHASE_MULT = 0.2;   // ...and its own chase movement is multiplied by this, so the push isn't fighting its walk
 const HOSE_BEAM_FADE_MS    = 100;   // beam fades in/out over this
 const HOSE_BEAM_ALPHA_NEAR = 0.38;  // beam opacity at the nozzle (fades to 0 at the end)
 const HOSE_BAND_SPACING    = 90;    // px between the flowing bands
@@ -769,7 +776,7 @@ const WEAPONS = {
     knockback: PISTOL_KNOCKBACK },
   uzi:     { label: 'UZI',     short: 'UZI', damage: 6,  fireRate: 90,  get range() { return WORLD_W; }, coneDeg: 22, multiHit: false,
     knockback: UZI_KNOCKBACK, knockbackStack: true },
-  shotgun: { label: 'SHOTGUN', short: 'SG',  damage: SHOTGUN_DAMAGE_NEAR, fireRate: 650, range: 320, coneDeg: 50, multiHit: true,
+  shotgun: { label: 'SHOTGUN', short: 'SG',  damage: SHOTGUN_DAMAGE_NEAR, fireRate: 750, range: 320, coneDeg: 50, multiHit: true,
     knockback: SHOTGUN_KNOCKBACK, distFalloffMin: SHOTGUN_FALLOFF_MIN },
   draco:   { label: 'DRACO',   short: 'DRC', damage: 13, fireRate: 140, get range() { return WORLD_W; }, coneDeg: 22, multiHit: false,
     knockback: DRACO_KNOCKBACK, knockbackStack: true, spriteFallback: 'uzi' },
@@ -800,9 +807,10 @@ const MAGS = {
   pistol:  { size: 12, mode: 'mag',   reloadMs: 2000 },
   uzi:     { size: 32, mode: 'mag',   reloadMs: 1500 },
   draco:   { size: 40, mode: 'mag',   reloadMs: 1500 },
-  shotgun: { size: 12, mode: 'shell', shellMs: 400 },
+  shotgun: { size: 12, mode: 'shell', shellMs: 500 },
 };
 const DRY_FIRE_GAP_MS = 250;  // max one 'dry_fire' per this many ms
+const SHOTGUN_PUMP_DELAY_MS = 180; // the pump plays this long after every shotgun blast (fireRate 750 lets it finish first)
 const AMMO_LOW_FRAC   = 0.25; // HUD count turns red + pulses at/below this fraction
 // Reload ring above the player's head (same look as the vending ring).
 const RELOAD_RING = { dy: -38, r: 11, lineW: 4, color: '#f9c74f', stackDy: -30 /* extra lift while the vending ring is up */ };
@@ -810,7 +818,7 @@ const SHELL_PIP   = { w: 3, h: 4, gap: 1.5, loaded: '#f9c74f', empty: 'rgba(249,
 // Ejected junk (visual only). Motion units: px and ms. `drop` = px it falls from the
 // muzzle to the ground; one bounce (bounce × impact speed), then it rests restMs and
 // fades over fadeMs. `max` = alive at once (oldest removed first).
-const MAG_DROP = { w: 6, h: 10, fill: '#3a3f48', edge: '#8a919c',
+const MAG_DROP = { w: 6, h: 10, fill: '#22252b', edge: '#0e0f12',
   speed: 0.07, kick: 0.12, drop: 20, gravity: 0.0009, bounce: 0.35, spin: 0.012,
   restMs: 5000, fadeMs: 600, max: 20 };
 const SHELL_CASING = { w: 3, h: 6, body: '#c4302b', brass: '#d4a63a',
@@ -1145,7 +1153,7 @@ function makeBuilding(id, x, y, w, h) {
 const HYDRANT_W = 80, HYDRANT_H = 130;
 const HYDRANT_COLLISION = { offsetX: 9, offsetY: 63, w: 61, h: 66 };
 // hydrant_3 used to stand at (755, 497); the vending machine took that spot.
-const HYDRANT_3_GROUND = { x: 520, y: 508 };
+const HYDRANT_3_GROUND = { x: 520, y: 625 };
 
 // Positions are given as each hydrant's ground-contact point (bottom-
 // center of its footprint), not its top-left draw position.
@@ -1244,6 +1252,9 @@ let currentWeapon    = 'pistol';
 const unlockedWeapons = new Set(['pistol']);
 let lastFireTime      = 0;
 let fireHeld          = false;
+let firePressAt       = -1e9; // performance.now() of the last fresh fire press (not-held -> held)
+// Every fire source (space, mouse, aim stick) goes through here so a NEW press can be told from a held one.
+function pressFire() { if (!fireHeld) firePressAt = performance.now(); fireHeld = true; }
 let weaponUnlockNotice = null; // { label, start } while the banner is shown
 
 // ─────────────────────────────────────────────────────────
@@ -1296,46 +1307,46 @@ function tryVend() {
   const now = performance.now();
   if (!vendCanBuy()) {
     vendLabelErrUntil = now + VEND_ERR_FLASH_MS;
-    TanaAudio.play('ui_click', { rate: 0.6 }); // low "error tick"
+    vendErrorTick();                        // can't afford / full HP
     return false;
   }
   vendBuy = { start: now, price: vendPrice };
-  TanaAudio.play('ui_click');
+  TanaAudio.play('vend_pay');               // the purchase starts
   return true;
 }
+
+function vendErrorTick() { TanaAudio.play('ui_click', { rate: 0.6 }); } // the low error tick
 
 // Damage mid-purchase cancels it — nothing is charged until completion.
 function cancelVend() {
   if (!vendBuy) return;
   vendBuy = null;
-  TanaAudio.play('ui_close');
+  vendErrorTick();
 }
 
 function updateVending(now) {
   if (!vendBuy || now - vendBuy.start < VEND_BUY_TIME) return;
   const price = vendBuy.price;
   vendBuy = null;
-  if (score < price || player.hp >= PLAYER_MAX_HP) return; // changed under us — no charge
+  if (score < price || player.hp >= PLAYER_MAX_HP) { vendErrorTick(); return; } // changed under us — no charge
   score -= price;
   totalSpent += price;
   potionsBoughtThisRun++;
-  TanaAudio.play('vend_pay');                 // the moment the score is charged
   const healed = Math.min(VEND_HEAL_AMOUNT, PLAYER_MAX_HP - player.hp);
   const hpBefore = player.hp;
   player.hp += healed;                        // real HP updates immediately
   // Display only: the HUD bar fills old → new over HEAL_ANIM_MS, starting
-  // when the heal sound does.
-  hpAnim = { from: hpBefore, to: player.hp, start: now + HEAL_SOUND_DELAY_MS };
+  // when the heal sound does (now).
+  hpAnim = { from: hpBefore, to: player.hp, start: now };
   recalcVendPrice();
   floatTexts.push({ kind: 'hud',    text: '-' + price,        color: '#ff5a6e', born: now });
   floatTexts.push({ kind: 'player', text: '+' + healed + ' HP', color: '#4ecca3', born: now });
-  TanaAudio.play('heal', { delay: HEAL_SOUND_DELAY_MS / 1000 });
+  TanaAudio.play('heal');                     // purchase complete: heal immediately
 }
 
 // HP bar "fill" animation after a purchase (display only — player.hp is
 // already the new value). Never shows MORE than the real HP, so damage
 // taken mid-animation still reads immediately.
-const HEAL_SOUND_DELAY_MS = 250;
 const HEAL_ANIM_MS        = 600;
 let hpAnim = null; // { from, to, start }
 function displayedHp(now) {
@@ -1482,8 +1493,11 @@ function updateZombie(z, dt) {
 
   const dx = player.x - z.x, dy = player.y - z.y;
   const dist = Math.hypot(dx, dy) || 1;
-  const vx = (dx / dist) * z.speed * dt;
-  const vy = (dy / dist) * z.speed * dt;
+  // Held by the water hose (in the cone, or within HOSE_HOLD_LINGER_MS of it): its own
+  // chase is scaled right down so the push can move every tier about equally.
+  const chase = (z.hoseHoldUntil && now < z.hoseHoldUntil) ? HOSE_HOLD_CHASE_MULT : 1;
+  const vx = (dx / dist) * z.speed * dt * chase;
+  const vy = (dy / dist) * z.speed * dt * chase;
 
   if (Math.abs(dx) > Math.abs(dy)) z.facing = dx > 0 ? 'right' : 'left';
   else                             z.facing = dy > 0 ? 'down'  : 'up';
@@ -1707,7 +1721,7 @@ function checkHosePickup() {
   hosePickup = null;
   hoseObtained = true;
   unlockedWeapons.add('hose');
-  cancelReload();          // picking up the hose auto-equips it (no magazine)
+  cancelWeaponFx();        // picking up the hose auto-equips it (no magazine)
   currentWeapon = 'hose';
   lastFireTime = 0;
   hose.tank = HOSE_TANK_MAX; hose.sputter = false;
@@ -1783,6 +1797,8 @@ function applyHose(angle, half, dt, now) {
     let diff = Math.abs(Math.atan2(ddy, ddx) - angle);
     if (diff > Math.PI) diff = 2 * Math.PI - diff;
     if (diff > half) continue;
+
+    z.hoseHoldUntil = now + HOSE_HOLD_LINGER_MS; // in the cone: updateZombie() slows its chase
 
     // Push: lerp(1, MIN_FRAC, dist / RANGE) × near push × tier resistance.
     const push = HOSE_PUSH_NEAR * (1 + (HOSE_PUSH_MIN_FRAC - 1) * Math.min(1, dist / HOSE_RANGE))
@@ -2145,6 +2161,22 @@ function muzzlePoint() {
 const ammo = {};      // weapon key → rounds currently in its magazine
 let reload = null;    // null | { weapon, mode, start, end | shellStart, voices[] }
 let shotgunPumpOwed = false; // a from-empty shell reload was interrupted before its pump
+let shotPump = null;         // handle of the per-shot pump scheduled after the last blast
+let pumpBusyUntil = -1e9;    // performance.now() until which a per-shot pump is playing (or about to)
+
+// The "reload started from empty" pump (at the end of that reload, or before the first
+// shot after it was interrupted). Skipped when a per-shot pump is already playing -
+// that one counts as the pump.
+function playOwedPump(now) {
+  if (now >= pumpBusyUntil) TanaAudio.play('shotgun_pump');
+  shotgunPumpOwed = false;
+}
+// Weapon changed / run ended: stop any reload and any pump still pending from the last blast.
+function cancelWeaponFx() {
+  cancelReload();
+  if (shotPump) { try { shotPump.stop(); } catch (_) {} shotPump = null; }
+  pumpBusyUntil = -1e9;
+}
 let lastDryFireAt = -1e9;
 
 function refillAmmo(key) { if (MAGS[key]) ammo[key] = MAGS[key].size; }
@@ -2227,7 +2259,7 @@ function updateReload(now) {
     reload.shellStart += mg.shellMs;
     TanaAudio.play('shotgun_shell_in');
     if (ammo[reload.weapon] >= mg.size) {
-      if (shotgunPumpOwed) { TanaAudio.play('shotgun_pump'); shotgunPumpOwed = false; }
+      if (shotgunPumpOwed) playOwedPump(now);
       reload = null;
     }
   }
@@ -2245,9 +2277,12 @@ function tryFire(now) {
   if (mg) {
     if (reload) {
       // 'mag' reload in progress, or a shotgun with no shell loaded yet: can't
-      // fire, and a press doesn't interrupt anything. Shotgun with 1+ shells
-      // falls through — firing interrupts its reload (below).
+      // fire, and a press doesn't interrupt anything.
       if (reload.mode === 'mag' || ammo[currentWeapon] < 1) { dryFire(now); return; }
+      // Shotgun with 1+ shells: only a NEW press (one made after the reload started)
+      // interrupts it. A trigger already held through the reload just keeps loading
+      // until full, then fires on by itself (updateReload sets reload = null).
+      if (firePressAt <= reload.start) return;
     } else if (ammo[currentWeapon] < 1) {
       // Empty with nothing running (e.g. switched back to an empty gun): click, then reload.
       dryFire(now);
@@ -2258,13 +2293,17 @@ function tryFire(now) {
   if (now - lastFireTime < w.fireRate) return;
   if (mg && reload) cancelReload();        // shotgun: the shell in progress is lost, loaded ones stay
   if (currentWeapon === 'shotgun' && shotgunPumpOwed) { // interrupted from-empty reload → pump before this first shot
-    TanaAudio.play('shotgun_pump');
-    shotgunPumpOwed = false;
+    playOwedPump(now);
   }
   lastFireTime = now;
   if (mg) ammo[currentWeapon]--;
   fireWeapon(w);
-  if (currentWeapon === 'shotgun') spawnEjecta('casing', player.aimAngle, muzzlePoint());
+  if (currentWeapon === 'shotgun') {
+    spawnEjecta('casing', player.aimAngle, muzzlePoint());
+    // Pump after every blast, SHOTGUN_PUMP_DELAY_MS later.
+    shotPump = TanaAudio.play('shotgun_pump', { delay: SHOTGUN_PUMP_DELAY_MS / 1000 });
+    pumpBusyUntil = now + SHOTGUN_PUMP_DELAY_MS + TanaAudio.duration('shotgun_pump') * 1000;
+  }
   if (mg && ammo[currentWeapon] <= 0) startReload(); // auto reload right after the last shot
 }
 
@@ -2453,6 +2492,7 @@ function fireWeapon(w) {
     x: muzzle.x, y: muzzle.y, angle,
     big: !!w.multiHit,
     facing: muzzle.facing,
+    baseY: playerBaseY(),   // depth the flash is sorted at (the shooter's, at the moment of firing)
     duration: HIT_FX.muzzleMs,
   });
   lastShot = { angle, at: performance.now() };
@@ -2477,6 +2517,7 @@ function fireWeapon(w) {
     // player could turn while the tracer is still fading — used in
     // render() to draw this behind the player when they were facing away.
     facing: muzzle.facing,
+    baseY: playerBaseY(),   // same depth as the muzzle sprite — used for this tracer's flash
     duration: TRACER_FX_DURATION,
   });
 }
@@ -2486,7 +2527,7 @@ function checkWeaponUnlocks(clearedWave) {
     const unlockWave = WEAPON_UNLOCK_WAVE[key];
     if (unlockWave != null && clearedWave === unlockWave && !unlockedWeapons.has(key)) {
       unlockedWeapons.add(key);
-      cancelReload();      // the unlock auto-equips the new weapon
+      cancelWeaponFx();    // the unlock auto-equips the new weapon
       refillAmmo(key);     // a newly unlocked weapon starts with a full magazine
       currentWeapon = key;
       weaponUnlockNotice = { label: WEAPONS[key].label, start: performance.now() };
@@ -2502,7 +2543,7 @@ function switchToNextWeapon() {
   const unlocked = WEAPON_ORDER.filter(k => unlockedWeapons.has(k));
   if (unlocked.length <= 1) return false;
   const idx = unlocked.indexOf(currentWeapon);
-  cancelReload(); // switching cancels any reload (partial mag / loaded shells are kept)
+  cancelWeaponFx(); // switching cancels any reload (partial mag / loaded shells are kept) and a pending pump
   currentWeapon = unlocked[(idx + 1) % unlocked.length];
   // Don't let a fast weapon's cooldown carry over into an instant first
   // shot with a slower one.
@@ -2744,7 +2785,7 @@ window.addEventListener('keydown', e => {
   // Vending machine (when within VEND_RANGE). Ignore while typing a name.
   if ((e.key === 'e' || e.key === 'E') && !(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'))) tryVend();
   if ((e.key === 'r' || e.key === 'R') && !e.repeat && !(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'))) manualReload();
-  if (e.key === ' ') fireHeld = true;
+  if (e.key === ' ') pressFire();
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
 window.addEventListener('keyup', e => {
@@ -2780,7 +2821,7 @@ canvas.addEventListener('mousedown', e => {
   if (e.button !== 0 || touchRecent()) return;
   trackMouse(e); // aim at the click point even if the mouse hasn't moved
   aim.mouseDown = true;
-  fireHeld = true;
+  pressFire();
 });
 window.addEventListener('mouseup', e => {
   if (e.button !== 0) return;
@@ -2827,7 +2868,7 @@ fireBtn.addEventListener('touchstart', e => {
   aim.tid = t.identifier;
   aim.originX = t.clientX; aim.originY = t.clientY;
   aim.stickPast = false;
-  fireHeld = true;              // fire immediately, in the current aim direction
+  pressFire();                  // fire immediately, in the current aim direction
   fireBtn.classList.add('pressed');
   const r = fireBtn.getBoundingClientRect();
   const half = aimRing.offsetWidth / 2;
@@ -3514,9 +3555,6 @@ function drawEffects() {
     if (e.type === 'tracer') {
       if (e.facing === 'up') continue;
       drawTracerEffect(e, t);
-    } else if (e.type === 'muzzle') {
-      if (e.facing === 'up') continue; // drawn behind the player instead
-      drawMuzzleSprite(e, t);
     } else if (e.type === 'death') {
       drawDeathEffect(e, t);
     }
@@ -3532,9 +3570,16 @@ function drawUpFacingTracers() {
   for (const e of effects) {
     if (e.facing !== 'up') continue;
     const t = Math.min(1, (now - e.start) / e.duration);
-    if (e.type === 'tracer')      drawTracerEffect(e, t);
-    else if (e.type === 'muzzle') drawMuzzleSprite(e, t);
+    if (e.type === 'tracer') drawTracerEffect(e, t);
   }
+}
+
+// Muzzle flashes (the flash sprite, and the radial burst that goes with each tracer) are
+// depth-sorted in render() with the shooter: just in front of the player sprite, or just
+// behind it when the shot was fired facing up — so anything that is in front of the
+// player (a pole, a building edge) hides the flash too.
+function muzzleFlashSortY(e) {
+  return (e.baseY != null ? e.baseY : playerBaseY()) + (e.facing === 'up' ? -0.5 : 0.5);
 }
 
 // A tracer is up to three pieces:
@@ -3611,7 +3656,7 @@ function drawMuzzleFlash(e, t) {
 function drawTracerEffect(e, t) {
   if (e.multiHit) drawShotgunCone(e, t);
   else if (!e.target && !e.hitPos) drawTracerLine(e, t); // hit lines are drawn depth-sorted by render()
-  drawMuzzleFlash(e, t);
+  // (the muzzle flash is depth-sorted in render() — see muzzleFlashSortY)
 }
 
 function drawDeathEffect(e, t) {
@@ -3901,6 +3946,18 @@ function render() {
       if (e.type !== 'tracer' || (!e.target && !e.hitPos)) continue;
       const t = Math.min(1, (nowT - e.start) / e.duration);
       renderList.push({ baseY: (e.target ? zombieBaseY(e.target) : e.hitBaseY) - 0.5, fn: () => drawTracerLine(e, t) });
+    }
+  }
+  // Muzzle flashes sort with the shooter (see muzzleFlashSortY).
+  {
+    const nowF = performance.now();
+    for (const e of effects) {
+      if (e.type !== 'muzzle' && e.type !== 'tracer') continue;
+      const t = Math.min(1, (nowF - e.start) / e.duration);
+      renderList.push({
+        baseY: muzzleFlashSortY(e),
+        fn: e.type === 'muzzle' ? () => drawMuzzleSprite(e, t) : () => drawMuzzleFlash(e, t),
+      });
     }
   }
   renderList.sort((a, b) => a.baseY - b.baseY);
@@ -4319,7 +4376,7 @@ function triggerGameOver() {
   if (gameOver) return;
   gameOver = true;
   vendBuy = null;
-  cancelReload();
+  cancelWeaponFx();
   if (hose.voice) { hose.voice.stop(80); hose.voice = null; }
   hoseBeam.alpha = 0;
   if (waveStartVoice) { waveStartVoice.stop(); waveStartVoice = null; }
@@ -4375,7 +4432,7 @@ function resetGame() {
   currentWeapon = 'pistol';
   unlockedWeapons.clear();
   unlockedWeapons.add('pistol');
-  cancelReload();       // new run: nothing mid-reload, every magazine full, no leftover junk
+  cancelWeaponFx();     // new run: nothing mid-reload, every magazine full, no leftover junk
   refillAllAmmo();
   ejecta.length = 0;
   lastDryFireAt = -1e9;
