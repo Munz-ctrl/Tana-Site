@@ -925,7 +925,7 @@ function loadImg(src) {
   return img;
 }
 
-const bgImg             = loadImg(NIGHT_LIGHTING ? 'assets/base_night.png' : 'assets/base_newfr.png');
+const bgImg             = loadImg(NIGHT_LIGHTING ? 'assets/base_nightv2.png' : 'assets/base_newfr.png');
 // Night art missing? Fall back to the day room with no lighting rather than a blank one.
 if (NIGHT_LIGHTING) bgImg.addEventListener('error', () => {
   console.warn('[TANA.EXE] base_night.png failed to load — using the day room.');
