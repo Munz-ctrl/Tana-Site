@@ -304,16 +304,29 @@
     #tv-overlay.active { opacity: 1; pointer-events: all; }
 
     #tv-frame-wrap {
-      width: min(640px, 92%);
-      /* cap height so the close button is never pushed off-screen */
-      max-height: calc(100svh - 120px);
-      max-height: calc(100vh - 120px); /* fallback */
+      /* Size from width only, capped so the 16:9 box plus the link and close
+         button always fit the screen height. iOS Safari collapses an iframe
+         with height:100% inside an aspect-ratio flex item to 0px (which
+         showed as a black box), so the iframe is absolutely positioned. */
+      position: relative;
+      flex: 0 0 auto;
+      width: min(640px, 92vw, calc((100vh - 140px) * 16 / 9));          /* fallback */
+      width: min(640px, 92vw, calc((100svh - 140px) * 16 / 9));
       aspect-ratio: 16/9;
       border: 2px solid #4ecca3;
       box-shadow: 0 0 40px rgba(78,204,163,0.35);
       background: #000;
     }
-    #tv-frame-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
+    #tv-frame-wrap iframe {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      border: none; display: block;
+    }
+    /* body has touch-action:none for the game; let taps work in the player */
+    #tv-overlay, #tv-overlay * { touch-action: manipulation; }
+    /* Toggled each frame from the game loop (popupOpen / tvOpen / chatOpen):
+       hide the joystick, chat and ACT buttons while a popup is up. */
+    body.modal-open #touch-ui { display: none !important; }
 
     #tv-close-btn {
       font-family: 'Press Start 2P', monospace;
@@ -908,12 +921,30 @@ const trunkImg          = loadImg('assets/livingroom_trunkrecord.webp');
 const carpetImg         = loadImg('assets/carpet.png');
 
 // ── TV loop video — sampled straight onto the canvas by the TV object's draw() ──
+//  Mobile notes: iOS only autoplays a video that is muted + playsinline as
+//  real attributes, and decodes far more reliably when the element is in
+//  the DOM. If autoplay is still refused (e.g. Low Power Mode), we retry
+//  on the player's first tap/key.
 const tvVideo = document.createElement('video');
-tvVideo.src = 'assets/tvloop.webm';
-tvVideo.loop = true;
+tvVideo.setAttribute('muted', '');
+tvVideo.setAttribute('playsinline', '');
+tvVideo.setAttribute('webkit-playsinline', '');
+tvVideo.setAttribute('autoplay', '');
+tvVideo.setAttribute('loop', '');
+tvVideo.setAttribute('preload', 'auto');
 tvVideo.muted = true;
+tvVideo.loop = true;
 tvVideo.playsInline = true;
-tvVideo.play();
+tvVideo.src = 'assets/tvloop_web.mp4';
+tvVideo.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:-1;';
+document.body.appendChild(tvVideo);
+function playTvLoop() { const p = tvVideo.play(); if (p && p.catch) p.catch(() => {}); }
+playTvLoop();
+// Retry if autoplay was refused — but never while the TV popup is open (the loop is paused on purpose then).
+['touchend', 'pointerdown', 'keydown', 'click'].forEach(evt => {
+  window.addEventListener(evt, () => { if (tvVideo.paused && !tvOpen) playTvLoop(); }, { capture: true, passive: true });
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && tvVideo.paused && !tvOpen) playTvLoop(); });
 
 // Bedroom
 const bedUnpackedImg    = loadImg('assets/bed_unpacked.png');
@@ -1048,7 +1079,7 @@ const sceneObjects = [
     baseY: 200, collision: null,
     interactable: true, action: 'video',
     label: 'PLAY VIDEO',
-    videoId: 'ZjRhoTnFpZE',
+    videoId: 'UQiQ74AbvQ8',
     img: null,
     draw(ctx, sx, sy) {
       if (tvVideo.readyState >= 2) {
@@ -1723,20 +1754,37 @@ const tvIframe  = document.getElementById('tv-iframe');
 const tvYtLink  = document.getElementById('tv-yt-link');
 let tvOpen = false;
 
+// Mobile fixes for a black YouTube embed:
+//  • Move the overlay to <body> level so it isn't nested inside the fixed,
+//    overflow-hidden game container (and so it stacks above touch controls).
+//  • Show the overlay first, then load the embed a couple of frames later, so
+//    iOS isn't asked to paint an iframe that was created inside an opacity:0
+//    layer. The embed comes from youtube-nocookie.com (some phones block
+//    youtube.com frames); the WATCH ON YOUTUBE link still goes to the real page.
+//  • While the TV is open, pause the in-room loop video and stop redrawing the
+//    full-screen canvas (see the game loop), freeing the phone's video decoder
+//    and GPU for YouTube.
+document.body.appendChild(tvOverlay);
+
 function openTV(videoId) {
-  tvIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
   tvYtLink.href = `https://www.youtube.com/watch?v=${videoId}`;
   tvOverlay.classList.add('active');
   tvOpen = true;
+  try { tvVideo.pause(); } catch (_) {}
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!tvOpen) return;         // closed again before the embed was due
+    tvIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+  }));
   TanaAudio.duckMusic(true);     // fade music out under YouTube
   TanaAudio.play('ui_open');
 }
 
 function closeTV() {
-  if (!tvOpen) return;           // ESC calls this unconditionally
+  if (!tvOpen) return;           // ESC calls this unconditionally; safe when already closed
   tvIframe.src = '';
   tvOverlay.classList.remove('active');
   tvOpen = false;
+  playTvLoop();                  // resume the in-room TV loop
   TanaAudio.duckMusic(false);    // fade music back in
   TanaAudio.play('ui_close');
 }
@@ -3128,7 +3176,10 @@ let _lastFrameTime = 0;
   const dt = _lastFrameTime ? Math.min((ts - _lastFrameTime) / 16.667, 3) : 1;
   _lastFrameTime = ts;
   update(dt);
-  render();
+  if (!tvOpen) render();         // canvas is fully covered while the TV popup is open
+  // Hide the joystick / chat / ACT buttons while any popup is open
+  // (info / email / link / plaque / scoreboard share #popup-overlay).
+  document.body.classList.toggle('modal-open', popupOpen || tvOpen || chatOpen);
   requestAnimationFrame(loop);
 })();
 
