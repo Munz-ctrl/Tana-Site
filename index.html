@@ -823,6 +823,32 @@ let   _worldChannel = null;
 // ═══════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────
+//  NIGHT LIGHTING — Room 1 (see "NIGHT LIGHTING" above render() for the passes)
+//
+//  Only the BACKGROUND has a night version (assets/base_night.png, painted dark,
+//  never run through the lightmaps). Every sprite (props, players, NPCs) stays
+//  its normal PNG and is lit at runtime on its own layer:
+//    × assets/lightmap_multiply.png   navy dark → warm/cool light, white = emissive
+//    + assets/lightmap_screen.png     coloured highlights near lights (low strength)
+//  then assets/tvglow.png, tinted with the TV video's live colour, is screened
+//  over the whole frame. All four images are 1537×768, 1:1 with world coords.
+//  Name tags, chat bubbles, [E] prompts, HUD, debug and popups stay unlit.
+// ─────────────────────────────────────────────────────────
+const NIGHT_LIGHTING        = true;   // MASTER SWITCH. false = Room 1 exactly as before (day background, no lighting passes)
+const LIGHT_SCREEN_STRENGTH = 0.25;   // 0..1  strength of the screen (highlight) map on sprites
+const TV_GLOW_STRENGTH      = 0.45;   // 0..1  peak alpha of the tinted TV glow (screen blend) at normal brightness
+const TV_SAMPLE_HZ          = 4;      // how often the TV video's average colour is sampled
+const TV_FLICKER_AMOUNT     = 0.12;   // 0..1  size of the subtle TV flicker (0 = steady)
+const TV_COLOR_SMOOTH_MS    = 450;    // glow colour eases toward each new sample over about this long (no strobing)
+const TV_FALLBACK_RGB       = [60, 200, 175]; // gentle teal, used while the video isn't ready / is paused
+
+// Runtime state for the lighting passes (set up by resizeGame / render).
+let lightingOn   = NIGHT_LIGHTING;    // can drop to false if base_night.png fails to load
+let lightDebug   = 0;                 // debug view (backtick on, then L): 0 normal, 1 multiply map only, 2 screen map only
+let layerCanvas = null, layerCtx = null; // transparent layer the Y-sorted sprites are drawn onto
+let litCanvas   = null, litCtx   = null; // that layer after the multiply + screen passes
+
+// ─────────────────────────────────────────────────────────
 //  WORLD & VIEWPORT
 //
 //  ► WORLD SIZE auto-derives from base.png actual pixel dimensions.
@@ -883,7 +909,7 @@ const DIR_ROW  = { down:0, up:1, left:2, right:3 };
 // ─────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('gameCanvas');
-const ctx    = canvas.getContext('2d');
+let   ctx    = canvas.getContext('2d');   // `let`: render() points it at the sprite layer while lighting is on
 ctx.imageSmoothingEnabled = false;
 canvas.width  = VIEW_W;
 canvas.height = VIEW_H;
@@ -899,7 +925,18 @@ function loadImg(src) {
   return img;
 }
 
-const bgImg             = loadImg('assets/base_newfr.png');
+const bgImg             = loadImg(NIGHT_LIGHTING ? 'assets/base_night.png' : 'assets/base_newfr.png');
+// Night art missing? Fall back to the day room with no lighting rather than a blank one.
+if (NIGHT_LIGHTING) bgImg.addEventListener('error', () => {
+  console.warn('[TANA.EXE] base_night.png failed to load — using the day room.');
+  lightingOn = false;
+  bgImg.src = 'assets/base_newfr.png';
+}, { once: true });
+
+// Lighting maps (world-space, 1537×768) — only fetched when night lighting is on.
+const lightMulImg  = NIGHT_LIGHTING ? loadImg('assets/lightmap_multiply.png') : null;
+const lightScrImg  = NIGHT_LIGHTING ? loadImg('assets/lightmap_screen.png')   : null;
+const tvGlowImg    = NIGHT_LIGHTING ? loadImg('assets/tvglow.png')            : null;
 const skinImgs = [
   loadImg('assets/spritetestf2.png'),
   loadImg('assets/girlsprite.png'),
@@ -1744,6 +1781,12 @@ emailSubmit.addEventListener('click', async () => {
 let debugOn = false;
 window.addEventListener('keydown', e => {
   if (e.key === '`' || e.key === '~') debugOn = !debugOn;
+  // Debug lighting view: with debug on, L cycles normal → multiply map only → screen map only.
+  if (debugOn && NIGHT_LIGHTING && (e.key === 'l' || e.key === 'L')) {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    lightDebug = (lightDebug + 1) % 3;
+  }
 });
 
 // ─────────────────────────────────────────────────────────
@@ -2324,7 +2367,12 @@ function drawPlayer() {
     ctx.fillRect(sx + 4, sy + PH * 0.35, PW - 8, PH * 0.65);
   }
 
-  // Name tag
+}
+
+// Name tag + chat bubble: UI, drawn AFTER the lighting passes (never darkened).
+function drawPlayerUI() {
+  const sx = wx(player.x);
+  const sy = wy(player.y);
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   roundRect(ctx, sx + PW / 2 - 22, sy - 22, 44, 16, 2);
   ctx.fill();
@@ -2339,12 +2387,19 @@ function drawPlayer() {
 // ─────────────────────────────────────────────────────────
 //  DRAW — REMOTE PLAYER
 // ─────────────────────────────────────────────────────────
-function drawRemotePlayer(rp) {
+// Interpolated draw position of a remote player (shared by the sprite and UI passes).
+function remoteDrawPos(rp) {
   const t = rp._interpStart !== undefined ? Math.min(1, (Date.now() - rp._interpStart) / 150) : 1;
-  const drawX = rp._fromX !== undefined ? rp._fromX + (rp._targetX - rp._fromX) * t : rp.x;
-  const drawY = rp._fromY !== undefined ? rp._fromY + (rp._targetY - rp._fromY) * t : rp.y;
-  const sx = wx(drawX);
-  const sy = wy(drawY);
+  return {
+    x: rp._fromX !== undefined ? rp._fromX + (rp._targetX - rp._fromX) * t : rp.x,
+    y: rp._fromY !== undefined ? rp._fromY + (rp._targetY - rp._fromY) * t : rp.y,
+  };
+}
+
+function drawRemotePlayer(rp) {
+  const pos = remoteDrawPos(rp);
+  const sx = wx(pos.x);
+  const sy = wy(pos.y);
   if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;
 
   ctx.globalAlpha = 1;
@@ -2375,7 +2430,17 @@ function drawRemotePlayer(rp) {
     ctx.fillRect(sx + 4, sy + PH * 0.35, PW - 8, PH * 0.65);
   }
 
-  // Name tag
+  ctx.globalAlpha = 1;
+}
+
+// Name tag + chat bubble (UI — drawn after the lighting passes).
+function drawRemotePlayerUI(rp) {
+  const pos = remoteDrawPos(rp);
+  const sx = wx(pos.x);
+  const sy = wy(pos.y);
+  if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;
+
+  ctx.globalAlpha = 1;
   const label = String(rp.name || 'ANON').substring(0, 12).toUpperCase();
   ctx.font = '8px "Press Start 2P"';
   const tw   = ctx.measureText(label).width;
@@ -2418,6 +2483,13 @@ function drawNPC(npc) {
     ctx.drawImage(npc.img, srcX, 0, FRAME_W, FRAME_H, sx, sy, npc.w, npc.h);
     ctx.restore();
   }
+}
+
+// NPC name tag + chat bubble (UI — drawn after the lighting passes).
+function drawNPCUI(npc) {
+  const sx = wx(npc.x);
+  const sy = wy(npc.y);
+  if (sx + npc.w < 0 || sx > VIEW_W || sy + npc.h < 0 || sy > VIEW_H) return;
 
   if (npc.label) {
     ctx.font = '8px "Press Start 2P"';
@@ -2582,6 +2654,172 @@ function drawHUD() {
 }
 
 // ─────────────────────────────────────────────────────────
+//  NIGHT LIGHTING
+//
+//  Per frame (when NIGHT_LIGHTING is on and the maps have loaded):
+//   1. background (base_night.png) → main canvas, NOT lit.
+//   2. the Y-sorted sprites (props, local + remote players, NPCs) are drawn in
+//      their usual depth order onto a separate transparent LAYER.
+//   3. lit = black + layer, × multiply map, + screen map at LIGHT_SCREEN_STRENGTH,
+//      then masked back to the layer's own alpha — so only sprite pixels are
+//      touched and the background underneath stays as painted.
+//   4. lit layer → main canvas, then the TV glow (screen blend) over everything.
+//   5. UI (name tags, chat bubbles, [E] prompts), then HUD / debug — unlit.
+//  The maps are drawn at wx(0), wy(0) — the same world→screen mapping as the
+//  sprites — so they stay locked to the furniture whatever the camera or
+//  CROP_TOP does. (Drawing on black first keeps the semi-transparent floor
+//  shadows black; the multiply blend alone would tint them with the map colour.)
+// ─────────────────────────────────────────────────────────
+const imgReady = im => !!im && im.complete && im.naturalWidth > 0;
+
+function resizeLightLayers(scalePx) {
+  if (!NIGHT_LIGHTING) return;
+  if (!layerCanvas) {
+    layerCanvas = document.createElement('canvas'); layerCtx = layerCanvas.getContext('2d');
+    litCanvas   = document.createElement('canvas'); litCtx   = litCanvas.getContext('2d');
+  }
+  for (const c of [layerCanvas, litCanvas]) { c.width = canvas.width; c.height = canvas.height; }
+  for (const c of [layerCtx, litCtx]) { c.setTransform(scalePx, 0, 0, scalePx, 0, 0); c.imageSmoothingEnabled = false; }
+}
+
+function lightingReady() {
+  return lightingOn && !!layerCanvas && imgReady(lightMulImg) && imgReady(lightScrImg) && imgReady(bgImg);
+}
+
+// Build the lit version of the sprite layer and composite it onto the main canvas.
+function compositeLitLayer(mainCtx) {
+  const W = litCanvas.width, H = litCanvas.height;
+  // Black base + the sprite layer (1:1 pixels, so identity transform).
+  litCtx.save();
+  litCtx.setTransform(1, 0, 0, 1, 0, 0);
+  litCtx.globalCompositeOperation = 'source-over';
+  litCtx.globalAlpha = 1;
+  litCtx.fillStyle = '#000';
+  litCtx.fillRect(0, 0, W, H);
+  litCtx.drawImage(layerCanvas, 0, 0);
+  litCtx.restore();
+
+  // Lightmaps under the world transform (litCtx already carries the view scale).
+  litCtx.save();
+  litCtx.imageSmoothingEnabled = true;           // the maps are soft; upscaling shouldn't pixelate them
+  litCtx.globalCompositeOperation = 'multiply';
+  litCtx.drawImage(lightMulImg, wx(0), wy(0));
+  litCtx.globalCompositeOperation = 'screen';
+  litCtx.globalAlpha = LIGHT_SCREEN_STRENGTH;
+  litCtx.drawImage(lightScrImg, wx(0), wy(0));
+  litCtx.restore();
+
+  // Keep only the sprite pixels.
+  litCtx.save();
+  litCtx.setTransform(1, 0, 0, 1, 0, 0);
+  litCtx.globalCompositeOperation = 'destination-in';
+  litCtx.drawImage(layerCanvas, 0, 0);
+  litCtx.restore();
+
+  mainCtx.save();
+  mainCtx.setTransform(1, 0, 0, 1, 0, 0);
+  mainCtx.globalCompositeOperation = 'source-over';
+  mainCtx.globalAlpha = 1;
+  mainCtx.drawImage(litCanvas, 0, 0);
+  mainCtx.restore();
+}
+
+// ── TV light: colour sampled from the TV video, eased, with a subtle flicker ──
+const tvLight = {
+  r: TV_FALLBACK_RGB[0], g: TV_FALLBACK_RGB[1], b: TV_FALLBACK_RGB[2], luma: 0.35,   // smoothed, what the glow uses
+  tr: TV_FALLBACK_RGB[0], tg: TV_FALLBACK_RGB[1], tb: TV_FALLBACK_RGB[2], tluma: 0.35, // latest sample (target)
+  lastSample: -1e9, lastFrame: 0, noise: 0,
+  samp: null, sampCtx: null,       // 8×8 canvas the video is shrunk into
+  tint: null, tintCtx: null, tintKey: '', tintAt: -1e9, // glow mask tinted with the current colour
+};
+
+function updateTvLight(now) {
+  const L = tvLight;
+  const dt = L.lastFrame ? Math.min(250, now - L.lastFrame) : 16;
+  L.lastFrame = now;
+
+  const videoOk = tvVideo.readyState >= 2 && !tvVideo.paused && tvVideo.videoWidth > 0;
+  if (!videoOk) {
+    // Not ready / paused: drift to the gentle teal (never black, never a jump).
+    L.tr = TV_FALLBACK_RGB[0]; L.tg = TV_FALLBACK_RGB[1]; L.tb = TV_FALLBACK_RGB[2]; L.tluma = 0.35;
+  } else if (now - L.lastSample >= 1000 / TV_SAMPLE_HZ) {
+    L.lastSample = now;
+    try {
+      if (!L.samp) {
+        L.samp = document.createElement('canvas'); L.samp.width = L.samp.height = 8;
+        L.sampCtx = L.samp.getContext('2d', { willReadFrequently: true });
+      }
+      L.sampCtx.drawImage(tvVideo, 0, 0, 8, 8);
+      const d = L.sampCtx.getImageData(0, 0, 8, 8).data;
+      let r = 0, g = 0, b = 0;
+      for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+      const n = d.length / 4; r /= n; g /= n; b /= n;
+      const m = Math.max(r, g, b);
+      // Use the hue at full brightness (brightness goes into the glow's alpha via `luma`);
+      // near-black frames blend back toward the fallback teal instead of going dark.
+      const mix = Math.max(0, Math.min(1, (m - 6) / 26));
+      const k = m > 0 ? 255 / m : 0;
+      L.tr = TV_FALLBACK_RGB[0] + (r * k - TV_FALLBACK_RGB[0]) * mix;
+      L.tg = TV_FALLBACK_RGB[1] + (g * k - TV_FALLBACK_RGB[1]) * mix;
+      L.tb = TV_FALLBACK_RGB[2] + (b * k - TV_FALLBACK_RGB[2]) * mix;
+      L.tluma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 * mix + 0.35 * (1 - mix);
+    } catch (_) {
+      L.tr = TV_FALLBACK_RGB[0]; L.tg = TV_FALLBACK_RGB[1]; L.tb = TV_FALLBACK_RGB[2]; L.tluma = 0.35; // e.g. tainted canvas
+    }
+  }
+  const a = 1 - Math.exp(-dt / TV_COLOR_SMOOTH_MS);
+  L.r += (L.tr - L.r) * a; L.g += (L.tg - L.g) * a; L.b += (L.tb - L.b) * a; L.luma += (L.tluma - L.luma) * a;
+}
+
+function drawTvGlow(mainCtx, now) {
+  if (!imgReady(tvGlowImg)) return;
+  const L = tvLight;
+  updateTvLight(now);
+
+  // Re-tint the white glow mask when the colour has moved (≤ ~12×/s; the colour eases slowly).
+  const key = Math.round(L.r / 3) + ',' + Math.round(L.g / 3) + ',' + Math.round(L.b / 3);
+  if (!L.tint) {
+    L.tint = document.createElement('canvas');
+    L.tint.width = tvGlowImg.naturalWidth; L.tint.height = tvGlowImg.naturalHeight;
+    L.tintCtx = L.tint.getContext('2d');
+  }
+  if (key !== L.tintKey && now - L.tintAt > 80) {
+    L.tintKey = key; L.tintAt = now;
+    const t = L.tintCtx;
+    t.globalCompositeOperation = 'source-over';
+    t.clearRect(0, 0, L.tint.width, L.tint.height);
+    t.drawImage(tvGlowImg, 0, 0);
+    t.globalCompositeOperation = 'source-in';
+    t.fillStyle = `rgb(${Math.round(L.r)},${Math.round(L.g)},${Math.round(L.b)})`;
+    t.fillRect(0, 0, L.tint.width, L.tint.height);
+    t.globalCompositeOperation = 'source-over';
+  }
+
+  // Flicker: two slow sines + a little smoothed noise.
+  L.noise += ((Math.random() * 2 - 1) - L.noise) * 0.2;
+  const flick = Math.max(0.3, 1 + TV_FLICKER_AMOUNT * (0.5 * Math.sin(now * 0.011) + 0.3 * Math.sin(now * 0.027 + 1.3) + 0.4 * L.noise));
+  const alpha = Math.max(0, Math.min(1, TV_GLOW_STRENGTH * (0.75 + 0.5 * L.luma) * flick));
+
+  mainCtx.save();
+  mainCtx.globalCompositeOperation = 'screen';
+  mainCtx.globalAlpha = alpha;
+  mainCtx.imageSmoothingEnabled = true;
+  mainCtx.drawImage(L.tint, wx(0), wy(0));
+  mainCtx.restore();
+}
+
+// Debug view: the raw map over the whole frame, in place of the lit result.
+function drawLightDebugMap(mainCtx) {
+  const img = lightDebug === 1 ? lightMulImg : lightScrImg;
+  mainCtx.save();
+  mainCtx.fillStyle = '#000';
+  mainCtx.fillRect(0, 0, VIEW_W, VIEW_H);
+  mainCtx.imageSmoothingEnabled = true;
+  mainCtx.drawImage(img, wx(0), wy(0));
+  mainCtx.restore();
+}
+
+// ─────────────────────────────────────────────────────────
 //  MAIN RENDER  —  Y-SORT  (depth sort by baseY)
 //
 //  How Y-sorting creates correct layering:
@@ -2628,23 +2866,28 @@ function render() {
   // Build render list
   const renderList = [];
 
+  // Each entry: fn = the sprite (lit by the night passes), ui = name tag / chat
+  // bubble / [E] prompt (never lit; drawn after the lighting, in the same depth order).
   for (const obj of sceneObjects) {
+    const onScreen = () => {
+      const sx = wx(obj.x), sy = wy(obj.y);
+      return !(sx + obj.w < 0 || sx > VIEW_W || sy + obj.h < 0 || sy > VIEW_H); // cull off-screen objects
+    };
     renderList.push({
       baseY: obj.baseY,
       fn: () => {
+        if (!onScreen()) return;
         const sx = wx(obj.x);
         const sy = wy(obj.y);
-        // Cull off-screen objects
-        if (sx + obj.w < 0 || sx > VIEW_W) return;
-        if (sy + obj.h < 0 || sy > VIEW_H) return;
-
         ctx.imageSmoothingEnabled = false;
         if (obj.img && obj.img.complete && obj.img.naturalWidth > 0) {
           ctx.drawImage(obj.img, sx, sy, obj.w, obj.h);
         } else {
           obj.draw(ctx, sx, sy);
         }
-
+      },
+      ui: () => {
+        if (!onScreen()) return;
         // Interaction prompt — minimized pip always shown for interactables,
         // expands into full [E] Label badge as the player approaches.
         if (obj.interactable && !popupOpen && !tvOpen) {
@@ -2654,27 +2897,47 @@ function render() {
           if (Math.abs(target - obj.promptT) < 0.001) obj.promptT = target;
           drawInteractPrompt(obj, obj.promptT);
         }
-      }
+      },
     });
   }
 
   // Add player to sort list
-  renderList.push({ baseY: playerBaseY(), fn: drawPlayer });
+  renderList.push({ baseY: playerBaseY(), fn: drawPlayer, ui: drawPlayerUI });
 
   for (const rp of remotePlayers.values()) {
     const rpBaseY = rp.y + FEET_OY + FEET_H;
-    renderList.push({ baseY: rpBaseY, fn: () => drawRemotePlayer(rp) });
+    renderList.push({ baseY: rpBaseY, fn: () => drawRemotePlayer(rp), ui: () => drawRemotePlayerUI(rp) });
   }
 
   for (const npc of npcs) {
-    renderList.push({ baseY: npc.baseY, fn: () => drawNPC(npc) });
+    renderList.push({ baseY: npc.baseY, fn: () => drawNPC(npc), ui: () => drawNPCUI(npc) });
   }
 
   // Sort by Y depth
   renderList.sort((a, b) => a.baseY - b.baseY);
 
-  // Draw all
-  for (const item of renderList) item.fn();
+  if (!lightingReady()) {
+    // Day mode (NIGHT_LIGHTING off), or the night maps haven't loaded yet:
+    // exactly the original single pass, sprite then its UI, in depth order.
+    for (const item of renderList) { item.fn(); item.ui(); }
+  } else {
+    // Night mode: sprites onto their own layer (same depth order), lit, composited
+    // over the background; then the TV glow over everything; then the unlit UI.
+    const mainCtx = ctx;
+    layerCtx.clearRect(0, 0, VIEW_W, VIEW_H);
+    ctx = layerCtx;
+    try { for (const item of renderList) item.fn(); }
+    finally { ctx = mainCtx; }
+
+    if (lightDebug === 0) {
+      compositeLitLayer(mainCtx);
+      drawTvGlow(mainCtx, performance.now());
+    } else {
+      drawLightDebugMap(mainCtx);
+    }
+    ctx.imageSmoothingEnabled = false;
+    for (const item of renderList) item.ui();
+  }
 
   // ── DEBUG OVERLAY (press ` backtick to toggle) ──────────
   if (debugOn) {
@@ -2736,6 +2999,9 @@ function render() {
     // Debug label top-right
     ctx.fillStyle = '#f9c74f'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
     ctx.fillText('[ ` ] DEBUG ON', VIEW_W - 6, dbgBtm - 30);
+    if (NIGHT_LIGHTING) {
+      ctx.fillText(`[ L ] LIGHT: ${['LIT (normal)', 'MULTIPLY MAP ONLY', 'SCREEN MAP ONLY'][lightDebug]}${lightingReady() ? '' : ' (maps not active)'}`, VIEW_W - 6, dbgBtm - 14);
+    }
   }
 
 
@@ -2777,6 +3043,7 @@ function resizeGame() {
   // Uniform scale transform: game coords → physical pixels
   ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
+  resizeLightLayers(scale * dpr);   // sprite + lit layers match the canvas backing store
 
   // Visible slice: how many game-px fit on screen vertically, and where screen
   // top lands in canvas game-space. Used by camera clamping and HUD placement.
