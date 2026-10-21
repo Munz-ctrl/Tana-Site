@@ -82,7 +82,7 @@
   let musicWant = null;            // key the page asked for (setMusic)
   let musicKey = null;             // key actually playing
   let musicFactor = 1;             // dip multiplier (wave-start build etc.)
-  let musicRate = 1, musicRateTimer = 0;
+  let musicRate = 1;
   const buffers   = {};   // name -> AudioBuffer | null (null = failed → silent)
   const lastStart = {};   // name -> performance.now() of last accepted start
   const voices    = {};   // name -> live voice count
@@ -427,7 +427,7 @@
       const fresh = musicKey !== musicWant;           // new start → fade in from silence
       musicKey = musicWant;
       if (fresh) { musicEl.currentTime = 0; trimTo(0, 0); }
-      musicEl.playbackRate = musicRate;
+      if (musicEl.playbackRate !== musicRate) musicEl.playbackRate = musicRate; // only if it differs
       const p = musicEl.play();
       if (p && p.catch) p.catch(() => { musicKey = fresh ? null : musicKey; }); // refused (no gesture yet) → the next gesture retries
       if (fresh) trimTo(musicLevel() * musicFactor, MUSIC_FADE_IN_S);
@@ -462,19 +462,14 @@
     if (musicKey) trimTo(musicLevel() * musicFactor, (rampMs || 0) / 1000);
   }
 
-  // Ease the loop's playbackRate to `rate` over rampMs (small steps every ~50 ms). Pitch stays put (preservesPitch).
-  function setMusicRate(rate, rampMs) {
-    const target = Math.max(0.25, Math.min(4, rate));
-    clearInterval(musicRateTimer); musicRateTimer = 0;
-    const from = musicRate, steps = Math.max(1, Math.round((rampMs || 0) / 50));
-    const apply = v => { musicRate = v; if (musicEl) { try { musicEl.playbackRate = v; } catch (_) {} } };
-    if (!rampMs || rampMs <= 0 || from === target) { apply(target); return; }
-    let i = 0;
-    musicRateTimer = setInterval(() => {
-      i++;
-      apply(i >= steps ? target : from + (target - from) * (i / steps));
-      if (i >= steps) { clearInterval(musicRateTimer); musicRateTimer = 0; }
-    }, 50);
+  // Set the loop's playbackRate ONCE. Never stepped / ramped: with preservesPitch on, every playbackRate
+  // change restarts the browser's time-stretcher (dropouts, main-thread hitches — worst on iOS Safari).
+  // The rampMs argument is accepted and ignored, so older call sites still work.
+  function setMusicRate(rate /*, rampMs ignored */) {
+    const v = Math.max(0.25, Math.min(4, rate));
+    if (v === musicRate) return;
+    musicRate = v;
+    if (musicEl) { try { musicEl.playbackRate = v; } catch (_) {} }
   }
 
   function duckMusic(on) {
