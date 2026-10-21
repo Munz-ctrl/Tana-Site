@@ -61,8 +61,12 @@
     shotgun_pump:     { file: 'assets/sfx/shotgun_pump_new.mp3',     vol: 0.7, pitchVar: 0.02, minGap: 0,   maxVoices: 2 },
     dry_fire:         { file: 'assets/sfx/dry_fire_new.mp3',         vol: 0.4, pitchVar: 0.05, minGap: 250, maxVoices: 1 },
   };
-  const MUSIC = { room1: null, room2: null };  // placeholders — tracks get re-added later (path string, looped)
-  const SFX_VOLUME = 0.8, MUSIC_VOLUME = 0.4;
+  // Background music: one seamless loop (80 bars @ 146 BPM, 131.507 s), played through an
+  // HTMLAudioElement routed into musicGain, so mute / ducking / the volume below all act on it.
+  const MUSIC = { room1: 'assets/music/tana_beat_loop.mp3', room2: 'assets/music/tana_beat_loop.mp3' };
+  const MUSIC_VOLUME_ROOM1 = 0.25, MUSIC_VOLUME_ROOM2 = 0.20; // per-room level (sfx are untouched)
+  const MUSIC_FADE_IN_S = 1.5;                                // fade in when it starts
+  const SFX_VOLUME = 0.8;
 
   const MUTE_KEY        = 'tana-muted';
   const LEGACY_MUTE_KEY = 'tana-bgm-muted';
@@ -72,7 +76,13 @@
   let ctx = null, master = null, sfxGain = null, limiter = null, musicGain = null;
   let muted = false;
   let musicDucked = false;
-  let musicKey = null, musicSrc = null, musicBufCache = {};
+  // Music: an <audio> element (created lazily after page load) → MediaElementSource →
+  // musicTrim (per-room level, fades, dips) → musicGain (duck / TV) → master (mute).
+  let musicEl = null, musicSrcNode = null, musicTrim = null;
+  let musicWant = null;            // key the page asked for (setMusic)
+  let musicKey = null;             // key actually playing
+  let musicFactor = 1;             // dip multiplier (wave-start build etc.)
+  let musicRate = 1, musicRateTimer = 0;
   const buffers   = {};   // name -> AudioBuffer | null (null = failed → silent)
   const lastStart = {};   // name -> performance.now() of last accepted start
   const voices    = {};   // name -> live voice count
@@ -124,7 +134,10 @@
       musicGain = ctx.createGain();
       master.gain.value    = muted ? 0 : 1;
       sfxGain.gain.value   = SFX_VOLUME;
-      musicGain.gain.value = musicDucked ? 0 : MUSIC_VOLUME;
+      musicGain.gain.value = musicDucked ? 0 : 1;
+      musicTrim = ctx.createGain();
+      musicTrim.gain.value = 0;
+      musicTrim.connect(musicGain);
       // Soft limiter on the SFX bus only (music is unaffected) so stacked
       // full-auto shots with gain > 1 don't clip the master.
       limiter = ctx.createDynamicsCompressor();
@@ -198,6 +211,7 @@
       s.connect(ctx.destination);
       s.start(0);
     } catch (_) {}
+    kickMusic();   // iOS only lets media start inside the gesture — so start the music right here
     return r;
   }
 
@@ -215,7 +229,7 @@
     // first resume() can leave us suspended — the listeners stay armed
     // until state actually reaches 'running'.
     ctx.onstatechange = () => {
-      if (ctx.state === 'running') events.forEach(e => global.removeEventListener(e, unlock, true));
+      if (ctx.state === 'running') { events.forEach(e => global.removeEventListener(e, unlock, true)); kickMusic(); }
     };
   }
 
@@ -224,11 +238,13 @@
       if (!ctx) return;
       try {
         if (document.hidden) {
+          if (musicEl && !musicEl.paused) musicEl.pause();     // keep the loop's position; resume on return
           const r = ctx.suspend();
           if (r && r.catch) r.catch(() => {});
         } else {
           const r = ctx.resume();
           if (r && r.catch) r.catch(() => {});
+          kickMusic();
         }
       } catch (_) {}
     });
@@ -369,42 +385,102 @@
     }
   }
 
-  // ── Music (stubs while MUSIC[key] is null) ───────────────
-  function stopMusic() {
-    musicKey = null;
-    if (musicSrc) {
-      try { musicSrc.stop(); musicSrc.disconnect(); } catch (_) {}
-      musicSrc = null;
-    }
+  // ── Music ────────────────────────────────────────────────
+  const musicLevel = () => (musicKey || musicWant) === 'room2' ? MUSIC_VOLUME_ROOM2 : MUSIC_VOLUME_ROOM1;
+
+  // Ramp the trim gain to `v` over `sec` seconds, from wherever it is now (no clicks).
+  function trimTo(v, sec) {
+    if (!ctx || !musicTrim) return;
+    try {
+      const g = musicTrim.gain, t = ctx.currentTime;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      if (sec > 0) g.linearRampToValueAtTime(v, t + sec); else g.setValueAtTime(v, t);
+    } catch (_) {}
   }
 
+  // Create the <audio> element + graph nodes. Lazily, once the page has loaded, so music never delays startup.
+  function ensureMusicEl() {
+    if (musicEl || !ctx || !musicWant || !MUSIC[musicWant]) return;
+    try {
+      const a = new Audio();
+      a.loop = true;
+      a.preload = 'auto';
+      a.crossOrigin = 'anonymous';
+      a.preservesPitch = a.webkitPreservesPitch = a.mozPreservesPitch = true; // tempo changes never change pitch
+      a.src = MUSIC[musicWant];
+      a.playbackRate = musicRate;
+      musicEl = a;
+      musicSrcNode = ctx.createMediaElementSource(a);   // iOS ignores audio.volume — the gain nodes do the volume
+      musicSrcNode.connect(musicTrim);
+      a.addEventListener('error', () => warnOnce(a.src, 'music failed to load'));
+    } catch (e) { musicEl = null; }
+  }
+
+  // Start (or resume) playback if the page wants music and the context is unlocked.
+  // Called inside user gestures (nudge) and on context-running / visible events.
+  function kickMusic() {
+    try {
+      if (!ctx || !musicWant) return;
+      ensureMusicEl();
+      if (!musicEl || !musicEl.paused && musicKey === musicWant) return;
+      const fresh = musicKey !== musicWant;           // new start → fade in from silence
+      musicKey = musicWant;
+      if (fresh) { musicEl.currentTime = 0; trimTo(0, 0); }
+      musicEl.playbackRate = musicRate;
+      const p = musicEl.play();
+      if (p && p.catch) p.catch(() => { musicKey = fresh ? null : musicKey; }); // refused (no gesture yet) → the next gesture retries
+      if (fresh) trimTo(musicLevel() * musicFactor, MUSIC_FADE_IN_S);
+    } catch (_) {}
+  }
+
+  // Ask for a track. Starts at once if audio is unlocked, otherwise on the first tap / click / key.
   function setMusic(key) {
     try {
       if (!ctx) return;
-      if (musicKey === key && musicSrc) return;
-      stopMusic();
-      musicKey = key;
-      const file = MUSIC[key];
-      if (!file) return; // no track configured yet — nothing to do
-      const ready = musicBufCache[file]
-        ? Promise.resolve(musicBufCache[file])
-        : loadBuffer(file).then(b => (musicBufCache[file] = b));
-      ready.then(buf => {
-        if (musicKey !== key || musicSrc) return; // superseded while loading
-        const src = ctx.createBufferSource();
-        src.buffer = buf;
-        src.loop = true;
-        src.connect(musicGain);
-        src.start(0);
-        musicSrc = src;
-      }).catch(err => warnOnce(file, err && err.message ? err.message : 'decode failed'));
+      if (musicWant === key && musicKey === key) return;
+      musicWant = key;
+      if (document.readyState === 'complete') ensureMusicEl();
+      else global.addEventListener('load', () => setTimeout(() => { ensureMusicEl(); if (ctx.state === 'running') kickMusic(); }, 0), { once: true });
+      if (ctx.state === 'running') kickMusic();
     } catch (_) {}
+  }
+
+  // Stop the music, optionally fading out over fadeMs first. A later setMusic() starts it again from the top.
+  function stopMusic(fadeMs) {
+    musicWant = null;
+    const el = musicEl;
+    if (!el || musicKey === null) { musicKey = null; return; }
+    musicKey = null;
+    const done = () => { if (musicKey === null) { try { el.pause(); el.currentTime = 0; } catch (_) {} } };
+    if (fadeMs > 0) { trimTo(0, fadeMs / 1000); setTimeout(done, fadeMs + 60); } else { trimTo(0, 0); done(); }
+  }
+
+  // Dip the music to `factor` (e.g. 0.6) of its level, easing over rampMs. factor 1 = back to normal.
+  function dipMusic(factor, rampMs) {
+    musicFactor = factor;
+    if (musicKey) trimTo(musicLevel() * musicFactor, (rampMs || 0) / 1000);
+  }
+
+  // Ease the loop's playbackRate to `rate` over rampMs (small steps every ~50 ms). Pitch stays put (preservesPitch).
+  function setMusicRate(rate, rampMs) {
+    const target = Math.max(0.25, Math.min(4, rate));
+    clearInterval(musicRateTimer); musicRateTimer = 0;
+    const from = musicRate, steps = Math.max(1, Math.round((rampMs || 0) / 50));
+    const apply = v => { musicRate = v; if (musicEl) { try { musicEl.playbackRate = v; } catch (_) {} } };
+    if (!rampMs || rampMs <= 0 || from === target) { apply(target); return; }
+    let i = 0;
+    musicRateTimer = setInterval(() => {
+      i++;
+      apply(i >= steps ? target : from + (target - from) * (i / steps));
+      if (i >= steps) { clearInterval(musicRateTimer); musicRateTimer = 0; }
+    }, 50);
   }
 
   function duckMusic(on) {
     musicDucked = !!on;
     if (!ctx) return;
-    try { musicGain.gain.setTargetAtTime(musicDucked ? 0 : MUSIC_VOLUME, ctx.currentTime, DUCK_TC); } catch (_) {}
+    try { musicGain.gain.setTargetAtTime(musicDucked ? 0 : 1, ctx.currentTime, DUCK_TC); } catch (_) {}
   }
 
   // ── Public API ───────────────────────────────────────────
@@ -422,11 +498,20 @@
     duration: (name) => (buffers[name] ? buffers[name].duration : 0),
     setMusic,
     stopMusic,
+    setMusicRate,
+    dipMusic,
     duckMusic,
     isMuted:    () => muted,
     setMuted,
     toggleMute: () => setMuted(!muted),
     onMuteChange(fn) { if (typeof fn === 'function') muteListeners.push(fn); },
+    // Debug helper: what the music engine is doing.
+    musicStatus: () => ({
+      want: musicWant, playing: !!musicEl && !musicEl.paused, key: musicKey, rate: musicRate,
+      elRate: musicEl ? musicEl.playbackRate : null, preservesPitch: musicEl ? musicEl.preservesPitch : null,
+      time: musicEl ? musicEl.currentTime : null, level: musicTrim ? musicTrim.gain.value : null,
+      duck: musicGain ? musicGain.gain.value : null, master: master ? master.gain.value : null, ready: musicEl ? musicEl.readyState : null,
+    }),
     // Debug helper: which configured SFX files are decoded vs. silent.
     status() {
       const loaded = [], failed = [];

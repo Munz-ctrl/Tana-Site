@@ -2587,6 +2587,33 @@ let waveTotalCount   = 0;
 let waveSpawnedCount = 0;
 let lastSpawnTime    = 0;
 
+// ─────────────────────────────────────────────────────────
+//  MUSIC TEMPO — the loop (assets/music/tana_beat_loop.mp3, played by audio.js) speeds up
+//  with the waves, pitch unchanged: a slow start, normal speed at wave 8, a bit faster
+//  up to wave 16, then capped. The new rate is applied (eased over MUSIC_RATE_RAMP_MS)
+//  when each wave's INTRO banner begins.
+// ─────────────────────────────────────────────────────────
+const MUSIC_RATE_START       = 0.85;  // wave 1
+const MUSIC_RATE_NORMAL      = 1.00;  // reached at wave 8
+const MUSIC_RATE_NORMAL_WAVE = 8;
+const MUSIC_RATE_MAX         = 1.12;  // reached at wave 16, capped after
+const MUSIC_RATE_MAX_WAVE    = 16;
+const MUSIC_RATE_RAMP_MS     = 2000;
+const MUSIC_WAVE_DIP         = 0.6;   // music level while wave_start.mp3's 5 s build plays
+const MUSIC_DIP_IN_MS        = 200, MUSIC_DIP_OUT_MS = 500;
+const MUSIC_GAMEOVER_RATE    = 0.6;   // "record powering down"
+const MUSIC_GAMEOVER_FADE_MS = 1500;
+
+function musicRateForWave(n) {
+  if (n <= 1) return MUSIC_RATE_START;
+  if (n < MUSIC_RATE_NORMAL_WAVE)
+    return MUSIC_RATE_START + (MUSIC_RATE_NORMAL - MUSIC_RATE_START) * (n - 1) / (MUSIC_RATE_NORMAL_WAVE - 1);
+  if (n < MUSIC_RATE_MAX_WAVE)
+    return MUSIC_RATE_NORMAL + (MUSIC_RATE_MAX - MUSIC_RATE_NORMAL) * (n - MUSIC_RATE_NORMAL_WAVE) / (MUSIC_RATE_MAX_WAVE - MUSIC_RATE_NORMAL_WAVE);
+  return MUSIC_RATE_MAX;
+}
+TanaAudio.setMusicRate(MUSIC_RATE_START, 0); // wave-1 tempo from the first note
+
 // ── TAP TO FIGHT ──
 // Room 1 → here is a full page load, so this page's AudioContext starts
 // suspended until a gesture on THIS page. If it's still locked when the intro
@@ -2605,6 +2632,7 @@ function showTapPrompt(onGo) {
     if (busy) return;           // pointerup + touchend + click all fire for one tap
     busy = true;
     if (e.type === 'touchend') e.preventDefault(); // no ghost click on whatever is underneath
+    TanaAudio.setMusic('room2');   // music starts with the fight (this gesture unlocks audio and starts it)
     await TanaAudio.resume();   // resume() is called synchronously, inside the gesture
     // Esc / Shift / etc. can't unlock audio — keep waiting for a real gesture.
     if (e.type === 'keydown' && TanaAudio.state() === 'suspended') { busy = false; return; }
@@ -2623,12 +2651,23 @@ function showTapPrompt(onGo) {
 // WAVE_START_HIT_SEC before that; if that moment has already passed (wave 1,
 // restarts) it starts immediately, offset by how late we are.
 let waveStartVoice = null;
+let waveDipTimers = [];
+function clearWaveDip() { waveDipTimers.forEach(clearTimeout); waveDipTimers = []; TanaAudio.dipMusic(1, 0); }
 function scheduleWaveStartSfx(spawnStartMs) {
   if (waveStartVoice) waveStartVoice.stop();
+  clearWaveDip();
   const startInMs = (spawnStartMs - WAVE_START_HIT_SEC * 1000) - performance.now();
   waveStartVoice = startInMs >= 0
     ? TanaAudio.play('wave_start', { delay: startInMs / 1000 })
     : TanaAudio.play('wave_start', { offset: -startInMs / 1000 });
+  // Duck the music to 60% while the build plays, then ease back over 0.5 s.
+  const lenMs = TanaAudio.duration('wave_start') * 1000;
+  if (lenMs > 0) {
+    const dipAt = Math.max(0, startInMs);
+    const endAt = dipAt + (startInMs >= 0 ? lenMs : lenMs + startInMs);
+    waveDipTimers.push(setTimeout(() => TanaAudio.dipMusic(MUSIC_WAVE_DIP, MUSIC_DIP_IN_MS), dipAt));
+    waveDipTimers.push(setTimeout(() => TanaAudio.dipMusic(1, MUSIC_DIP_OUT_MS), Math.max(dipAt, endAt)));
+  }
 }
 
 // "+50" wave-clear bonus popup — drawn by drawWaveBanner().
@@ -2643,6 +2682,8 @@ function waveZombieCount(wave) {
 function startWave(n) {
   if (n === 1) runStartAt = performance.now(); // run clock: wave 1 start, after any TAP TO FIGHT wait
   waveNumber       = n;
+  // New wave's INTRO banner begins: ease the music to this wave's tempo (instant for wave 1 / a fresh run).
+  TanaAudio.setMusicRate(musicRateForWave(n), n === 1 ? 0 : MUSIC_RATE_RAMP_MS);
   waveState        = 'INTRO';
   waveStateSince   = performance.now();
   waveTotalCount   = waveZombieCount(n);
@@ -2737,6 +2778,7 @@ bgImg.onload = () => {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     playIntroPixelation(() => {
       const beginWave1 = () => {
+        TanaAudio.setMusic('room2');   // no-op if the tap already started it
         // Spawning begins GAME_START_BUFFER_MS + intro from now.
         scheduleWaveStartSfx(performance.now() + GAME_START_BUFFER_MS + WAVE_INTRO_DURATION);
         setTimeout(() => {
@@ -2999,7 +3041,6 @@ window.addEventListener('keydown', e => {
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
   muteToggle.click();
 });
-TanaAudio.setMusic('room2');
 
 // ─────────────────────────────────────────────────────────
 //  INPUT — virtual joystick (same pattern as room 1)
@@ -4395,6 +4436,9 @@ function triggerGameOver() {
   if (hose.voice) { hose.voice.stop(80); hose.voice = null; }
   hoseBeam.alpha = 0;
   if (waveStartVoice) { waveStartVoice.stop(); waveStartVoice = null; }
+  clearWaveDip();
+  TanaAudio.setMusicRate(MUSIC_GAMEOVER_RATE, MUSIC_GAMEOVER_FADE_MS); // "record powering down"
+  TanaAudio.stopMusic(MUSIC_GAMEOVER_FADE_MS);
   // NO-HEAL bonus: never bought a potion → +10% on the final score. Applied
   // to `score` BEFORE the overlay shows / submission runs, so FINAL is what
   // gets submitted and ranked on the leaderboard.
@@ -4452,6 +4496,8 @@ function resetGame() {
   ejecta.length = 0;
   lastDryFireAt = -1e9;
 
+  TanaAudio.setMusicRate(MUSIC_RATE_START, 0);
+  TanaAudio.setMusic('room2');   // PLAY AGAIN: the music restarts from the top at wave-1 tempo
   gameOver = false;
   gameStarted = true; // in case this fires before the initial startup buffer's setTimeout does
   scorePopup = null;

@@ -1951,9 +1951,9 @@ function startRoomTransition() {
 //  • The ♪ button and 'M' toggle a master mute (sfx + music), persisted
 //    to localStorage 'tana-muted' (the old 'tana-bgm-muted' value is
 //    migrated by audio.js on first load).
-//  • Music is a stub for now: setMusic()/duckMusic() do nothing until a
-//    track is configured in MUSIC at the top of audio.js. The TV open /
-//    close calls already duck it, so ducking works once music returns.
+//  • Music: the seamless beat loop (assets/music/tana_beat_loop.mp3) at normal speed.
+//    setMusic() only asks for it — audio.js starts it on the first tap / click / key
+//    (browsers keep audio locked until then). The TV popup ducks it via duckMusic().
 // ─────────────────────────────────────────────────────────
 const bgmToggle = document.getElementById('bgm-toggle');
 // "📲 FULL SCREEN" HUD button next to the mute button (touch browsers only; reopens the install popup).
@@ -1970,7 +1970,8 @@ bgmToggle.addEventListener('click', () => {
   if (!TanaAudio.isMuted()) TanaAudio.play('ui_click'); // confirm un-mute only
 });
 
-TanaAudio.setMusic('room1');
+TanaAudio.setMusicRate(1, 0);   // room 1 always plays at normal speed
+TanaAudio.setMusic('room1');   // starts on unlock (first tap / click / key), fades in over 1.5 s
 
 // 'M' keyboard shortcut. Ignore when typing into inputs.
 window.addEventListener('keydown', e => {
