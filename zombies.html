@@ -8,11 +8,15 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png">
   <link rel="manifest" href="/site.webmanifest">
   <meta name="apple-mobile-web-app-title" content="TANA.EXE">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#05050a">
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="assets/audio.js"></script>
   <script src="assets/leaderboard.js"></script>
+  <script src="assets/install.js"></script>
   <script>
     // If audio.js ever fails to load, every TanaAudio call becomes a harmless no-op.
     window.TanaAudio = window.TanaAudio || new Proxy({}, { get: () => () => null });
@@ -99,6 +103,8 @@
     #rotate-sub { font-size: 6px; color: #333355; letter-spacing: 1px; }
     @media (hover: none) and (pointer: coarse) and (orientation: portrait) {
       #rotate-screen { display: flex; }
+      /* nothing may render on top of the ROTATE DEVICE screen: hide every touch control */
+      #touch-ui, #ti-hud { display: none !important; }
     }
 
     canvas {
@@ -413,6 +419,8 @@
     #go-playagain-btn { margin-top: 4px; border-color: #e94560; color: #e94560; background: rgba(233,69,96,0.08); }
     #go-playagain-btn:hover { background: rgba(233,69,96,0.22); }
     #go-crib-btn { margin-top: 8px; }
+    #go-install { margin-top: 10px; font-size: 6px; color: #7a8099; letter-spacing: 1px; }
+    #go-install u { color: #f9c74f; cursor: pointer; padding: 6px 4px; }
 
     /* ── TAP TO FIGHT — shown after the intro when audio is still locked ── */
     #tap-prompt {
@@ -441,7 +449,7 @@
     /* ── Master mute toggle (same look as room 1's; sits under the HUD line) ── */
     #mute-toggle {
       position: fixed;
-      top: 32px; right: 8px;
+      top: calc(env(safe-area-inset-top, 0px) + 32px); right: calc(env(safe-area-inset-right, 0px) + 8px);
       width: 24px; height: 24px;
       background: rgba(5,5,10,0.72);
       border: 1px solid #f9c74f;
@@ -549,6 +557,7 @@
 
     <button id="go-playagain-btn">PLAY AGAIN</button>
     <button id="go-crib-btn">GO BACK TO THE CRIB</button>
+    <div id="go-install" style="display:none">NEXT RUN IN FULL SCREEN? <u id="go-install-how">HOW</u></div>
   </div>
 </div>
 
@@ -575,6 +584,9 @@ const VIEW_W = 1537;
 const VIEW_H = 768;
 
 let SCREEN_W = VIEW_W;
+// Left/right safe-area insets in canvas (view) units, so the canvas HUD clears a notch in
+// standalone/landscape. Refreshed by resizeGame().
+let HUD_L = 0, HUD_R = 0;
 let SCREEN_H = VIEW_H;
 
 // ── Player geometry — hardcoded to the actual on-screen pixel size
@@ -3757,11 +3769,11 @@ function drawHUD() {
   ctx.fillStyle = '#e94560';
   ctx.font = '9px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText('▸ ZOMBIE STREET', 8, CROP_TOP + 10);
+  ctx.fillText('▸ ZOMBIE STREET', 8 + HUD_L, CROP_TOP + 10);
 
   ctx.textAlign = 'right';
   const remaining = zombies.length + Math.max(0, waveTotalCount - waveSpawnedCount);
-  ctx.fillText(`WAVE ${waveNumber}  ·  ${remaining} LEFT`, VIEW_W - 8, CROP_TOP + 10);
+  ctx.fillText(`WAVE ${waveNumber}  ·  ${remaining} LEFT`, VIEW_W - 8 - HUD_R, CROP_TOP + 10);
 
   // Second HUD row — HP bar (left) + score (right)
   const rowY = CROP_TOP + 26;
@@ -3769,15 +3781,15 @@ function drawHUD() {
   const shownHp = displayedHp(performance.now());
   const hpFrac = Math.max(0, shownHp / PLAYER_MAX_HP);
   ctx.fillStyle = 'rgba(20,5,10,0.7)';
-  ctx.fillRect(8, rowY, barW, barH);
+  ctx.fillRect(8 + HUD_L, rowY, barW, barH);
   ctx.fillStyle = hpFrac > 0.35 ? '#4ecca3' : '#e94560';
-  ctx.fillRect(8, rowY, barW * hpFrac, barH);
+  ctx.fillRect(8 + HUD_L, rowY, barW * hpFrac, barH);
   ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1;
-  ctx.strokeRect(8, rowY, barW, barH);
+  ctx.strokeRect(8 + HUD_L, rowY, barW, barH);
   ctx.fillStyle = '#e0e0e0';
   ctx.font = '7px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText(`${Math.ceil(shownHp)}/${PLAYER_MAX_HP}`, 8 + barW + 8, rowY + barH / 2 + 1);
+  ctx.fillText(`${Math.ceil(shownHp)}/${PLAYER_MAX_HP}`, 8 + HUD_L + barW + 8, rowY + barH / 2 + 1);
 
   // SCORE — top center, ~2× the other HUD text, gold, with a dark outline so
   // it reads over the street. (Clear of the left title / right WAVE text and
@@ -3815,7 +3827,7 @@ function drawHUD() {
     ctx.fillStyle = '#4ecca3';
     ctx.font = '7px "Press Start 2P"';
     ctx.textAlign = 'left';
-    ctx.fillText(`NO-HEAL +${Math.round(NO_HEAL_BONUS_FRACTION * 100)}%`, 8, rowY + barH + 10);
+    ctx.fillText(`NO-HEAL +${Math.round(NO_HEAL_BONUS_FRACTION * 100)}%`, 8 + HUD_L, rowY + barH + 10);
   }
 
   // Mobile weapon row (DOM) — kept in sync every frame; cheap, it only touches the DOM on change.
@@ -4112,6 +4124,8 @@ function resizeGame() {
   SCREEN_H = vp ? vp.height : window.innerHeight;
 
   const scale = SCREEN_W / VIEW_W;
+  // Safe-area insets (notch) → view units, for the canvas HUD text.
+  if (window.TanaInstall) { const si = TanaInstall.safeInsets(); HUD_L = si.l / scale; HUD_R = si.r / scale; }
   const cssH  = VIEW_H * scale;
 
   canvas.style.width  = SCREEN_W + 'px';
@@ -4329,6 +4343,7 @@ function showGameOverOverlay() {
   goSubmitBtn.disabled = false;
   goSubmitStatus.textContent = '';
   goSession++;
+  goInstallLine.style.display = (window.TanaInstall && TanaInstall.touchBrowser()) ? '' : 'none';
   goShownAt = performance.now();
   clearTimeout(goAckTimer);
   goLastRun = null;
@@ -4454,6 +4469,11 @@ function goToCrib() {
   location.href = '/';
 }
 goCribBtn.addEventListener('click', () => { TanaAudio.play('ui_click'); goToCrib(); });
+
+// Game over, touch browser (not installed): "NEXT RUN IN FULL SCREEN? HOW" opens the install popup.
+// Only ever opened by the player's tap — never during gameplay.
+const goInstallLine = document.getElementById('go-install');
+document.getElementById('go-install-how').addEventListener('click', () => { TanaAudio.play('ui_click'); if (window.TanaInstall) TanaInstall.open(); });
 
 // ─────────────────────────────────────────────────────────
 //  GAME LOOP

@@ -6,7 +6,9 @@
     { "src": "/assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
   ],
   "start_url": "/",
-  "display": "browser",
+  "display": "standalone",
+  "orientation": "landscape",
+  "scope": "/",
   "background_color": "#05050a",
   "theme_color": "#05050a"
 }

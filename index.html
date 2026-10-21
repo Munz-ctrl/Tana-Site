@@ -8,6 +8,9 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png">
   <link rel="manifest" href="/site.webmanifest">
   <meta name="apple-mobile-web-app-title" content="TANA.EXE">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#05050a">
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -96,6 +99,8 @@
     }
     @media (hover: none) and (pointer: coarse) and (orientation: portrait) {
       #rotate-screen { display: flex; }
+      /* nothing may render on top of the ROTATE DEVICE screen: hide every touch control */
+      #touch-ui, #ti-hud { display: none !important; }
     }
 
     canvas {
@@ -469,7 +474,7 @@
     /* ── Soundtrack mute toggle ── */
     #bgm-toggle {
       position: fixed;
-      top: 8px; right: 8px;
+      top: calc(env(safe-area-inset-top, 0px) + 8px); right: calc(env(safe-area-inset-right, 0px) + 8px);
       width: 24px; height: 24px;
       background: rgba(5,5,10,0.72);
       border: 1px solid #f9c74f;
@@ -789,6 +794,7 @@
 
 <script src="assets/audio.js"></script>
 <script src="assets/leaderboard.js"></script>
+<script src="assets/install.js"></script>
 <script>
 // If audio.js ever fails to load, every TanaAudio call becomes a harmless no-op.
 window.TanaAudio = window.TanaAudio || new Proxy({}, { get: () => () => null });
@@ -874,6 +880,9 @@ const VIEW_H = 768;
 // at native device resolution. VIEW_W/VIEW_H stay constant as the
 // logical world-camera coordinate space.
 let SCREEN_W = VIEW_W;
+// Left/right safe-area insets in canvas (view) units, so the canvas HUD clears a notch in
+// standalone/landscape. Refreshed by resizeGame().
+let HUD_L = 0, HUD_R = 0;
 let SCREEN_H = VIEW_H;
 
 // ── Player geometry (% of world height so it scales with image) ──
@@ -1947,6 +1956,8 @@ function startRoomTransition() {
 //    close calls already duck it, so ducking works once music returns.
 // ─────────────────────────────────────────────────────────
 const bgmToggle = document.getElementById('bgm-toggle');
+// "📲 FULL SCREEN" HUD button next to the mute button (touch browsers only; reopens the install popup).
+if (window.TanaInstall) TanaInstall.mountHudButton();
 
 function applyMuteUI() {
   bgmToggle.classList.toggle('muted', TanaAudio.isMuted() === true);
@@ -2661,9 +2672,9 @@ function drawHUD() {
   ctx.fillStyle = '#4ecca3';
   ctx.font = '9px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText('▸ TANA ROOM', 8, CROP_TOP + 10);
+  ctx.fillText('▸ TANA ROOM', 8 + HUD_L, CROP_TOP + 10);
   ctx.textAlign = 'right';
-  ctx.fillText('ONLINE: ' + (remotePlayers.size + 1), VIEW_W - 8, CROP_TOP + 10);
+  ctx.fillText('ONLINE: ' + (remotePlayers.size + 1), VIEW_W - 8 - HUD_R, CROP_TOP + 10);
 
   // Bottom action hint
   const near = getNearbyObject();
@@ -3053,6 +3064,8 @@ function resizeGame() {
   // clips the excess symmetrically. The camera shifts so the player stays on-screen.
   // On desktops (all ~16:9) the canvas fits the screen perfectly with no bars/crop.
   const scale = SCREEN_W / VIEW_W;
+  // Safe-area insets (notch) → view units, for the canvas HUD text.
+  if (window.TanaInstall) { const si = TanaInstall.safeInsets(); HUD_L = si.l / scale; HUD_R = si.r / scale; }
   const cssH  = VIEW_H * scale;   // may exceed SCREEN_H on wide phones
 
   canvas.style.width  = SCREEN_W + 'px';
@@ -3114,6 +3127,9 @@ setTimeout(resizeGame, 100);
     screen.remove();
     TanaAudio.play('ui_close');   // entry screen is an overlay — its dismissal is the close sound
     initMultiplayer();
+    // Mobile browser (not installed, not in-app): offer the full-screen / home-screen how-to once,
+    // unless dismissed in the last 3 days.
+    if (window.TanaInstall) TanaInstall.maybeShowAfterEntry();
   }
 
   confirmBtn.addEventListener('click', confirm);

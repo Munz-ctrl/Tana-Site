@@ -139,6 +139,8 @@
       kills: int0(kills),
       spent: int0(spent),
     };
+    // Run from the installed home-screen app → gets the gold APP tag on the board.
+    if (window.TanaInstall && window.TanaInstall.isStandalone) row.from_app = true;
     const { data, error } = await client().from(TABLE).insert(row).select('id').single();
     if (error) throw error;
     saveId(data.id);
@@ -148,7 +150,7 @@
 
   // Top 10 by score (ties: earliest first). tab = 'weekly' | 'alltime'.
   async function fetchTop(tab) {
-    let q = client().from(TABLE).select('id,name,score,wave');
+    let q = client().from(TABLE).select('id,name,score,wave,from_app');
     q = weeklyFilter(q, tab)
       .order('score', { ascending: false })
       .order('created_at', { ascending: true })
@@ -176,7 +178,7 @@
   async function myBest(tab) {
     const ids = myIds();
     if (!ids.length) return null;
-    let q = client().from(TABLE).select('id,name,score,wave').in('id', ids);
+    let q = client().from(TABLE).select('id,name,score,wave,from_app').in('id', ids);
     q = weeklyFilter(q, tab).order('score', { ascending: false }).limit(1);
     const { data, error } = await q;
     if (error) throw error;
@@ -225,7 +227,7 @@
 .tb-row .tb-r { flex-shrink: 0; }
 .tb-row.me { color: #fff; outline: 1px solid rgba(249,199,79,0.55); outline-offset: -1px; background: rgba(249,199,79,0.06); }
 .tb-row.hi { outline: 2px solid #f9c74f; outline-offset: -2px; background: rgba(249,199,79,0.16); box-shadow: 0 0 12px rgba(249,199,79,0.35); }
-.tb-you { font-size: 6px; background: #f9c74f; color: #0c0710; padding: 1px 3px; margin-left: 6px; }
+.tb-you, .tb-app { font-size: 6px; background: #f9c74f; color: #0c0710; padding: 1px 3px; margin-left: 6px; }
 .tb-div { border-top: 1px dashed #3a2430; margin: 6px 0 2px; }
 .tb-msg { font-size: 7px; color: #4a4a5a; padding: 4px 2px; }
 `;
@@ -242,6 +244,7 @@
   function rowEl(rank, r, mine, isHi, youLabel) {
     const li = el('li', 'tb-row' + (mine ? ' me' : '') + (isHi ? ' hi' : ''));
     const l = el('span', 'tb-l', youLabel ? `#${rank} YOU` : `#${rank} ${String(r.name || 'ANON').toUpperCase()}`);
+    if (r.from_app) l.appendChild(el('span', 'tb-app', 'APP'));   // played from the installed app
     if (mine && !youLabel) l.appendChild(el('span', 'tb-you', 'YOU'));
     li.appendChild(l);
     li.appendChild(el('span', 'tb-r', youLabel ? String(r.score) : `${r.score} (W${r.wave})`));
