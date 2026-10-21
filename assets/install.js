@@ -169,7 +169,7 @@
     const c = el('div', 'ti-chip');
     if (Array.isArray(content)) {
       const a = img(content[0], 'ti-land'), b = img(content[1], 'ti-port'); c.append(a, b);
-    } else if (/\.png$/.test(content)) c.appendChild(img(content));
+    } else if (/\.png$/.test(content)) { const i = img(content); if (content.indexOf('/') >= 0) i.src = content; c.appendChild(i); }
     else c.textContent = content;
     return c;
   }
@@ -195,16 +195,15 @@
   }
   function stepsFor(key) {
     const ios26 = iosMajor != null && iosMajor >= 26;
+    const APP_ICON = 'assets/icons/apple-touch-icon.png';
     const iosSteps = ios26 ? [
       { icon: ['icon_share.png', 'icon_more_safari.png'], text: ['Tap Share at the top', 'Tap ••• then Share'] },
-      { icon: 'icon_add_home.png', text: 'Tap "Add to Home Screen"' },
-      { icon: '✓', text: 'Keep "Open as Web App" ON, tap Add' },
-      { icon: 'icon_add_home.png', text: 'Open TANA.EXE from your home screen' },
+      { icon: 'icon_add_home.png', text: 'Tap "Add to Home Screen" and save as web app.' },
+      { icon: APP_ICON, text: 'Open TANA.EXE from your home screen' },
     ] : [
       { icon: 'icon_share.png', text: 'Tap Share' },
-      { icon: 'icon_add_home.png', text: 'Tap "Add to Home Screen"' },
-      { icon: '✓', text: 'Tap Add' },
-      { icon: 'icon_add_home.png', text: 'Open it from your home screen' },
+      { icon: 'icon_add_home.png', text: 'Tap "Add to Home Screen" and save as web app.' },
+      { icon: APP_ICON, text: 'Open it from your home screen' },
     ];
     if (key === 'A' || key === 'B' || key === 'C') return iosSteps;
     if (key === 'D') return deferredPrompt ? null : [
