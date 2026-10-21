@@ -25,7 +25,7 @@
   const SFX = {
     ui_open:       { file: 'assets/sfx/ui_open_new.mp3',       vol: 0.5,  pitchVar: 0,    minGap: 60,  maxVoices: 2 },
     ui_close:      { file: 'assets/sfx/ui_close.mp3',      vol: 0.5,  pitchVar: 0,    minGap: 60,  maxVoices: 2 },
-    ui_click:      { file: 'assets/sfx/ui_click.mp3',      vol: 0.45, pitchVar: 0.03, minGap: 50,  maxVoices: 2 },
+    ui_click:      { file: 'assets/sfx/ui_click_new.mp3',      vol: 0.45, pitchVar: 0.03, minGap: 50,  maxVoices: 2 },
     pistol:        { file: 'assets/sfx/pistol_new.mp3',        vol: 1.2,  pitchVar: 0.06, minGap: 0,   maxVoices: 4 },
     uzi:           { file: 'assets/sfx/zombie_hit_new.mp3',           vol: 0.9,  pitchVar: 0.08, minGap: 0,   maxVoices: 6 },
     // Falls back to the uzi sound at playbackRate 0.8 while draco.mp3 is missing.
