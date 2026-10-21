@@ -843,16 +843,19 @@ let   _worldChannel = null;
 const NIGHT_LIGHTING        = true;   // MASTER SWITCH. false = Room 1 exactly as before (day background, no lighting passes)
 const LIGHT_SCREEN_STRENGTH = 0.25;   // 0..1  strength of the screen (highlight) map on sprites
 const TV_GLOW_STRENGTH      = 0.85;   // 0..1  peak alpha of the tinted TV glow (screen blend) at normal brightness
-const TV_SAMPLE_HZ          = 4;      // how often the TV video's average colour is sampled
+const TV_SAMPLE_HZ          = 8;      // how often the TV video's average colour is sampled
 const TV_FLICKER_AMOUNT     = 0.12;   // 0..1  size of the subtle TV flicker (0 = steady)
-const TV_COLOR_SMOOTH_MS    = 450;    // glow colour eases toward each new sample over about this long (no strobing)
-const TV_FALLBACK_RGB       = [60, 200, 175]; // gentle teal, used while the video isn't ready / is paused
+const TV_COLOR_SMOOTH_MS    = 250;    // glow colour/brightness ease toward each new sample over about this long (short, so it tracks the video)
+const TV_SATURATION_BOOST   = 1.3;    // >1 pushes the video's colour away from grey, so red reads as a strong flame red
+const TV_LUMA_LO = 0.03, TV_LUMA_HI = 0.35; // video brightness (0..1) -> glow strength by smoothstep: <= LO no glow, >= HI full
+const TV_FALLBACK_RGB       = [60, 200, 175]; // gentle teal, used ONLY while the video isn't playing at all
 
 // Runtime state for the lighting passes (set up by resizeGame / render).
 let lightingOn   = NIGHT_LIGHTING;    // can drop to false if base_night.png fails to load
 let lightDebug   = 0;                 // debug view (backtick on, then L): 0 normal, 1 multiply map only, 2 screen map only
 let layerCanvas = null, layerCtx = null; // transparent layer the Y-sorted sprites are drawn onto
 let litCanvas   = null, litCtx   = null; // that layer after the multiply + screen passes
+let maskCanvas  = null, maskCtx  = null; // where `unlit: true` objects are visible (not covered by a lit sprite in front of them)
 
 // ─────────────────────────────────────────────────────────
 //  WORLD & VIEWPORT
@@ -905,6 +908,7 @@ let ROOM_L    = 10;
 let ROOM_R    = WORLD_W - 10;
 
 const WELCOME_ZONE = { x: WORLD_W / 2 - 120, y: FLOOR_BTM - 80, w: 240, h: 80 };
+const SPAWN_Y = 470;   // new players' spawn y (x is centred)
 
 // ── Sprite sheet layout: rows = directions, cols = frames ──
 //  row 0=down  1=up  2=left  3=right
@@ -1022,9 +1026,9 @@ bgImg.onload = () => {
   FLOOR_TOP = Math.round(WORLD_H * 0.30);
   FLOOR_BTM = Math.round(WORLD_H * 0.96);
 
-  // Spawn player at entrance, same Y as bouncer NPC
+  // New players spawn centred, between the trunk (base 430) and the street-exit zone.
   player.x = WORLD_W / 2 - PW / 2;
-  player.y = 614;
+  player.y = SPAWN_Y;
 
   WELCOME_ZONE.x = WORLD_W / 2 - 120;
   WELCOME_ZONE.y = FLOOR_BTM - 80;
@@ -1034,20 +1038,24 @@ bgImg.onload = () => {
   room2ExitObj.x = WORLD_W / 2 - room2ExitObj.w / 2;
   room2ExitObj.y = FLOOR_BTM - room2ExitObj.h;
   room2ExitObj.interactY = FLOOR_BTM - room2ExitObj.h * 0.2;
-  room2ExitObj.promptY   = room2ExitObj.y - 10;
+  room2ExitObj.promptY   = WELCOME_ZONE.y - 10;
 
   if (returningFromStreet) spawnAtStreetExit();
 
   console.log(`[TANA.EXE] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH} | Floor: ${FLOOR_TOP}–${FLOOR_BTM}`);
 };
 
+const BOUNCER_LINES = ["TAKE THIS, IT'S CRAZY OUTSIDE", "YOU GON NEED THIS, BE SAFE OUT THERE"];
+const BOUNCER_SAY_COOLDOWN_MS = 30000;
+let _bouncerZoneWas = null, _bouncerLastSay = -1e9;
+
 // Player returning from Zombie Street: stand just above the street-exit decal
 // (bottom middle), facing up into the room. If something blocks that exact
 // spot, try nearby ones.
 function spawnAtStreetExit() {
   const cx = room2ExitObj.x + room2ExitObj.w / 2 - PW / 2;
-  // feet bottom (player.y + PH) sits 8px above the decal's top edge
-  const y0 = room2ExitObj.y - 8 - PH;
+  // feet bottom (player.y + PH) sits 8px above the exit zone's top edge (so they start just outside it)
+  const y0 = WELCOME_ZONE.y - 8 - PH;
   const tries = [[0, 0], [0, -30], [-70, 0], [70, 0], [-70, -30], [70, -30], [-140, 0], [140, 0]];
   let spot = { x: cx, y: y0 };
   for (const [dx, dy] of tries) {
@@ -1151,6 +1159,7 @@ const sceneObjects = [
   //  tvVideo element straight onto the canvas each frame.
   {
     id: 'tv',
+    unlit: true,   // true colours — never touched by the light maps
     x: 640, y: 50, w: 245, h: 161,
     baseY: 200, collision: null,
     interactable: true, action: 'video',
@@ -1307,6 +1316,7 @@ const USB_FRAME_H  = 179;
 
 const usbDropObj = {
   id: 'usb_drop',
+  unlit: true,   // true colours — never touched by the light maps
   // Fine-tune in-game with the debug overlay (` backtick key).
   // Left side of the room, clear of the bed (ends at x 260). Its old bottom-right
   // spot now holds the SCOREBOARD.
@@ -1420,52 +1430,37 @@ sceneObjects.push(scoreboardObj);
 
 
 // ─────────────────────────────────────────────────────────
-//  ROOM 2 EXIT — glowing floor decal at the bottom-middle of the room.
-//  No sprite needed; drawn procedurally like the other overlay cues.
+//  ROOM 2 EXIT — usable only while the player's feet overlap `zone` (the same rectangle as
+//  the bouncer's WELCOME_ZONE). Its only visual is a bobbing green chevron, drawn in the
+//  unlit UI pass (drawUI) — nothing is drawn in the sprite layer.
 //  Position is finalized in bgImg.onload once WORLD_W/FLOOR_BTM are known.
 // ─────────────────────────────────────────────────────────
 const room2ExitObj = {
   id: 'room2_exit',
-  x: 0, y: 0, w: 220, h: 70,
-  baseY: 1,          // always draws under the player, like a floor decal
+  x: 0, y: 0, w: 220, h: 70,   // x/y only place the [E] prompt and cull the object
+  baseY: 1,
   interactY: 0,
   promptY: 0,
-  collision: null,   // floating cue — doesn't block movement
+  zone: WELCOME_ZONE,          // interaction = feet inside this rectangle (not a radius)
+  collision: null,             // floating cue — doesn't block movement
   interactable: true,
   action: 'room-exit',
-  label: 'ENTER THE STREET',
+  label: 'STEP OUTSIDE',
   img: null,
-  draw(ctx, sx, sy) {
+  draw() {},                   // no sprite-layer visual
+  drawUI(ctx) {
+    const z = this.zone;
     const t = Date.now() / 500;
     const pulse = 0.5 + 0.5 * Math.sin(t);
-    const cx = sx + this.w / 2;
-    const cy = sy + this.h * 0.8;
-    const rx = this.w * 0.46;
-    const ry = this.h * 0.32;
-
-    ctx.save();
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
-    grad.addColorStop(0, `rgba(78,204,163,${0.32 + 0.16 * pulse})`);
-    grad.addColorStop(1, 'rgba(78,204,163,0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = `rgba(78,204,163,${0.45 + 0.3 * pulse})`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx * 0.68, ry * 0.68, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Bobbing chevron pointing down at the decal
+    const cx = wx(z.x + z.w / 2);
     const bob = Math.sin(t * 1.6) * 4;
-    const ay  = cy - ry - 16 + bob;
+    const ay  = wy(z.y + z.h * 0.45) + bob;
+    ctx.save();
     ctx.fillStyle = `rgba(78,204,163,${0.7 + 0.3 * pulse})`;
-    ctx.beginPath();
-    ctx.moveTo(cx, ay + 8);
-    ctx.lineTo(cx - 9, ay - 4);
-    ctx.lineTo(cx + 9, ay - 4);
+    ctx.beginPath();            // down-pointing chevron, 1.5x the old size
+    ctx.moveTo(cx, ay + 12);
+    ctx.lineTo(cx - 13.5, ay - 6);
+    ctx.lineTo(cx + 13.5, ay - 6);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -1585,7 +1580,7 @@ let npcIdleTick  = 0;
 
 const player = {
   x: WORLD_W / 2 - PW / 2,
-  y: 614,
+  y: SPAWN_Y,
   vx: 0, vy: 0,
   facing: 'down',
   animFrame: 0,
@@ -1644,6 +1639,10 @@ function getNearbyObject() {
   let best = null, bestD = INTERACT_RANGE;
   for (const obj of sceneObjects) {
     if (!obj.interactable) continue;
+    if (obj.zone) {                       // rectangle-based object (the street exit): usable only while the feet are inside
+      if (rectsOverlap(playerFeetRect(), obj.zone)) { best = obj; bestD = 0; }
+      continue;
+    }
     const ocx = obj.x + obj.w / 2;
     // Interaction proximity uses interactY when set, otherwise baseY.
     // Decouples interaction range from depth-sort anchor so wall-mounted
@@ -2265,6 +2264,17 @@ if (moving) {
       }
     }
     _bouncerNpc._idleFrame = _anyInZone ? 1 : 0;
+
+    // The bouncer talks when the LOCAL player's feet step into the zone (outside → inside).
+    // Local only (never broadcast). Re-arms once they have left; at most once per 30 s.
+    const _inZone = rectsOverlap(playerFeetRect(), WELCOME_ZONE);
+    if (_bouncerZoneWas === null) _bouncerZoneWas = _inZone;     // first frame: just learn the state
+    else if (_inZone && !_bouncerZoneWas && Date.now() - _bouncerLastSay >= BOUNCER_SAY_COOLDOWN_MS) {
+      _bouncerLastSay = Date.now();
+      _bouncerNpc._chat    = BOUNCER_LINES[Math.floor(Math.random() * BOUNCER_LINES.length)];
+      _bouncerNpc._chatExp = Date.now() + 4000;
+    }
+    _bouncerZoneWas = _inZone;
   }
 
   updateCamera();
@@ -2713,9 +2723,10 @@ function resizeLightLayers(scalePx) {
   if (!layerCanvas) {
     layerCanvas = document.createElement('canvas'); layerCtx = layerCanvas.getContext('2d');
     litCanvas   = document.createElement('canvas'); litCtx   = litCanvas.getContext('2d');
+    maskCanvas  = document.createElement('canvas'); maskCtx  = maskCanvas.getContext('2d');
   }
-  for (const c of [layerCanvas, litCanvas]) { c.width = canvas.width; c.height = canvas.height; }
-  for (const c of [layerCtx, litCtx]) { c.setTransform(scalePx, 0, 0, scalePx, 0, 0); c.imageSmoothingEnabled = false; }
+  for (const c of [layerCanvas, litCanvas, maskCanvas]) { c.width = canvas.width; c.height = canvas.height; }
+  for (const c of [layerCtx, litCtx, maskCtx]) { c.setTransform(scalePx, 0, 0, scalePx, 0, 0); c.imageSmoothingEnabled = false; }
 }
 
 function lightingReady() {
@@ -2760,6 +2771,24 @@ function compositeLitLayer(mainCtx) {
   mainCtx.restore();
 }
 
+// Paint the sprite layer again, un-lit, but only where an `unlit` object is visible (the mask).
+function compositeUnlit(mainCtx) {
+  litCtx.save();                       // litCanvas is free again — the lit layer is already on the main canvas
+  litCtx.setTransform(1, 0, 0, 1, 0, 0);
+  litCtx.globalCompositeOperation = 'source-over';
+  litCtx.clearRect(0, 0, litCanvas.width, litCanvas.height);
+  litCtx.drawImage(layerCanvas, 0, 0);
+  litCtx.globalCompositeOperation = 'destination-in';
+  litCtx.drawImage(maskCanvas, 0, 0);
+  litCtx.restore();
+  mainCtx.save();
+  mainCtx.setTransform(1, 0, 0, 1, 0, 0);
+  mainCtx.globalCompositeOperation = 'source-over';
+  mainCtx.globalAlpha = 1;
+  mainCtx.drawImage(litCanvas, 0, 0);
+  mainCtx.restore();
+}
+
 // ── TV light: colour sampled from the TV video, eased, with a subtle flicker ──
 const tvLight = {
   r: TV_FALLBACK_RGB[0], g: TV_FALLBACK_RGB[1], b: TV_FALLBACK_RGB[2], luma: 0.35,   // smoothed, what the glow uses
@@ -2776,7 +2805,7 @@ function updateTvLight(now) {
 
   const videoOk = tvVideo.readyState >= 2 && !tvVideo.paused && tvVideo.videoWidth > 0;
   if (!videoOk) {
-    // Not ready / paused: drift to the gentle teal (never black, never a jump).
+    // The video isn't playing at all: gentle teal (never black, never a jump).
     L.tr = TV_FALLBACK_RGB[0]; L.tg = TV_FALLBACK_RGB[1]; L.tb = TV_FALLBACK_RGB[2]; L.tluma = 0.35;
   } else if (now - L.lastSample >= 1000 / TV_SAMPLE_HZ) {
     L.lastSample = now;
@@ -2791,14 +2820,16 @@ function updateTvLight(now) {
       for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
       const n = d.length / 4; r /= n; g /= n; b /= n;
       const m = Math.max(r, g, b);
-      // Use the hue at full brightness (brightness goes into the glow's alpha via `luma`);
-      // near-black frames blend back toward the fallback teal instead of going dark.
-      const mix = Math.max(0, Math.min(1, (m - 6) / 26));
-      const k = m > 0 ? 255 / m : 0;
-      L.tr = TV_FALLBACK_RGB[0] + (r * k - TV_FALLBACK_RGB[0]) * mix;
-      L.tg = TV_FALLBACK_RGB[1] + (g * k - TV_FALLBACK_RGB[1]) * mix;
-      L.tb = TV_FALLBACK_RGB[2] + (b * k - TV_FALLBACK_RGB[2]) * mix;
-      L.tluma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 * mix + 0.35 * (1 - mix);
+      // Brightness (true luma) goes into the glow's alpha, so near-black frames fade the glow to ZERO.
+      // The colour is the video's hue at full brightness, saturation boosted a little.
+      L.tluma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      if (m > 1) {
+        const k = 255 / m;
+        let cr = r * k, cg = g * k, cb = b * k;
+        const mean = (cr + cg + cb) / 3;
+        const boost = c => Math.max(0, Math.min(255, mean + (c - mean) * TV_SATURATION_BOOST));
+        L.tr = boost(cr); L.tg = boost(cg); L.tb = boost(cb);
+      } // pure black: keep the last colour — the glow is already fading to zero via luma
     } catch (_) {
       L.tr = TV_FALLBACK_RGB[0]; L.tg = TV_FALLBACK_RGB[1]; L.tb = TV_FALLBACK_RGB[2]; L.tluma = 0.35; // e.g. tainted canvas
     }
@@ -2833,8 +2864,12 @@ function drawTvGlow(mainCtx, now) {
 
   // Flicker: two slow sines + a little smoothed noise.
   L.noise += ((Math.random() * 2 - 1) - L.noise) * 0.2;
-  const flick = Math.max(0.3, 1 + TV_FLICKER_AMOUNT * (0.5 * Math.sin(now * 0.011) + 0.3 * Math.sin(now * 0.027 + 1.3) + 0.4 * L.noise));
-  const alpha = Math.max(0, Math.min(1, TV_GLOW_STRENGTH * (0.75 + 0.5 * L.luma) * flick));
+  // Glow strength follows the video's brightness (smoothstep, no floor); flicker scales with it too.
+  const u = Math.max(0, Math.min(1, (L.luma - TV_LUMA_LO) / (TV_LUMA_HI - TV_LUMA_LO)));
+  const bright = u * u * (3 - 2 * u);
+  const flick = Math.max(0.3, 1 + TV_FLICKER_AMOUNT * bright * (0.5 * Math.sin(now * 0.011) + 0.3 * Math.sin(now * 0.027 + 1.3) + 0.4 * L.noise));
+  const alpha = Math.max(0, Math.min(1, TV_GLOW_STRENGTH * bright * flick));
+  if (alpha < 0.002) return;
 
   mainCtx.save();
   mainCtx.globalCompositeOperation = 'screen';
@@ -2911,6 +2946,7 @@ function render() {
     };
     renderList.push({
       baseY: obj.baseY,
+      unlit: !!obj.unlit,
       fn: () => {
         if (!onScreen()) return;
         const sx = wx(obj.x);
@@ -2924,6 +2960,7 @@ function render() {
       },
       ui: () => {
         if (!onScreen()) return;
+        if (obj.drawUI) obj.drawUI(ctx);   // e.g. the street exit's chevron (unlit, after the lighting)
         // Interaction prompt — minimized pip always shown for interactables,
         // expands into full [E] Label badge as the player approaches.
         if (obj.interactable && !popupOpen && !tvOpen) {
@@ -2961,12 +2998,25 @@ function render() {
     // over the background; then the TV glow over everything; then the unlit UI.
     const mainCtx = ctx;
     layerCtx.clearRect(0, 0, VIEW_W, VIEW_H);
-    ctx = layerCtx;
-    try { for (const item of renderList) item.fn(); }
-    finally { ctx = mainCtx; }
+    // `unlit: true` objects also go onto a mask in the same depth order: drawn onto it when they are
+    // drawn, then every normal sprite drawn after (= in front of) them is cut out of it with
+    // destination-out, so a player standing in front of the TV is still lit.
+    let sawUnlit = false;
+    try {
+      for (const item of renderList) {
+        ctx = layerCtx; item.fn();
+        if (item.unlit) {
+          if (!sawUnlit) { maskCtx.clearRect(0, 0, VIEW_W, VIEW_H); sawUnlit = true; }
+          ctx = maskCtx; maskCtx.globalCompositeOperation = 'source-over'; item.fn();
+        } else if (sawUnlit) {
+          ctx = maskCtx; maskCtx.save(); maskCtx.globalCompositeOperation = 'destination-out'; item.fn(); maskCtx.restore();
+        }
+      }
+    } finally { ctx = mainCtx; }
 
     if (lightDebug === 0) {
       compositeLitLayer(mainCtx);
+      if (sawUnlit) compositeUnlit(mainCtx);
       drawTvGlow(mainCtx, performance.now());
     } else {
       drawLightDebugMap(mainCtx);

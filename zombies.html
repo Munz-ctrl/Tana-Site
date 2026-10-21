@@ -30,9 +30,9 @@
       --joy-zone-w:  45%;    /* touches starting in this left share of the screen drive the joystick */
       --joy-base:    170px;
       --joy-knob:    64px;
-      --fire-size:   104px;
+      --fire-size:   var(--joy-base);   /* the aim stick's base is the same size as the walking stick's */
       --buy-size:    64px;   /* vending BUY button, left of the aim stick */
-      --ctrl-gap:    32px;   /* gap between the BUY button and the aim stick (clears the aim ring's 29px overhang) */
+      --ctrl-gap:    12px;   /* gap between the BUY button and the aim stick */
       /* The aim stick's CENTRE mirrors the left joystick rest spot's centre: same distance
          from the bottom (--ctrl-bottom-base + joy/2) and from its screen edge (--ctrl-side + joy/2). */
       --stick-bottom: calc(var(--ctrl-bottom-base) + (var(--joy-base) - var(--fire-size)) / 2);
@@ -199,57 +199,41 @@
     }
     #joystick-base.active #joystick-knob { transition: none; }
 
-    /* fire button — bottom-right of viewport (mirrors room 1's interact
-       button pattern, relabeled with a crosshair for hold-to-fire) */
+    /* Aim stick (bottom-right): #fire-btn is its BASE RING, styled exactly like the walking
+       stick's base (same size, border, background alpha, glow, faint-while-idle) — in red.
+       Its handle (#aim-handle) is an inline-SVG crosshair that follows the thumb like the walking
+       stick's knob and springs back on release. */
     #fire-btn {
       position: absolute;
       bottom: var(--stick-bottom);
       right:  calc(env(safe-area-inset-right, 0px) + var(--stick-side));
       width: var(--fire-size); height: var(--fire-size);
       border-radius: 50%;
-      background: rgba(233,69,96,0.09);
-      border: 2px solid rgba(233,69,96,0.5);
-      display: flex; align-items: center; justify-content: center;
+      background: rgba(233,69,96,0.08);
+      border: 2px solid rgba(233,69,96,0.35);
+      box-shadow: 0 0 18px rgba(233,69,96,0.18);
+      opacity: 0.35;                     /* faint while idle */
       pointer-events: all; touch-action: none;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
-      transition: background 0.08s, box-shadow 0.08s;
-      font-size: 40px; color: #e94560;
+      transition: opacity 0.15s ease-out, background 0.08s;
     }
-    #fire-btn.pressed {
-      background: rgba(233,69,96,0.32);
-      box-shadow: 0 0 22px rgba(233,69,96,0.55);
+    #fire-btn.pressed {                  /* held: slightly brighter */
+      opacity: 1;
+      background: rgba(233,69,96,0.14);
+      transition: opacity 0.08s linear, background 0.08s;
     }
-
-    /* Right (aim) stick: the fire button is the stick. While held, #aim-ring
-       fades in centred on the button and #aim-knob follows the thumb. The
-       ring's size comes from AIM_JOY_MAX in JS (travel radius + knob radius). */
-    #aim-ring {
-      position: absolute;
-      left: 0; top: 0;                   /* set from JS on touch start */
-      width: 162px; height: 162px;       /* overwritten from AIM_JOY_MAX in JS */
-      border-radius: 50%;
-      background: rgba(233,69,96,0.06);
-      border: 2px solid rgba(233,69,96,0.4);
-      box-shadow: 0 0 18px rgba(233,69,96,0.18);
-      opacity: 0;
+    #aim-handle {
+      position: absolute; top: 50%; left: 50%;
+      width: calc(var(--joy-base) * 0.56); height: calc(var(--joy-base) * 0.56);   /* circle = 40% of the base, lines reach past it */
+      transform: translate(-50%, -50%);
       pointer-events: none;
-      transition: opacity 0.18s ease-out;
+      overflow: visible;
+      filter: drop-shadow(0 0 4px rgba(233,69,96,0.55));
+      transition: transform 0.1s ease-out;   /* the spring back on release */
     }
-    #aim-ring.active { opacity: 1; transition: opacity 0.08s linear; }
-    #aim-knob {
-      position: absolute;
-      width: 52px; height: 52px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 35%, #e94560, #5c1a28);
-      border: 2px solid rgba(233,69,96,0.9);
-      box-shadow: 0 0 14px rgba(233,69,96,0.5);
-      top: 50%; left: 50%;
-      transform: translate(-50%,-50%);
-      pointer-events: none;
-      transition: transform 0.1s ease-out; /* the spring back on release */
-    }
-    #aim-ring.active #aim-knob { transition: none; }
+    #fire-btn.pressed #aim-handle { transition: none; filter: drop-shadow(0 0 6px rgba(233,69,96,0.9)); }
+    #aim-handle * { fill: none; stroke: #e94560; stroke-width: 4; stroke-linecap: round; }
 
     /* Desktop mouse aim: small crosshair cursor over the game. */
     @media (hover: hover) and (pointer: fine) {
@@ -486,9 +470,13 @@
   <div id="joystick-zone"></div>
   <div id="joystick-rest"></div>
   <div id="joystick-base"><div id="joystick-knob"></div></div>
-  <div id="aim-ring"><div id="aim-knob"></div></div>
   <div id="buy-btn">BUY</div>
-  <div id="fire-btn">⊕</div>
+  <div id="fire-btn">
+    <svg id="aim-handle" viewBox="0 0 100 100" aria-hidden="true">
+      <circle cx="50" cy="50" r="35.7"/>
+      <path d="M50 2V38M50 62V98M2 50H38M62 50H98"/>
+    </svg>
+  </div>
   <!-- Bottom weapon row: after the joystick zone in the DOM and z-indexed above it, so touches that start
        here never reach the movement joystick or the aim stick. -->
   <div id="weapon-row">
@@ -1001,11 +989,11 @@ function angleToAimDir(ix, iy) {
 //  AIM_STICK — dual-stick / mouse aim tuning. Hand-tune freely.
 // ─────────────────────────────────────────────────────────
 const AIM_DEADZONE          = 0.25;  // fraction of AIM_JOY_MAX before the stick aims
-const AIM_JOY_MAX           = 55;    // px the right knob can travel
+const AIM_JOY_MAX           = 55;    // px the aim stick's crosshair handle can travel
 const FIRE_MOVE_SPEED_MULT  = 0.7;   // movement speed while firing
 const AIM_RELEASE_HOLD_MS   = 350;   // after releasing fire, aim stays put this long
 const AIM_EASE_BACK_MS      = 180;   // then rotates back to movement direction over this
-const AIM_LINE_LENGTH       = 140;   // px, faint aim indicator
+const AIM_LINE_LENGTH       = 140;   // px from the muzzle to the aim crosshair indicator
 const MOUSE_AIM_IDLE_MS     = 2500;  // mouse aim counts as active if moved within this
 
 // Live aim-input state (the constants above are the only tunables).
@@ -2885,16 +2873,11 @@ window.addEventListener('mouseup', e => {
 // ── Right stick: #fire-btn is the aim joystick. A touch has to START on the
 //    button; its own touch identifier is tracked so it runs alongside the left
 //    movement stick. The stick's zero point is where the thumb landed (so a
-//    tap off-centre is still "no drag"); the ring/knob are drawn around the
-//    button. Touches that start on the weapon/buy buttons never reach here —
+//    tap off-centre is still "no drag"); the base ring is the button itself and
+//    the crosshair handle follows the thumb. Touches that start on the weapon/buy buttons never reach here —
 //    those are different elements — so they stay tappable. ──
 const fireBtn  = document.getElementById('fire-btn');
-const aimRing  = document.getElementById('aim-ring');
-const aimKnob  = document.getElementById('aim-knob');
-{
-  const ringSize = AIM_JOY_MAX * 2 + 52; // travel diameter + knob diameter
-  aimRing.style.width = aimRing.style.height = ringSize + 'px';
-}
+const aimHandle = document.getElementById('aim-handle');   // the crosshair; moves with the thumb, clamped to AIM_JOY_MAX
 
 function aimStickEnd() {
   if (aim.tid === null) return;
@@ -2903,8 +2886,7 @@ function aimStickEnd() {
   aim.releaseAt = performance.now();
   fireHeld = false;
   fireBtn.classList.remove('pressed');
-  aimRing.classList.remove('active');
-  aimKnob.style.transform = 'translate(-50%,-50%)'; // springs back via the CSS transition
+  aimHandle.style.transform = 'translate(-50%,-50%)'; // springs back via the CSS transition
 }
 function aimStickMove(t) {
   let dx = t.clientX - aim.originX, dy = t.clientY - aim.originY;
@@ -2912,7 +2894,7 @@ function aimStickMove(t) {
   aim.stickPast = d / AIM_JOY_MAX > AIM_DEADZONE;
   if (aim.stickPast) aim.stickAngle = Math.atan2(dy, dx);
   if (d > AIM_JOY_MAX) { dx = dx / d * AIM_JOY_MAX; dy = dy / d * AIM_JOY_MAX; }
-  aimKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+  aimHandle.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
 }
 fireBtn.addEventListener('touchstart', e => {
   e.preventDefault();
@@ -2923,11 +2905,6 @@ fireBtn.addEventListener('touchstart', e => {
   aim.stickPast = false;
   pressFire();                  // fire immediately, in the current aim direction
   fireBtn.classList.add('pressed');
-  const r = fireBtn.getBoundingClientRect();
-  const half = aimRing.offsetWidth / 2;
-  aimRing.style.left = (r.left + r.width  / 2 - half) + 'px';
-  aimRing.style.top  = (r.top  + r.height / 2 - half) + 'px';
-  aimRing.classList.add('active');
 }, { passive: false });
 fireBtn.addEventListener('touchmove', e => {
   e.preventDefault();
@@ -3917,26 +3894,28 @@ function drawHUD() {
   if (gameStarted) drawWaveBanner();
 }
 
-// Faint dotted line + small reticle from the muzzle along aimAngle. Only while
-// aiming with the right stick or the mouse (not in the release window, not
-// keyboard-only play).
+// Aim indicator: a small crosshair (same style as the aim stick's handle — red, a circle with four
+// lines reaching past it) AIM_LINE_LENGTH from the muzzle along aimAngle. Only while aiming with the
+// right stick or the mouse (not in the release window, not keyboard-only play).
 function drawAimLine() {
   if (gameOver || tapPromptActive) return;
   if (aim.mode !== 'stick' && aim.mode !== 'mouse') return;
   const m = muzzlePoint();
-  const sx = wx(m.x), sy = wy(m.y);
-  const ex = sx + Math.cos(player.aimAngle) * AIM_LINE_LENGTH;
-  const ey = sy + Math.sin(player.aimAngle) * AIM_LINE_LENGTH;
+  const ex = wx(m.x) + Math.cos(player.aimAngle) * AIM_LINE_LENGTH;
+  const ey = wy(m.y) + Math.sin(player.aimAngle) * AIM_LINE_LENGTH;
+  const size = 18, u = size / 100;     // same proportions as #aim-handle's 100-unit drawing
   ctx.save();
-  ctx.globalAlpha = 0.28;
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.4;
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 1.6;
   ctx.lineCap = 'round';
-  ctx.setLineDash([1, 9]);
-  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(ex, ey, 5, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(ex, ey, 35.7 * u, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(ex, ey - 48 * u); ctx.lineTo(ex, ey - 12 * u);
+  ctx.moveTo(ex, ey + 12 * u); ctx.lineTo(ex, ey + 48 * u);
+  ctx.moveTo(ex - 48 * u, ey); ctx.lineTo(ex - 12 * u, ey);
+  ctx.moveTo(ex + 12 * u, ey); ctx.lineTo(ex + 48 * u, ey);
+  ctx.stroke();
   ctx.restore();
 }
 
