@@ -836,7 +836,7 @@ let   _worldChannel = null;
 // ─────────────────────────────────────────────────────────
 const NIGHT_LIGHTING        = true;   // MASTER SWITCH. false = Room 1 exactly as before (day background, no lighting passes)
 const LIGHT_SCREEN_STRENGTH = 0.25;   // 0..1  strength of the screen (highlight) map on sprites
-const TV_GLOW_STRENGTH      = 0.45;   // 0..1  peak alpha of the tinted TV glow (screen blend) at normal brightness
+const TV_GLOW_STRENGTH      = 0.85;   // 0..1  peak alpha of the tinted TV glow (screen blend) at normal brightness
 const TV_SAMPLE_HZ          = 4;      // how often the TV video's average colour is sampled
 const TV_FLICKER_AMOUNT     = 0.12;   // 0..1  size of the subtle TV flicker (0 = steady)
 const TV_COLOR_SMOOTH_MS    = 450;    // glow colour eases toward each new sample over about this long (no strobing)
@@ -934,8 +934,8 @@ if (NIGHT_LIGHTING) bgImg.addEventListener('error', () => {
 }, { once: true });
 
 // Lighting maps (world-space, 1537×768) — only fetched when night lighting is on.
-const lightMulImg  = NIGHT_LIGHTING ? loadImg('assets/lightmap_multiply.png') : null;
-const lightScrImg  = NIGHT_LIGHTING ? loadImg('assets/lightmap_screen.png')   : null;
+const lightMulImg  = NIGHT_LIGHTING ? loadImg('assets/lightmap_multiplyv2.png') : null;
+const lightScrImg  = NIGHT_LIGHTING ? loadImg('assets/lightmap_screenv2.png')   : null;
 const tvGlowImg    = NIGHT_LIGHTING ? loadImg('assets/tvglow.png')            : null;
 const skinImgs = [
   loadImg('assets/spritetestf2.png'),
