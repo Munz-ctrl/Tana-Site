@@ -2576,29 +2576,23 @@ let waveSpawnedCount = 0;
 let lastSpawnTime    = 0;
 
 // ─────────────────────────────────────────────────────────
-//  MUSIC TEMPO — the loop (assets/music/tana_beat_loop.mp3, played by audio.js) speeds up
-//  with the waves, pitch unchanged: a slow start, normal speed at wave 8, a bit faster
-//  up to wave 16, then capped. The new rate is applied once (no ramp)
-//  when each wave's INTRO banner begins.
+//  MUSIC TEMPO — three pre-rendered versions of the loop (assets/music/, played by audio.js; the
+//  playback rate is never touched): slow for the first waves, normal from wave 5, fast from wave 12.
+//  When a wave's INTRO banner starts and the version changes, audio.js crossfades into the new file
+//  at the same musical position. The next version is preloaded the wave before its threshold.
 // ─────────────────────────────────────────────────────────
-const MUSIC_RATE_START       = 0.85;  // wave 1
-const MUSIC_RATE_NORMAL      = 1.00;  // reached at wave 8
-const MUSIC_RATE_NORMAL_WAVE = 8;
-const MUSIC_RATE_MAX         = 1.12;  // reached at wave 16, capped after
-const MUSIC_RATE_MAX_WAVE    = 16;
+const MUSIC_NORMAL_FROM_WAVE = 5;
+const MUSIC_FAST_FROM_WAVE   = 12;
+const MUSIC_CROSSFADE_MS     = 1500;
 const MUSIC_WAVE_DIP         = 0.6;   // music level while wave_start.mp3's 5 s build plays
 const MUSIC_DIP_IN_MS        = 200, MUSIC_DIP_OUT_MS = 500;
 const MUSIC_GAMEOVER_FADE_MS = 1500;
 
-function musicRateForWave(n) {
-  if (n <= 1) return MUSIC_RATE_START;
-  if (n < MUSIC_RATE_NORMAL_WAVE)
-    return MUSIC_RATE_START + (MUSIC_RATE_NORMAL - MUSIC_RATE_START) * (n - 1) / (MUSIC_RATE_NORMAL_WAVE - 1);
-  if (n < MUSIC_RATE_MAX_WAVE)
-    return MUSIC_RATE_NORMAL + (MUSIC_RATE_MAX - MUSIC_RATE_NORMAL) * (n - MUSIC_RATE_NORMAL_WAVE) / (MUSIC_RATE_MAX_WAVE - MUSIC_RATE_NORMAL_WAVE);
-  return MUSIC_RATE_MAX;
+function musicVersionForWave(n) {
+  if (n >= MUSIC_FAST_FROM_WAVE)   return 'fast';
+  if (n >= MUSIC_NORMAL_FROM_WAVE) return 'normal';
+  return 'slow';
 }
-TanaAudio.setMusicRate(MUSIC_RATE_START); // wave-1 tempo from the first note
 
 // ── TAP TO FIGHT ──
 // Room 1 → here is a full page load, so this page's AudioContext starts
@@ -2618,7 +2612,7 @@ function showTapPrompt(onGo) {
     if (busy) return;           // pointerup + touchend + click all fire for one tap
     busy = true;
     if (e.type === 'touchend') e.preventDefault(); // no ghost click on whatever is underneath
-    TanaAudio.setMusic('room2');   // music starts with the fight (this gesture unlocks audio and starts it)
+    TanaAudio.setMusic('room2', 'slow');   // music starts with the fight (this gesture unlocks audio and starts it)
     await TanaAudio.resume();   // resume() is called synchronously, inside the gesture
     // Esc / Shift / etc. can't unlock audio — keep waiting for a real gesture.
     if (e.type === 'keydown' && TanaAudio.state() === 'suspended') { busy = false; return; }
@@ -2668,9 +2662,11 @@ function waveZombieCount(wave) {
 function startWave(n) {
   if (n === 1) runStartAt = performance.now(); // run clock: wave 1 start, after any TAP TO FIGHT wait
   waveNumber       = n;
-  // New wave's INTRO banner begins: set this wave's music tempo — once (no ramp: stepping playbackRate
-  // restarts the time-stretcher and makes the audio drop out).
-  TanaAudio.setMusicRate(musicRateForWave(n));
+  // New wave's INTRO banner begins: switch the music tempo version if this wave crosses a threshold
+  // (crossfade), and warm up the next version the wave before it is needed.
+  TanaAudio.setMusicVersion(musicVersionForWave(n), MUSIC_CROSSFADE_MS);
+  if (n === MUSIC_NORMAL_FROM_WAVE - 1) TanaAudio.preloadMusicVersion('normal');
+  if (n === MUSIC_FAST_FROM_WAVE - 1)   TanaAudio.preloadMusicVersion('fast');
   waveState        = 'INTRO';
   waveStateSince   = performance.now();
   waveTotalCount   = waveZombieCount(n);
@@ -2765,7 +2761,7 @@ bgImg.onload = () => {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     playIntroPixelation(() => {
       const beginWave1 = () => {
-        TanaAudio.setMusic('room2');   // no-op if the tap already started it
+        TanaAudio.setMusic('room2', 'slow');   // no-op if the tap already started it
         // Spawning begins GAME_START_BUFFER_MS + intro from now.
         scheduleWaveStartSfx(performance.now() + GAME_START_BUFFER_MS + WAVE_INTRO_DURATION);
         setTimeout(() => {
@@ -4039,6 +4035,7 @@ function render() {
     ctx.fillText(`WORLD ${WORLD_W}x${WORLD_H}  PLAYER (${Math.round(player.x)},${Math.round(player.y)})`, 6, 24);
     ctx.fillText(`WAVE state=${waveState} spawned=${waveSpawnedCount}/${waveTotalCount} zombies=${zombies.length}  [K]=clear wave`, 6, 38);
     ctx.fillText(`WEAPON=${currentWeapon} aimDir=${player.aimDir} aimAngle=${(player.aimAngle * 180 / Math.PI).toFixed(0)}° aimFacing=${player.aimFacing} unlocked=[${[...unlockedWeapons].join(',')}]`, 6, 52);
+    ctx.fillText(perfDebugLine() + `  zombies=${zombies.length} particles=${bloodParticles.length} decals=${bloodDecals.length} fx=${effects.length} ejecta=${ejecta.length}`, 6, 80);
     ctx.fillText(`HP=${player.hp.toFixed(1)}/${PLAYER_MAX_HP} invuln=${performance.now() < player.invulnUntil} SCORE=${score}  [H]=-25hp`, 6, 66);
 
     // Aim cone — shows the exact hitscan wedge for the current weapon.
@@ -4136,8 +4133,50 @@ function playIntroPixelation(onComplete) {
 // ─────────────────────────────────────────────────────────
 //  RESPONSIVE SIZING — same approach as index.html's resizeGame()
 // ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+//  RENDER RESOLUTION + FPS METER
+//  The backing store is screen px × min(devicePixelRatio, RENDER_DPR_MAX, renderDprCap): a 3x phone
+//  screen doesn't need 3x the pixels. Adaptive quality: if the average frame time stays above
+//  PERF_SLOW_MS for PERF_SLOW_SECONDS, renderDprCap steps down (2 -> 1.5 -> 1) and the canvas is
+//  resized; it never goes back up during the session. Backtick (debug) shows fps / frame ms.
+// ─────────────────────────────────────────────────────────
+const RENDER_DPR_MAX = 2;
+const RENDER_DPR_STEPS = [2, 1.5, 1];
+const PERF_SLOW_MS = 22, PERF_SLOW_SECONDS = 3;
+let renderDprCap = RENDER_DPR_MAX;
+const perf = { fps: 0, avgMs: 0, last: 0, frames: 0, sumMs: 0, winStart: 0, slowWindows: 0, log: '' };
+function renderDpr() { return Math.min(window.devicePixelRatio || 1, RENDER_DPR_MAX, renderDprCap); }
+// Call once per animation frame with the rAF timestamp.
+function perfFrame(ts) {
+  const gap = perf.last ? ts - perf.last : 0;
+  perf.last = ts;
+  if (document.hidden || gap <= 0 || gap > 250) { perf.winStart = 0; perf.slowWindows = 0; return; } // tab hidden / a hitch — not a quality signal
+  if (!perf.winStart) { perf.winStart = ts; perf.frames = 0; perf.sumMs = 0; }
+  perf.frames++; perf.sumMs += gap;
+  if (ts - perf.winStart >= 1000) {                        // one-second windows
+    perf.fps = perf.frames * 1000 / (ts - perf.winStart);
+    perf.avgMs = perf.sumMs / perf.frames;
+    perf.slowWindows = perf.avgMs > PERF_SLOW_MS ? perf.slowWindows + 1 : 0;
+    perf.winStart = 0;
+    if (perf.slowWindows >= PERF_SLOW_SECONDS) {
+      perf.slowWindows = 0;
+      const i = RENDER_DPR_STEPS.indexOf(renderDprCap);
+      if (i >= 0 && i < RENDER_DPR_STEPS.length - 1) {
+        const from = renderDprCap;
+        renderDprCap = RENDER_DPR_STEPS[i + 1];
+        perf.log = `render DPR ${from} -> ${renderDprCap} (avg ${perf.avgMs.toFixed(1)} ms)`;
+        if (debugOn) console.log('[perf] ' + perf.log);
+        resizeGame();
+      }
+    }
+  }
+}
+function perfDebugLine() {
+  return `FPS ${perf.fps.toFixed(0)}  avg ${perf.avgMs.toFixed(1)}ms  DPR ${renderDpr()}${perf.log ? '  [' + perf.log + ']' : ''}`;
+}
+
 function resizeGame() {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = renderDpr();
   const vp = window.visualViewport;
   SCREEN_W = vp ? vp.width  : window.innerWidth;
   SCREEN_H = vp ? vp.height : window.innerHeight;
@@ -4473,8 +4512,7 @@ function resetGame() {
   ejecta.length = 0;
   lastDryFireAt = -1e9;
 
-  TanaAudio.setMusicRate(MUSIC_RATE_START);   // wave-1 tempo, set once before the music restarts
-  TanaAudio.setMusic('room2');   // PLAY AGAIN: the music restarts from the top at wave-1 tempo
+  TanaAudio.setMusic('room2', 'slow');   // PLAY AGAIN: the music restarts from the top on the slow version
   gameOver = false;
   gameStarted = true; // in case this fires before the initial startup buffer's setTimeout does
   scorePopup = null;
@@ -4505,6 +4543,7 @@ let _lastFrameTime = 0;
 (function loop(ts) {
   const dt = _lastFrameTime ? Math.min((ts - _lastFrameTime) / 16.667, 3) : 1;
   _lastFrameTime = ts;
+  perfFrame(ts);
   update(dt);
   render();
   requestAnimationFrame(loop);

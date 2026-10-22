@@ -61,10 +61,16 @@
     shotgun_pump:     { file: 'assets/sfx/shotgun_pump_new.mp3',     vol: 0.7, pitchVar: 0.02, minGap: 0,   maxVoices: 2 },
     dry_fire:         { file: 'assets/sfx/dry_fire_new.mp3',         vol: 0.4, pitchVar: 0.05, minGap: 250, maxVoices: 1 },
   };
-  // Background music: one seamless loop (80 bars @ 146 BPM, 131.507 s), played through an
-  // HTMLAudioElement routed into musicGain, so mute / ducking / the volume below all act on it.
-  const MUSIC = { room1: 'assets/music/tana_beat_loop.mp3', room2: 'assets/music/tana_beat_loop.mp3' };
-  const MUSIC_VOLUME_ROOM1 = 0.25, MUSIC_VOLUME_ROOM2 = 0.20; // per-room level (sfx are untouched)
+  // Background music: the same seamless loop pre-rendered at three tempos (playbackRate is NEVER touched —
+  // stretching live restarts the time-stretcher). `rate` = how fast the file plays relative to normal,
+  // used to carry the musical position across a switch. Played through HTMLAudioElements routed into
+  // musicGain, so mute / ducking / the volume below all act on them.
+  const MUSIC_FILES = {
+    slow:   { file: 'assets/music/tana_beat_loop_slow.mp3', rate: 0.88 },
+    normal: { file: 'assets/music/tana_beat_loop.mp3',      rate: 1.00 },
+    fast:   { file: 'assets/music/tana_beat_loop_fast.mp3', rate: 1.08 },
+  };
+  const MUSIC_VOLUME_ROOM1 = 0.12, MUSIC_VOLUME_ROOM2 = 0.20; // per-room level (sfx are untouched)
   const MUSIC_FADE_IN_S = 1.5;                                // fade in when it starts
   const SFX_VOLUME = 0.8;
 
@@ -76,13 +82,17 @@
   let ctx = null, master = null, sfxGain = null, limiter = null, musicGain = null;
   let muted = false;
   let musicDucked = false;
-  // Music: an <audio> element (created lazily after page load) → MediaElementSource →
-  // musicTrim (per-room level, fades, dips) → musicGain (duck / TV) → master (mute).
-  let musicEl = null, musicSrcNode = null, musicTrim = null;
-  let musicWant = null;            // key the page asked for (setMusic)
-  let musicKey = null;             // key actually playing
+  // Music: two <audio> slots (created lazily after page load; the 2nd only when a tempo switch needs it),
+  // each  element → MediaElementSource → slot gain (crossfade) → musicTrim (per-room level, fades, dips)
+  // → musicGain (duck / TV) → master (mute).
+  let musicTrim = null;
+  const slots = [null, null];      // { el, node, gain, version }
+  let curSlot = -1;                // index of the audible slot (-1 = none)
+  let musicWant = null;            // room key the page asked for (setMusic): 'room1' | 'room2'
+  let wantVersion = 'normal';      // tempo version wanted: 'slow' | 'normal' | 'fast'
+  let musicKey = null;             // room key actually playing
   let musicFactor = 1;             // dip multiplier (wave-start build etc.)
-  let musicRate = 1;
+  let fadeTimer = 0;
   const buffers   = {};   // name -> AudioBuffer | null (null = failed → silent)
   const lastStart = {};   // name -> performance.now() of last accepted start
   const voices    = {};   // name -> live voice count
@@ -238,7 +248,7 @@
       if (!ctx) return;
       try {
         if (document.hidden) {
-          if (musicEl && !musicEl.paused) musicEl.pause();     // keep the loop's position; resume on return
+          slots.forEach(sl => { if (sl && !sl.el.paused) sl.el.pause(); });   // keep the loop's position; resume on return
           const r = ctx.suspend();
           if (r && r.catch) r.catch(() => {});
         } else {
@@ -387,34 +397,40 @@
 
   // ── Music ────────────────────────────────────────────────
   const musicLevel = () => (musicKey || musicWant) === 'room2' ? MUSIC_VOLUME_ROOM2 : MUSIC_VOLUME_ROOM1;
+  const ver = v => MUSIC_FILES[v] || MUSIC_FILES.normal;
 
   // Ramp the trim gain to `v` over `sec` seconds, from wherever it is now (no clicks).
-  function trimTo(v, sec) {
-    if (!ctx || !musicTrim) return;
+  function rampGain(param, v, sec) {
+    if (!ctx) return;
     try {
-      const g = musicTrim.gain, t = ctx.currentTime;
-      g.cancelScheduledValues(t);
-      g.setValueAtTime(g.value, t);
-      if (sec > 0) g.linearRampToValueAtTime(v, t + sec); else g.setValueAtTime(v, t);
+      const t = ctx.currentTime;
+      param.cancelScheduledValues(t);
+      param.setValueAtTime(param.value, t);
+      if (sec > 0) param.linearRampToValueAtTime(v, t + sec); else param.setValueAtTime(v, t);
     } catch (_) {}
   }
+  const trimTo = (v, sec) => { if (musicTrim) rampGain(musicTrim.gain, v, sec); };
 
-  // Create the <audio> element + graph nodes. Lazily, once the page has loaded, so music never delays startup.
-  function ensureMusicEl() {
-    if (musicEl || !ctx || !musicWant || !MUSIC[musicWant]) return;
+  // Create slot i's <audio> element + graph nodes. Lazily, once the page has loaded, so music never delays startup.
+  function ensureSlot(i) {
+    if (slots[i] || !ctx || !musicTrim) return slots[i];
     try {
       const a = new Audio();
       a.loop = true;
       a.preload = 'auto';
       a.crossOrigin = 'anonymous';
-      a.preservesPitch = a.webkitPreservesPitch = a.mozPreservesPitch = true; // tempo changes never change pitch
-      a.src = MUSIC[musicWant];
-      a.playbackRate = musicRate;
-      musicEl = a;
-      musicSrcNode = ctx.createMediaElementSource(a);   // iOS ignores audio.volume — the gain nodes do the volume
-      musicSrcNode.connect(musicTrim);
+      const node = ctx.createMediaElementSource(a);   // iOS ignores audio.volume — the gain nodes do the volume
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      node.connect(gain); gain.connect(musicTrim);
       a.addEventListener('error', () => warnOnce(a.src, 'music failed to load'));
-    } catch (e) { musicEl = null; }
+      slots[i] = { el: a, node, gain, version: null };
+    } catch (e) { slots[i] = null; }
+    return slots[i];
+  }
+  function loadVersion(sl, v) {          // point a slot at a tempo version (no-op if it already has it)
+    if (sl.version === v) return;
+    sl.version = v; sl.el.src = ver(v).file; sl.el.load();
   }
 
   // Start (or resume) playback if the page wants music and the context is unlocked.
@@ -422,37 +438,92 @@
   function kickMusic() {
     try {
       if (!ctx || !musicWant) return;
-      ensureMusicEl();
-      if (!musicEl || !musicEl.paused && musicKey === musicWant) return;
-      const fresh = musicKey !== musicWant;           // new start → fade in from silence
-      musicKey = musicWant;
-      if (fresh) { musicEl.currentTime = 0; trimTo(0, 0); }
-      if (musicEl.playbackRate !== musicRate) musicEl.playbackRate = musicRate; // only if it differs
-      const p = musicEl.play();
-      if (p && p.catch) p.catch(() => { musicKey = fresh ? null : musicKey; }); // refused (no gesture yet) → the next gesture retries
-      if (fresh) trimTo(musicLevel() * musicFactor, MUSIC_FADE_IN_S);
+      if (curSlot < 0) {
+        const sl = ensureSlot(0);
+        if (!sl) return;
+        loadVersion(sl, wantVersion);
+        curSlot = 0; musicKey = musicWant;
+        slots.forEach((o, i) => { if (o && i !== 0) { try { o.el.pause(); } catch (_) {} o.gain.gain.value = 0; } });   // a previous run's other slot
+        sl.el.currentTime = 0;
+        sl.gain.gain.value = 1;
+        trimTo(0, 0);
+        const p = sl.el.play();
+        if (p && p.catch) p.catch(() => { if (musicKey === musicWant && sl.el.paused) { curSlot = -1; musicKey = null; } }); // refused (no gesture yet) → the next gesture retries
+        trimTo(musicLevel() * musicFactor, MUSIC_FADE_IN_S);
+      } else {
+        const sl = slots[curSlot];
+        if (sl && sl.el.paused) { const p = sl.el.play(); if (p && p.catch) p.catch(() => {}); }   // back from a hidden tab
+      }
     } catch (_) {}
   }
 
   // Ask for a track. Starts at once if audio is unlocked, otherwise on the first tap / click / key.
-  function setMusic(key) {
+  // room1 / room2 pick the level; `version` ('slow' | 'normal' | 'fast') picks the tempo file.
+  function setMusic(key, version) {
     try {
       if (!ctx) return;
+      wantVersion = version || 'normal';
       if (musicWant === key && musicKey === key) return;
       musicWant = key;
-      if (document.readyState === 'complete') ensureMusicEl();
-      else global.addEventListener('load', () => setTimeout(() => { ensureMusicEl(); if (ctx.state === 'running') kickMusic(); }, 0), { once: true });
+      const prep = () => { const sl = ensureSlot(0); if (sl && curSlot < 0) loadVersion(sl, wantVersion); };
+      if (document.readyState === 'complete') prep();
+      else global.addEventListener('load', () => setTimeout(() => { prep(); if (ctx.state === 'running') kickMusic(); }, 0), { once: true });
       if (ctx.state === 'running') kickMusic();
+    } catch (_) {}
+  }
+
+  // Warm the idle slot with a tempo version so a later switch is instant.
+  function preloadMusicVersion(version) {
+    try {
+      if (!ctx || curSlot < 0 || !MUSIC_FILES[version]) return;
+      if (slots[curSlot].version === version) return;
+      const sl = ensureSlot(1 - curSlot);
+      if (sl && sl.el.paused) loadVersion(sl, version);
+    } catch (_) {}
+  }
+
+  // Switch tempo version: crossfade over fadeMs into the other element, starting the new file at the SAME
+  // musical position:  newTime = oldTime × oldRate / newRate  (wrapped to the new file's length).
+  function setMusicVersion(version, fadeMs) {
+    try {
+      if (!MUSIC_FILES[version]) return;
+      wantVersion = version;
+      if (curSlot < 0) return;                          // not playing: applied when it starts
+      const old = slots[curSlot];
+      if (!old || old.version === version) return;
+      const idx = 1 - curSlot, nw = ensureSlot(idx);
+      if (!nw) return;
+      clearTimeout(fadeTimer);
+      loadVersion(nw, version);
+      const go = () => {
+        const dur = nw.el.duration;
+        let t = old.el.currentTime * ver(old.version).rate / ver(version).rate;
+        if (isFinite(dur) && dur > 0) t = ((t % dur) + dur) % dur;
+        try { nw.el.currentTime = t; } catch (_) {}
+        nw.gain.gain.value = 0;
+        const p = nw.el.play(); if (p && p.catch) p.catch(() => {});
+        const sec = (fadeMs || 0) / 1000;
+        rampGain(nw.gain.gain, 1, sec);
+        rampGain(old.gain.gain, 0, sec);
+        curSlot = idx;
+        fadeTimer = setTimeout(() => { if (old !== slots[curSlot]) { try { old.el.pause(); } catch (_) {} } }, (fadeMs || 0) + 80);
+      };
+      if (nw.el.readyState >= 1) go();
+      else nw.el.addEventListener('loadedmetadata', go, { once: true });
     } catch (_) {}
   }
 
   // Stop the music, optionally fading out over fadeMs first. A later setMusic() starts it again from the top.
   function stopMusic(fadeMs) {
     musicWant = null;
-    const el = musicEl;
-    if (!el || musicKey === null) { musicKey = null; return; }
+    clearTimeout(fadeTimer);
+    if (curSlot < 0) { musicKey = null; return; }
     musicKey = null;
-    const done = () => { if (musicKey === null) { try { el.pause(); el.currentTime = 0; } catch (_) {} } };
+    curSlot = -1;
+    const done = () => {
+      if (musicKey !== null) return;                    // restarted during the fade
+      slots.forEach(sl => { if (sl) { try { sl.el.pause(); sl.el.currentTime = 0; } catch (_) {} sl.gain.gain.value = 0; } });
+    };
     if (fadeMs > 0) { trimTo(0, fadeMs / 1000); setTimeout(done, fadeMs + 60); } else { trimTo(0, 0); done(); }
   }
 
@@ -460,16 +531,6 @@
   function dipMusic(factor, rampMs) {
     musicFactor = factor;
     if (musicKey) trimTo(musicLevel() * musicFactor, (rampMs || 0) / 1000);
-  }
-
-  // Set the loop's playbackRate ONCE. Never stepped / ramped: with preservesPitch on, every playbackRate
-  // change restarts the browser's time-stretcher (dropouts, main-thread hitches — worst on iOS Safari).
-  // The rampMs argument is accepted and ignored, so older call sites still work.
-  function setMusicRate(rate /*, rampMs ignored */) {
-    const v = Math.max(0.25, Math.min(4, rate));
-    if (v === musicRate) return;
-    musicRate = v;
-    if (musicEl) { try { musicEl.playbackRate = v; } catch (_) {} }
   }
 
   function duckMusic(on) {
@@ -492,8 +553,9 @@
     // Length in seconds of a decoded sound at normal speed (0 if not loaded / failed).
     duration: (name) => (buffers[name] ? buffers[name].duration : 0),
     setMusic,
+    setMusicVersion,
+    preloadMusicVersion,
     stopMusic,
-    setMusicRate,
     dipMusic,
     duckMusic,
     isMuted:    () => muted,
@@ -501,12 +563,16 @@
     toggleMute: () => setMuted(!muted),
     onMuteChange(fn) { if (typeof fn === 'function') muteListeners.push(fn); },
     // Debug helper: what the music engine is doing.
-    musicStatus: () => ({
-      want: musicWant, playing: !!musicEl && !musicEl.paused, key: musicKey, rate: musicRate,
-      elRate: musicEl ? musicEl.playbackRate : null, preservesPitch: musicEl ? musicEl.preservesPitch : null,
-      time: musicEl ? musicEl.currentTime : null, level: musicTrim ? musicTrim.gain.value : null,
-      duck: musicGain ? musicGain.gain.value : null, master: master ? master.gain.value : null, ready: musicEl ? musicEl.readyState : null,
-    }),
+    musicStatus: () => {
+      const sl = curSlot >= 0 ? slots[curSlot] : null;
+      return {
+        want: musicWant, wantVersion, key: musicKey, playing: !!sl && !sl.el.paused,
+        version: sl ? sl.version : null, time: sl ? sl.el.currentTime : null, rate: sl ? sl.el.playbackRate : null,
+        level: musicTrim ? musicTrim.gain.value : null, duck: musicGain ? musicGain.gain.value : null,
+        master: master ? master.gain.value : null,
+        slotGains: slots.map(x => x ? +x.gain.gain.value.toFixed(3) : null), slotPlaying: slots.map(x => x ? !x.el.paused : null),
+      };
+    },
     // Debug helper: which configured SFX files are decoded vs. silent.
     status() {
       const loaded = [], failed = [];
