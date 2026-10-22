@@ -1005,6 +1005,9 @@ const rackBUnpackedImg  = loadImg('assets/rack_B_unpacked.png');
 // Plaque
 const plaqImg           = loadImg('assets/plaq.png');
 
+// TV frame — drawn over the TV's video rect (same x/y/w/h). A missing file just means no frame.
+const tvFrameImg        = loadImg('assets/tv.png');
+
 
 // ── Auto-size world to image ──────────────────────────────
 //  Once base.png loads, world coordinates = image pixel coordinates.
@@ -1280,6 +1283,20 @@ const sceneObjects = [
   makeSpeaker('speaker_right', SPEAKER_RIGHT_X, true),
 
 ];
+
+// ── TV FRAME — assets/tv.png (245×161, transparent screen opening) over the TV's video rect.
+//  baseY 201 (the TV is 200) so it always draws right after the screen. NOT unlit: it takes the room
+//  lighting like other furniture, while the screen behind the opening stays unlit (the unlit mask cuts
+//  the frame's pixels out, leaving the opening). Not interactable — the TV object keeps the [E] prompt.
+sceneObjects.push({
+  id: 'tv_frame',
+  x: 640, y: 50, w: 245, h: 161,
+  baseY: 201,
+  collision: null,
+  interactable: false,
+  img: tvFrameImg,
+  draw() {}   // no image → nothing (no frame, no error)
+});
 
 const wallPlaqueObj = {
   id: 'wall_plaque',
