@@ -1367,6 +1367,16 @@ function playerFeetRect(px, py) {
 }
 function playerBaseY() { return player.y + FEET_OY + FEET_H; }
 
+// Reusable feet rect for the player and every zombie (no allocation): kept on the entity as `_feet` and
+// refreshed only when its x/y actually changed.
+function feetOf(e) {
+  let f = e._feet;
+  if (!f) f = e._feet = { x: 0, y: 0, w: PW - FEET_MARGIN * 2, h: FEET_H, _px: NaN, _py: NaN };
+  if (f._px !== e.x || f._py !== e.y) { f.x = e.x + FEET_MARGIN; f.y = e.y + FEET_OY; f._px = e.x; f._py = e.y; }
+  return f;
+}
+const _candFeet = { x: 0, y: 0, w: PW - FEET_MARGIN * 2, h: FEET_H };   // the position being tested by wouldCollide
+
 // ─────────────────────────────────────────────────────────
 //  COLLISION — same rectsOverlap/wouldCollide pattern as room 1
 // ─────────────────────────────────────────────────────────
@@ -1381,7 +1391,8 @@ function rectsOverlap(a, b) {
 // be "colliding" with its own feet rect. Omit `self` (e.g. from
 // pickSpawnPoint, which isn't moving anything) to check against everyone.
 function wouldCollide(px, py, self) {
-  const feet = playerFeetRect(px, py);
+  const feet = _candFeet;
+  feet.x = px + FEET_MARGIN; feet.y = py + FEET_OY;
 
   for (const obj of sceneObjects) {
     if (!obj.collision) continue;
@@ -1395,10 +1406,13 @@ function wouldCollide(px, py, self) {
 
   // The player and every zombie are solid too — the player can't walk
   // through a zombie, and zombies can't stack on the player or each other.
-  if (self !== player && rectsOverlap(feet, playerFeetRect())) return true;
+  if (self !== player && rectsOverlap(feet, feetOf(player))) return true;
   for (const z of zombies) {
     if (z === self) continue;
-    if (rectsOverlap(feet, playerFeetRect(z.x, z.y))) return true;
+    // Cheap reject before the rect test: feet rects only overlap if the sprites are this close.
+    const dx = z.x - px, dy = z.y - py;
+    if (dx > PW || dx < -PW || dy > FEET_H * 2 || dy < -FEET_H * 2) continue;
+    if (rectsOverlap(feet, feetOf(z))) return true;
   }
 
   return false;
@@ -1576,6 +1590,22 @@ let hitstopUntil = 0, lastHitstopAt = -1e9;
 let screenShake  = { amp: 0, start: 0, ms: 0 };
 let lastShot     = { angle: 0, at: -1e9 }; // for the player recoil nudge
 
+// Capped push without array shifting: once full, the next slot in a rotating pointer is overwritten
+// (the oldest-ish entry), instead of shift()ing the whole array down.
+function capPush(arr, item, max) {
+  if (arr.length < max) { arr.push(item); return; }
+  arr._ring = ((arr._ring || 0) + 1) % arr.length;
+  arr[arr._ring] = item;
+}
+// Remove arr[i] by swapping in the last element (order isn't needed). Safe while iterating BACKWARDS.
+function swapRemove(arr, i) { arr[i] = arr[arr.length - 1]; arr.pop(); }
+
+// Touch devices: fewer particles / decals alive at once (desktop unchanged).
+if (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
+  HIT_FX.particleMax = 300;
+  HIT_FX.decalMax    = 40;
+}
+
 function _rr(range) { return range[0] + Math.random() * (range[1] - range[0]); }
 function _ri(range) { return Math.floor(_rr([range[0], range[1] + 1])); }
 
@@ -1593,16 +1623,15 @@ function spawnHitFx(z, dmg, shotAngle, killed, water) {
   for (let i = 0; i < n; i++) {
     const a = ang + (Math.random() * 2 - 1) * spread;
     const sp = _rr(HIT_FX.particleSpeed);
-    bloodParticles.push({
+    capPush(bloodParticles, {
       x0: c.x + (Math.random() * 2 - 1) * HIT_FX.particleJitter,
       y0: c.y + (Math.random() * 2 - 1) * HIT_FX.particleJitter,
       vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
       size: _ri(HIT_FX.particleSize),
       born: now, life: _rr(HIT_FX.particleLife),
       color: HIT_FX.particleColors[Math.floor(Math.random() * HIT_FX.particleColors.length)],
-    });
+    }, HIT_FX.particleMax);
   }
-  while (bloodParticles.length > HIT_FX.particleMax) bloodParticles.shift();
 
   // Ground decal under the zombie's feet
   if (!dry) {
@@ -1616,12 +1645,11 @@ function spawnHitFx(z, dmg, shotAngle, killed, water) {
       s: _ri(cfg.size),
     });
   }
-  bloodDecals.push({
+  capPush(bloodDecals, {
     x: z.x + PW / 2 + (Math.random() * 2 - 1) * HIT_FX.decalOffset,
     y: z.y + FEET_OY + FEET_H / 2 + (Math.random() * 2 - 1) * HIT_FX.decalOffset * 0.5,
     born: now, blobs, kill: killed,
-  });
-  while (bloodDecals.length > HIT_FX.decalMax) bloodDecals.shift();
+  }, HIT_FX.decalMax);
   }
 
   // Flash + sprite shake (also drives the hp bar)
@@ -1661,15 +1689,14 @@ const hose = { tank: HOSE_TANK_MAX, sputter: false, lastSprayAt: -1e9, lastTick:
 let hoseBeam = { alpha: 0, angle: 0, x: 0, y: 0, facing: 'down' };
 
 function spawnWaterParticle(x, y, ang, speed, life, g, sizeRange) {
-  bloodParticles.push({
+  capPush(bloodParticles, {
     x0: x, y0: y,
     vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
     size: _ri(sizeRange || HIT_FX.particleSize),
     born: performance.now(), life,
     color: HOSE_WATER_COLORS[Math.floor(Math.random() * HOSE_WATER_COLORS.length)],
     g,
-  });
-  while (bloodParticles.length > HIT_FX.particleMax) bloodParticles.shift();
+  }, HIT_FX.particleMax);
 }
 
 function secretTop() { return { x: secretHydrant.x + secretHydrant.w / 2, y: secretHydrant.y + secretHydrant.h - SECRET_JET.originFromBottom }; }
@@ -2013,8 +2040,7 @@ function checkZombieContact(now) {
   if (gameOver || now < player.invulnUntil) return;
   const pFeetTouch = inflateRect(playerFeetRect(), CONTACT_TOUCH_BUFFER);
   for (const z of zombies) {
-    const zFeet = playerFeetRect(z.x, z.y); // zombies share the player's feet geometry
-    if (!rectsOverlap(pFeetTouch, zFeet)) continue;
+    if (!rectsOverlap(pFeetTouch, feetOf(z))) continue;   // zombies share the player's feet geometry
     applyPlayerDamage(z.damage, z);
     return; // one hit per frame even if several zombies are touching
   }
@@ -2334,10 +2360,14 @@ function spawnEjecta(kind, angle, mz) {
     spin: (Math.random() < 0.5 ? -1 : 1) * cfg.spin * (0.7 + Math.random() * 0.6),
   };
   ejecta.push(e);
-  // Cap per kind — drop the oldest of this kind first.
-  while (ejecta.filter(o => o.kind === kind).length > cfg.max) {
-    ejecta.splice(ejecta.findIndex(o => o.kind === kind), 1);
+  // Cap per kind — drop the oldest of this kind first (one scan, swap-remove — no shifting).
+  let count = 0, oldest = -1;
+  for (let i = 0; i < ejecta.length; i++) {
+    if (ejecta[i].kind !== kind) continue;
+    count++;
+    if (oldest < 0 || ejecta[i].born < ejecta[oldest].born) oldest = i;
   }
+  if (count > cfg.max && oldest >= 0) swapRemove(ejecta, oldest);
 }
 
 function ejectaState(e, now) {
@@ -2358,7 +2388,7 @@ function ejectaState(e, now) {
 }
 
 function pruneEjecta(now) {
-  for (let i = ejecta.length - 1; i >= 0; i--) if (ejectaState(ejecta[i], now).dead) ejecta.splice(i, 1);
+  for (let i = ejecta.length - 1; i >= 0; i--) if (ejectaState(ejecta[i], now).dead) swapRemove(ejecta, i);
 }
 
 // landedPass=true: resting junk, drawn UNDER every entity. false: still-airborne junk, drawn on top.
@@ -3184,56 +3214,68 @@ function update(dt = 1) {
 //  clipped back to the sprite's own alpha so day-lit art reads as
 //  night-lit. Reused later for zombies and weapon-specific sheets.
 // ─────────────────────────────────────────────────────────
-const _tintCanvas = document.createElement('canvas');
-_tintCanvas.width  = PW;
-_tintCanvas.height = PH;
-const _tintCtx = _tintCanvas.getContext('2d');
+// Whole-sheet caches (built once per image, not per sprite per frame):
+//   _nightSheets: image → { color, strength, canvas } — the sheet with the night tint applied.
+//                 Rebuilt only if NIGHT_TINT_COLOR / NIGHT_TINT_STRENGTH change.
+//   _flashSheets: image → Map(color → canvas) — a flash-coloured silhouette copy of the sheet.
+const _nightSheets = new Map();
+const _flashSheets = new Map();
+function _sheetReady(img) { return img && img.complete && img.naturalWidth > 0; }
 
-function drawNightTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh) {
-  // Props can be larger than a character frame (e.g. the vending machine).
-  if (_tintCanvas.width < dw)  _tintCanvas.width  = dw;
-  if (_tintCanvas.height < dh) _tintCanvas.height = dh;
-  _tintCtx.clearRect(0, 0, dw, dh);
-  _tintCtx.imageSmoothingEnabled = false;
-  _tintCtx.globalCompositeOperation = 'source-over';
-  _tintCtx.drawImage(srcImg, sx0, sy0, sw, sh, 0, 0, dw, dh);
-
-  // Multiply-tint the whole box...
-  _tintCtx.globalCompositeOperation = 'multiply';
-  _tintCtx.globalAlpha = NIGHT_TINT_STRENGTH;
-  _tintCtx.fillStyle = NIGHT_TINT_COLOR;
-  _tintCtx.fillRect(0, 0, dw, dh);
-  _tintCtx.globalAlpha = 1;
-
-  // ...then re-clip to the sprite's own silhouette so the tint doesn't
-  // paint a visible box over the transparent padding around it.
-  _tintCtx.globalCompositeOperation = 'destination-in';
-  _tintCtx.drawImage(srcImg, sx0, sy0, sw, sh, 0, 0, dw, dh);
-  _tintCtx.globalCompositeOperation = 'source-over';
-
-  ctx.drawImage(_tintCanvas, 0, 0, dw, dh, dx, dy, dw, dh);
+function nightSheet(img) {
+  if (!_sheetReady(img)) return null;
+  let e = _nightSheets.get(img);
+  if (!e || e.color !== NIGHT_TINT_COLOR || e.strength !== NIGHT_TINT_STRENGTH) {
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const t = c.getContext('2d');
+    t.imageSmoothingEnabled = false;
+    t.drawImage(img, 0, 0);
+    // Multiply-tint the whole sheet...
+    t.globalCompositeOperation = 'multiply';
+    t.globalAlpha = NIGHT_TINT_STRENGTH;
+    t.fillStyle = NIGHT_TINT_COLOR;
+    t.fillRect(0, 0, c.width, c.height);
+    t.globalAlpha = 1;
+    // ...then re-clip to each sprite's own silhouette so the tint doesn't paint a box over transparent padding.
+    t.globalCompositeOperation = 'destination-in';
+    t.drawImage(img, 0, 0);
+    t.globalCompositeOperation = 'source-over';
+    e = { color: NIGHT_TINT_COLOR, strength: NIGHT_TINT_STRENGTH, canvas: c };
+    _nightSheets.set(img, e);
+  }
+  return e.canvas;
 }
 
-// Hit flash — same offscreen-canvas idea as drawNightTinted: draw the sprite
-// frame, then fill with the flash colour using 'source-atop' so only the
-// sprite's own silhouette is tinted, never the transparent padding.
-const _flashCanvas = document.createElement('canvas');
-_flashCanvas.width  = PW;
-_flashCanvas.height = PH;
-const _flashCtx = _flashCanvas.getContext('2d');
+// Night tint — a single drawImage from the pre-tinted sheet (same result as tinting the frame each draw).
+function drawNightTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh) {
+  const sheet = nightSheet(srcImg);
+  ctx.drawImage(sheet || srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh);
+}
 
+// Hit flash — a single drawImage from a cached flash-coloured silhouette of the sheet
+// ('source-atop' fill, so only the sprite's own pixels are coloured).
+function flashSheet(img, color) {
+  if (!_sheetReady(img)) return null;
+  let m = _flashSheets.get(img);
+  if (!m) { m = new Map(); _flashSheets.set(img, m); }
+  let c = m.get(color);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const t = c.getContext('2d');
+    t.imageSmoothingEnabled = false;
+    t.drawImage(img, 0, 0);
+    t.globalCompositeOperation = 'source-atop';
+    t.fillStyle = color;
+    t.fillRect(0, 0, c.width, c.height);
+    m.set(color, c);
+  }
+  return c;
+}
 function drawFlashTinted(srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh, color) {
-  if (_flashCanvas.width < dw)  _flashCanvas.width  = dw;   // props can be bigger than a character frame
-  if (_flashCanvas.height < dh) _flashCanvas.height = dh;
-  _flashCtx.clearRect(0, 0, dw, dh);
-  _flashCtx.imageSmoothingEnabled = false;
-  _flashCtx.globalCompositeOperation = 'source-over';
-  _flashCtx.drawImage(srcImg, sx0, sy0, sw, sh, 0, 0, dw, dh);
-  _flashCtx.globalCompositeOperation = 'source-atop';
-  _flashCtx.fillStyle = color || HIT_FX.flashColor;
-  _flashCtx.fillRect(0, 0, dw, dh);
-  _flashCtx.globalCompositeOperation = 'source-over';
-  ctx.drawImage(_flashCanvas, 0, 0, dw, dh, dx, dy, dw, dh);
+  const sheet = flashSheet(srcImg, color || HIT_FX.flashColor);
+  ctx.drawImage(sheet || srcImg, sx0, sy0, sw, sh, dx, dy, dw, dh);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -3483,7 +3525,7 @@ function drawZombie(z) {
 function drawBloodDecals() {
   const now = performance.now();
   for (let i = bloodDecals.length - 1; i >= 0; i--) {
-    if (now - bloodDecals[i].born >= HIT_FX.decalFadeMs) bloodDecals.splice(i, 1);
+    if (now - bloodDecals[i].born >= HIT_FX.decalFadeMs) swapRemove(bloodDecals, i);
   }
   if (!bloodDecals.length) return;
   ctx.save();
@@ -3500,7 +3542,7 @@ function drawBloodDecals() {
 function drawBloodParticles() {
   const now = performance.now();
   for (let i = bloodParticles.length - 1; i >= 0; i--) {
-    if (now - bloodParticles[i].born >= bloodParticles[i].life) bloodParticles.splice(i, 1);
+    if (now - bloodParticles[i].born >= bloodParticles[i].life) swapRemove(bloodParticles, i);
   }
   if (!bloodParticles.length) return;
   ctx.save();
