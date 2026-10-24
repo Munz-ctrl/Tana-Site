@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>TANA.EXE</title>
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="apple-mobile-web-app-title" content="TANA.EXE">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#05050a">
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
@@ -91,6 +99,8 @@
     }
     @media (hover: none) and (pointer: coarse) and (orientation: portrait) {
       #rotate-screen { display: flex; }
+      /* nothing may render on top of the ROTATE DEVICE screen: hide every touch control */
+      #touch-ui, #ti-hud { display: none !important; }
     }
 
     canvas {
@@ -98,6 +108,14 @@
       position: absolute;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
+    }
+
+    /* Retro pixelation transition — covers the game while it dissolves into
+       a growing blocky mosaic before navigating to room 2. */
+    #transitionCanvas {
+      z-index: 90;
+      opacity: 0;
+      pointer-events: none;
     }
 
     /* CRT scanlines */
@@ -176,6 +194,51 @@
     }
     #popup-body   { font-size: 7.5px; color: #b0b8d0; line-height: 2.2; }
 
+    /* Plaque popup image — the old Phase-1 #reveal-img look: pixelated, gold
+       glow. Hidden for every other popup that shares #popup-overlay. */
+    #popup-img {
+      display: none;
+      margin: 0 auto 14px;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      max-width: 220px;
+      max-height: 240px;
+      max-height: min(240px, 38vh);
+      width: auto; height: auto;
+      filter: drop-shadow(0 0 16px rgba(249,199,79,0.55));
+    }
+    /* …and its gold-framed card look (old #reveal-card). */
+    #popup-box.plaque {
+      border-color: #f9c74f;
+      box-shadow: 0 0 50px rgba(249,199,79,0.55), inset 0 0 0 1px #2a1f08;
+    }
+    #popup-box.plaque #popup-title {
+      color: #f9c74f; border-bottom-color: #2a1f08;
+      text-shadow: 0 0 8px rgba(249,199,79,0.45);
+    }
+
+    /* Scoreboard popup — a little wider; the board itself is TanaBoard.render(). */
+    #popup-box.board { width: min(400px, 92%); border-color: #e94560; box-shadow: 0 0 40px rgba(233,69,96,0.3), 0 0 0 1px #0a0a14; }
+    #popup-box.board #popup-title { color: #e94560; text-shadow: 0 0 8px rgba(233,69,96,0.4); }
+    #popup-board { margin-top: 4px; }
+
+    /* Fallback "OPEN LINK" button: a real <a>, so the tap itself is the user
+       gesture that lets the browser open the link (iOS Safari blocks
+       window.open() that isn't directly inside a click/touchend). */
+    #popup-link {
+      display: none;
+      align-items: center; justify-content: center;
+      margin-top: 16px;
+      min-height: 52px; padding: 14px 18px;
+      border: 2px solid #f9c74f;
+      background: rgba(249,199,79,0.12);
+      color: #f9c74f;
+      font-family: 'Press Start 2P', monospace; font-size: 10px; letter-spacing: 2px;
+      text-decoration: none; text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #popup-link:active { background: rgba(249,199,79,0.32); }
+
     /* email form */
     #email-wrap { margin-top: 14px; }
     .form-input {
@@ -252,7 +315,7 @@
          showed as a black box), so the iframe is absolutely positioned. */
       position: relative;
       flex: 0 0 auto;
-      width: min(640px, 92vw, calc((100vh - 140px) * 16 / 9));
+      width: min(640px, 92vw, calc((100vh - 140px) * 16 / 9));          /* fallback */
       width: min(640px, 92vw, calc((100svh - 140px) * 16 / 9));
       aspect-ratio: 16/9;
       border: 2px solid #4ecca3;
@@ -266,9 +329,13 @@
     }
     /* body has touch-action:none for the game; let taps work in the player */
     #tv-overlay, #tv-overlay * { touch-action: manipulation; }
+    /* Toggled each frame from the game loop (popupOpen / tvOpen / chatOpen):
+       hide the joystick, chat and ACT buttons while a popup is up. */
     body.modal-open #touch-ui { display: none !important; }
 
-    #tv-close-btn {
+    #tv-btns { display: flex; gap: 10px; align-items: center; justify-content: center; }
+    #tv-switch-btn[hidden] { display: none; }
+    #tv-close-btn, #tv-switch-btn {
       font-family: 'Press Start 2P', monospace;
       font-size: 7px; color: #4ecca3;
       background: rgba(78,204,163,0.06);
@@ -278,7 +345,7 @@
       min-height: 44px;
       transition: background 0.1s;
     }
-    #tv-close-btn:hover { background: rgba(78,204,163,0.2); }
+    #tv-close-btn:hover, #tv-switch-btn:hover { background: rgba(78,204,163,0.2); }
 
     /* Fallback if the YouTube embed refuses to load. */
     #tv-yt-link {
@@ -409,7 +476,7 @@
     /* ── Soundtrack mute toggle ── */
     #bgm-toggle {
       position: fixed;
-      top: 8px; right: 8px;
+      top: calc(env(safe-area-inset-top, 0px) + 8px); right: calc(env(safe-area-inset-right, 0px) + 8px);
       width: 24px; height: 24px;
       background: rgba(5,5,10,0.72);
       border: 1px solid #f9c74f;
@@ -653,6 +720,7 @@
   </div>
 
   <canvas id="gameCanvas"></canvas>
+  <canvas id="transitionCanvas"></canvas>
 
   <!-- Info / Email popup -->
   <div id="popup-overlay">
@@ -660,7 +728,10 @@
       <button id="popup-close">✕</button>
       <div id="popup-icon"></div>
       <div id="popup-title"></div>
+      <img id="popup-img" alt="">
       <div id="popup-body"></div>
+      <div id="popup-board" style="display:none"></div>
+      <a id="popup-link" href="#" target="_blank" rel="noopener">OPEN LINK</a>
       <div id="email-wrap" style="display:none">
         <input id="name-input"  class="form-input" type="text"  placeholder="your name" autocomplete="name">
         <input id="email-input" class="form-input" type="email" placeholder="your@email.com " autocomplete="email">
@@ -681,7 +752,10 @@
         allow="autoplay; encrypted-media; picture-in-picture"></iframe>
     </div>
     <a id="tv-yt-link" href="https://www.youtube.com/" target="_blank" rel="noopener">WATCH ON YOUTUBE ↗</a>
-    <button id="tv-close-btn">✕  CLOSE</button>
+    <div id="tv-btns">
+      <button id="tv-close-btn">✕  CLOSE</button>
+      <button id="tv-switch-btn" hidden>💾 DISK</button>
+    </div>
   </div>
 
 
@@ -705,15 +779,13 @@
   </div>
 </div>
 
-<!-- Background soundtrack -->
-<audio id="bgm" src="assets/scA.m4a" loop preload="auto"></audio>
 <button id="chat-btn-desktop" type="button" aria-label="Chat" title="Chat">
   <svg width="22" height="22" viewBox="0 0 22 22" fill="#4ecca3" xmlns="http://www.w3.org/2000/svg">
     <rect x="1" y="1" width="20" height="14" rx="3"/>
     <polygon points="4,15 4,21 10,15"/>
   </svg>
 </button>
-<button id="bgm-toggle" type="button" aria-label="Toggle soundtrack" title="Toggle soundtrack (M)">
+<button id="bgm-toggle" type="button" aria-label="Mute all sound" title="Mute all sound (M)">
   <span id="bgm-icon">♪</span>
 </button>
 
@@ -725,6 +797,13 @@
   <span>`</span> — DEBUG
 </div>
 
+<script src="assets/audio.js"></script>
+<script src="assets/leaderboard.js"></script>
+<script src="assets/install.js"></script>
+<script>
+// If audio.js ever fails to load, every TanaAudio call becomes a harmless no-op.
+window.TanaAudio = window.TanaAudio || new Proxy({}, { get: () => () => null });
+</script>
 <script>
 'use strict';
 
@@ -733,6 +812,10 @@ const playerId    = crypto.randomUUID();
 let   playerName  = 'ANON';
 let   playerSkin  = 0;
 let   nameScreenOpen = true;
+// True when we arrived from Zombie Street's GO BACK TO THE CRIB button (see the
+// entry-screen block near the end of this script): the entry screen is skipped
+// and bgImg.onload spawns the player by the street exit instead of the default spot.
+let   returningFromStreet = false;
 const remotePlayers  = new Map();
 
 const ROOM_CAP   = 50;
@@ -749,6 +832,36 @@ let   _worldChannel = null;
 //  ╚██████╗╚██████╔╝██║ ╚████║██║     ██║╚██████╔╝
 //   ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝     ╚═╝ ╚═════╝
 // ═══════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────
+//  NIGHT LIGHTING — Room 1 (see "NIGHT LIGHTING" above render() for the passes)
+//
+//  Only the BACKGROUND has a night version (assets/base_night.png, painted dark,
+//  never run through the lightmaps). Every sprite (props, players, NPCs) stays
+//  its normal PNG and is lit at runtime on its own layer:
+//    × assets/lightmap_multiply.png   navy dark → warm/cool light, white = emissive
+//    + assets/lightmap_screen.png     coloured highlights near lights (low strength)
+//  then assets/tvglow.png, tinted with the TV video's live colour, is screened
+//  over the whole frame. All four images are 1537×768, 1:1 with world coords.
+//  Name tags, chat bubbles, [E] prompts, HUD, debug and popups stay unlit.
+// ─────────────────────────────────────────────────────────
+const NIGHT_LIGHTING        = true;   // MASTER SWITCH. false = Room 1 exactly as before (day background, no lighting passes)
+const LIGHTING_MODE         = 'perSprite'; // 'perSprite' (default: each sprite lit on its own, cheap) | 'fullscreen' (the old full-screen layer + mask compositing, for comparison)
+const LIGHT_SCREEN_STRENGTH = 0.25;   // 0..1  strength of the screen (highlight) map on sprites
+const TV_GLOW_STRENGTH      = 0.85;   // 0..1  peak alpha of the tinted TV glow (screen blend) at normal brightness
+const TV_SAMPLE_HZ          = 8;      // how often the TV video's average colour is sampled
+const TV_FLICKER_AMOUNT     = 0.12;   // 0..1  size of the subtle TV flicker (0 = steady)
+const TV_COLOR_SMOOTH_MS    = 250;    // glow colour/brightness ease toward each new sample over about this long (short, so it tracks the video)
+const TV_SATURATION_BOOST   = 1.3;    // >1 pushes the video's colour away from grey, so red reads as a strong flame red
+const TV_LUMA_LO = 0.03, TV_LUMA_HI = 0.35; // video brightness (0..1) -> glow strength by smoothstep: <= LO no glow, >= HI full
+const TV_FALLBACK_RGB       = [60, 200, 175]; // gentle teal, used ONLY while the video isn't playing at all
+
+// Runtime state for the lighting passes (set up by resizeGame / render).
+let lightingOn   = NIGHT_LIGHTING;    // can drop to false if base_night.png fails to load
+let lightDebug   = 0;                 // debug view (backtick on, then L): 0 normal, 1 multiply map only, 2 screen map only
+let layerCanvas = null, layerCtx = null; // transparent layer the Y-sorted sprites are drawn onto
+let litCanvas   = null, litCtx   = null; // that layer after the multiply + screen passes
+let maskCanvas  = null, maskCtx  = null; // where `unlit: true` objects are visible (not covered by a lit sprite in front of them)
 
 // ─────────────────────────────────────────────────────────
 //  WORLD & VIEWPORT
@@ -776,6 +889,9 @@ const VIEW_H = 768;
 // at native device resolution. VIEW_W/VIEW_H stay constant as the
 // logical world-camera coordinate space.
 let SCREEN_W = VIEW_W;
+// Left/right safe-area insets in canvas (view) units, so the canvas HUD clears a notch in
+// standalone/landscape. Refreshed by resizeGame().
+let HUD_L = 0, HUD_R = 0;
 let SCREEN_H = VIEW_H;
 
 // ── Player geometry (% of world height so it scales with image) ──
@@ -798,6 +914,7 @@ let ROOM_L    = 10;
 let ROOM_R    = WORLD_W - 10;
 
 const WELCOME_ZONE = { x: WORLD_W / 2 - 120, y: FLOOR_BTM - 80, w: 240, h: 80 };
+const SPAWN_Y = 470;   // new players' spawn y (x is centred)
 
 // ── Sprite sheet layout: rows = directions, cols = frames ──
 //  row 0=down  1=up  2=left  3=right
@@ -811,7 +928,7 @@ const DIR_ROW  = { down:0, up:1, left:2, right:3 };
 // ─────────────────────────────────────────────────────────
 
 const canvas = document.getElementById('gameCanvas');
-const ctx    = canvas.getContext('2d');
+let   ctx    = canvas.getContext('2d');   // `let`: render() points it at the sprite layer while lighting is on
 ctx.imageSmoothingEnabled = false;
 canvas.width  = VIEW_W;
 canvas.height = VIEW_H;
@@ -827,7 +944,18 @@ function loadImg(src) {
   return img;
 }
 
-const bgImg             = loadImg('assets/base_newfr.png');
+const bgImg             = loadImg(NIGHT_LIGHTING ? 'assets/base_nightv2.png' : 'assets/base_newfr.png');
+// Night art missing? Fall back to the day room with no lighting rather than a blank one.
+if (NIGHT_LIGHTING) bgImg.addEventListener('error', () => {
+  console.warn('[TANA.EXE] base_night.png failed to load — using the day room.');
+  lightingOn = false;
+  bgImg.src = 'assets/base_newfr.png';
+}, { once: true });
+
+// Lighting maps (world-space, 1537×768) — only fetched when night lighting is on.
+const lightMulImg  = NIGHT_LIGHTING ? loadImg('assets/lightmap_multiplyv2.png') : null;
+const lightScrImg  = NIGHT_LIGHTING ? loadImg('assets/lightmap_screenv2.png')   : null;
+const tvGlowImg    = NIGHT_LIGHTING ? loadImg('assets/tvglow.png')            : null;
 const skinImgs = [
   loadImg('assets/spritetestf2.png'),
   loadImg('assets/girlsprite.png'),
@@ -835,8 +963,8 @@ const skinImgs = [
 ];
 
 const chrisSpriteImg  = loadImg('assets/chrissprite.webp');
-const bouncerNpcImg   = loadImg('assets/bouncernpc.webp');
-const speakerLeftImg  = loadImg('assets/spkrspriteLEFT.webp');
+const bouncerNpcImg   = loadImg('assets/bouncernpcv2.png');
+const speakerLeftImg  = loadImg('assets/spkrspriteLEFT.png');
 
 
 
@@ -868,10 +996,11 @@ tvVideo.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacit
 document.body.appendChild(tvVideo);
 function playTvLoop() { const p = tvVideo.play(); if (p && p.catch) p.catch(() => {}); }
 playTvLoop();
+// Retry if autoplay was refused — but never while the TV popup is open (the loop is paused on purpose then).
 ['touchend', 'pointerdown', 'keydown', 'click'].forEach(evt => {
-  window.addEventListener(evt, () => { if (tvVideo.paused) playTvLoop(); }, { capture: true, passive: true });
+  window.addEventListener(evt, () => { if (tvVideo.paused && !tvOpen) playTvLoop(); }, { capture: true, passive: true });
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && tvVideo.paused) playTvLoop(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && tvVideo.paused && !tvOpen) playTvLoop(); });
 
 // Bedroom
 const bedUnpackedImg    = loadImg('assets/bed_unpacked.png');
@@ -881,6 +1010,9 @@ const rackBUnpackedImg  = loadImg('assets/rack_B_unpacked.png');
 
 // Plaque
 const plaqImg           = loadImg('assets/plaq.png');
+
+// TV frame — drawn over the TV's video rect (same x/y/w/h). A missing file just means no frame.
+const tvFrameImg        = loadImg('assets/tv.png');
 
 
 // ── Auto-size world to image ──────────────────────────────
@@ -903,16 +1035,45 @@ bgImg.onload = () => {
   FLOOR_TOP = Math.round(WORLD_H * 0.30);
   FLOOR_BTM = Math.round(WORLD_H * 0.96);
 
-  // Spawn player at entrance, same Y as bouncer NPC
+  // New players spawn centred, between the trunk (base 430) and the street-exit zone.
   player.x = WORLD_W / 2 - PW / 2;
-  player.y = 614;
+  player.y = SPAWN_Y;
 
   WELCOME_ZONE.x = WORLD_W / 2 - 120;
   WELCOME_ZONE.y = FLOOR_BTM - 80;
   for (const npc of npcs) { npc.w = PW; npc.h = PH; npc.baseY = npc.y + PH; }
 
+  // Room 2 exit decal — bottom-middle of the walkable floor
+  room2ExitObj.x = WORLD_W / 2 - room2ExitObj.w / 2;
+  room2ExitObj.y = FLOOR_BTM - room2ExitObj.h;
+  room2ExitObj.interactY = FLOOR_BTM - room2ExitObj.h * 0.2;
+  room2ExitObj.promptY   = WELCOME_ZONE.y - 10;
+
+  if (returningFromStreet) spawnAtStreetExit();
+
   console.log(`[TANA.EXE] World: ${WORLD_W}×${WORLD_H} | Player: ${PW}×${PH} | Floor: ${FLOOR_TOP}–${FLOOR_BTM}`);
 };
+
+const BOUNCER_LINES = ["TAKE THIS, IT'S CRAZY OUTSIDE", "YOU GON NEED THIS, BE SAFE OUT THERE"];
+const BOUNCER_SAY_COOLDOWN_MS = 30000;
+let _bouncerZoneWas = null, _bouncerLastSay = -1e9;
+
+// Player returning from Zombie Street: stand just above the street-exit decal
+// (bottom middle), facing up into the room. If something blocks that exact
+// spot, try nearby ones.
+function spawnAtStreetExit() {
+  const cx = room2ExitObj.x + room2ExitObj.w / 2 - PW / 2;
+  // feet bottom (player.y + PH) sits 8px above the exit zone's top edge (so they start just outside it)
+  const y0 = WELCOME_ZONE.y - 8 - PH;
+  const tries = [[0, 0], [0, -30], [-70, 0], [70, 0], [-70, -30], [70, -30], [-140, 0], [140, 0]];
+  let spot = { x: cx, y: y0 };
+  for (const [dx, dy] of tries) {
+    if (!wouldCollide(cx + dx, y0 + dy)) { spot = { x: cx + dx, y: y0 + dy }; break; }
+  }
+  player.x = spot.x;
+  player.y = spot.y;
+  player.facing = 'up';
+}
 
 // ─────────────────────────────────────────────────────────
 //  CAMERA
@@ -970,6 +1131,37 @@ function wy(worldY) { return Math.round(worldY - cam.y); }
 //    2. Set  sceneObjects.find(o=>o.id==='myId').img = myImg;
 //    3. Done — engine draws the PNG at (x,y,w,h) automatically
 // ─────────────────────────────────────────────────────────
+// Speakers flanking the TV (x 640, w 245 → 640–885), 6px gap each side.
+const SPEAKER_W = 104, SPEAKER_H = 140, SPEAKER_BASE_Y = 250;
+const SPEAKER_LEFT_X  = 640 - 6 - SPEAKER_W;   // 530
+const SPEAKER_RIGHT_X = 640 + 245 + 6;         // 891
+
+function makeSpeaker(id, x, mirrored) {
+  return {
+    id,
+    x, y: SPEAKER_BASE_Y - SPEAKER_H, w: SPEAKER_W, h: SPEAKER_H,   // y = 110
+    baseY: SPEAKER_BASE_Y,
+    collision: { x: x + 10, y: SPEAKER_BASE_Y - 14, w: SPEAKER_W - 20, h: 14 }, // thin strip at the base
+    interactable: false,
+    animated: true,   // 2-frame beat → relit per frame (see litDynamic)
+    img: null,
+    draw(ctx, sx, sy) {
+      ctx.imageSmoothingEnabled = false;
+      const img = speakerLeftImg;
+      if (!(img.complete && img.naturalWidth > 0)) return;
+      if (!mirrored) {
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
+      } else {
+        ctx.save();
+        ctx.translate(sx + this.w, sy);   // flip horizontally around the sprite's own box
+        ctx.scale(-1, 1);
+        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, 0, 0, this.w, this.h);
+        ctx.restore();
+      }
+    }
+  };
+}
+
 const sceneObjects = [
 
   // ── TV (wall-mounted, always visible, interactable) ──
@@ -977,10 +1169,14 @@ const sceneObjects = [
   //  tvVideo element straight onto the canvas each frame.
   {
     id: 'tv',
+    unlit: true,   // true colours — never touched by the light maps
     x: 640, y: 50, w: 245, h: 161,
     baseY: 200, collision: null,
     interactable: true, action: 'video',
-    label: 'PLAY VIDEO',
+    // Secret disk easter egg: while the player holds the disk (earned in Zombie Street) and hasn't
+    // watched the secret video yet, the TV reads INSERT DISK with a cyan pip. See "TV VIDEO OVERLAY".
+    get label()       { return diskPending() ? 'INSERT DISK' : 'PLAY VIDEO'; },
+    get promptColor() { return diskPending() ? '#78ffd0' : '#f9c74f'; },
     videoId: 'UQiQ74AbvQ8',
     img: null,
     draw(ctx, sx, sy) {
@@ -1089,25 +1285,28 @@ const sceneObjects = [
     interactable: false, img: null, draw() {}
   },
 
-  // ── Speaker — floor-standing, mid-left. Animated via speakerFrame.
-  //    (The party pass added a matched set; this is the one kept.)
-  {
-    id: 'speaker_left',
-    x: 460, y: 390, w: 168, h: 226,
-    baseY: 590,
-    collision: null,
-    interactable: false,
-    img: null,
-    draw(ctx, sx, sy) {
-      ctx.imageSmoothingEnabled = false;
-      const img = speakerLeftImg;
-      if (img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, speakerFrame * 800, 0, 800, 1000, sx, sy, this.w, this.h);
-      }
-    }
-  },
+  // ── Speakers — a pair standing on the back floor either side of the TV (TV: x 640–885).
+  //    Same sprite and 2-frame beat (speakerFrame) as the old single floor speaker; the
+  //    right one is drawn mirrored. Thin collision at the base only, so nothing behind
+  //    the couch / carpet changes. See makeSpeaker().
+  makeSpeaker('speaker_left',  SPEAKER_LEFT_X,  false),
+  makeSpeaker('speaker_right', SPEAKER_RIGHT_X, true),
 
 ];
+
+// ── TV FRAME — assets/tv.png (245×161, transparent screen opening) over the TV's video rect.
+//  baseY 201 (the TV is 200) so it always draws right after the screen. NOT unlit: it takes the room
+//  lighting like other furniture, while the screen behind the opening stays unlit (the unlit mask cuts
+//  the frame's pixels out, leaving the opening). Not interactable — the TV object keeps the [E] prompt.
+sceneObjects.push({
+  id: 'tv_frame',
+  x: 640, y: 50, w: 245, h: 161,
+  baseY: 201,
+  collision: null,
+  interactable: false,
+  img: tvFrameImg,
+  draw() {}   // no image → nothing (no frame, no error)
+});
 
 const wallPlaqueObj = {
   id: 'wall_plaque',
@@ -1144,9 +1343,11 @@ const USB_FRAME_H  = 179;
 
 const usbDropObj = {
   id: 'usb_drop',
-  // Placeholder x/y — fine-tune in-game with the debug overlay (` backtick key).
-  // Sits in the bottom-right, roughly under/near the studio desk.
-  x: 1180, y: 455, w: USB_FRAME_W, h: USB_FRAME_H,
+  unlit: true,   // true colours — never touched by the light maps
+  // Fine-tune in-game with the debug overlay (` backtick key).
+  // Left side of the room, clear of the bed (ends at x 260). Its old bottom-right
+  // spot now holds the SCOREBOARD.
+  x: 305, y: 455, w: USB_FRAME_W, h: USB_FRAME_H,
   baseY: 620,
   interactY: 640,   // floor level the player stands on to reach it
   promptY: 460,     // world Y where the [E] prompt floats
@@ -1191,6 +1392,109 @@ const usbDropObj = {
 };
 
 sceneObjects.push(usbDropObj);
+
+
+// ─────────────────────────────────────────────────────────
+//  SCOREBOARD — Zombie Street leaderboard prop, in the spot the USB drop used
+//  to occupy (just right of Chris). Height is fixed (SCOREBOARD_H); width
+//  follows assets/scoreboard.png's aspect ratio, centred on SCOREBOARD_CX, so
+//  swapping the art never distorts it. Until the PNG loads (or if it is
+//  missing) a placeholder board is drawn at a 3:4 aspect.
+//  Depth-sorted by baseY like any prop; only a small footprint at its base
+//  blocks the player — tune the red box with the debug overlay (` key).
+// ─────────────────────────────────────────────────────────
+const scoreboardImg = loadImg('assets/scoreboard.png');
+const SCOREBOARD_H      = 140;   // px tall (~ a player)
+const SCOREBOARD_CX     = 1118;  // world x of its centre — just right of Chris, slightly behind him
+const SCOREBOARD_BASE_Y = 585;   // feet line — Chris's base is 603, so Chris draws in front of it
+const SCOREBOARD_FOOT_H = 26;    // collision strip height at its base
+const SCOREBOARD_FOOT_INSET = 0.15; // collision is inset this fraction of w each side
+
+const scoreboardObj = {
+  id: 'scoreboard',
+  x: 0, y: 0, w: 105, h: SCOREBOARD_H,   // x/y/w set by layoutScoreboard()
+  baseY: SCOREBOARD_BASE_Y,
+  interactY: SCOREBOARD_BASE_Y + 20,     // floor level the player stands on
+  promptY: 0,                            // set by layoutScoreboard()
+  collision: { x: 0, y: SCOREBOARD_BASE_Y - SCOREBOARD_FOOT_H, w: 0, h: SCOREBOARD_FOOT_H },
+  interactable: true,
+  action: 'scoreboard',
+  label: 'SCOREBOARD',
+  img: scoreboardImg,
+  // Placeholder, used only while the PNG is missing/unloaded.
+  draw(ctx, sx, sy) {
+    const w = this.w, h = this.h;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#14101c'; ctx.fillRect(sx, sy, w, h - 14);
+    ctx.strokeStyle = '#f9c74f'; ctx.lineWidth = 3; ctx.strokeRect(sx + 1.5, sy + 1.5, w - 3, h - 17);
+    ctx.fillStyle = '#e94560'; ctx.font = '8px "Press Start 2P"';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('TOP 10', sx + w / 2, sy + 16);
+    ctx.fillStyle = '#4ecca3';
+    for (let i = 0; i < 6; i++) ctx.fillRect(sx + 12, sy + 32 + i * 13, w - 24, 5);
+    ctx.fillStyle = '#3a3048'; ctx.fillRect(sx + w / 2 - 4, sy + h - 14, 8, 14); // post
+  },
+};
+
+function layoutScoreboard() {
+  const ratio = (scoreboardImg.complete && scoreboardImg.naturalWidth > 0)
+    ? scoreboardImg.naturalWidth / scoreboardImg.naturalHeight
+    : 0.75;
+  const o = scoreboardObj;
+  o.h = SCOREBOARD_H;
+  o.w = Math.round(o.h * ratio);
+  o.x = Math.round(SCOREBOARD_CX - o.w / 2);
+  o.y = SCOREBOARD_BASE_Y - o.h;
+  o.promptY = o.y + 5;
+  const inset = Math.round(o.w * SCOREBOARD_FOOT_INSET);
+  o.collision.x = o.x + inset;
+  o.collision.w = o.w - inset * 2;
+}
+scoreboardImg.addEventListener('load', layoutScoreboard);
+layoutScoreboard();
+
+sceneObjects.push(scoreboardObj);
+
+
+// ─────────────────────────────────────────────────────────
+//  ROOM 2 EXIT — usable only while the player's feet overlap `zone` (the same rectangle as
+//  the bouncer's WELCOME_ZONE). Its only visual is a bobbing green chevron, drawn in the
+//  unlit UI pass (drawUI) — nothing is drawn in the sprite layer.
+//  Position is finalized in bgImg.onload once WORLD_W/FLOOR_BTM are known.
+// ─────────────────────────────────────────────────────────
+const room2ExitObj = {
+  id: 'room2_exit',
+  x: 0, y: 0, w: 220, h: 70,   // x/y only place the [E] prompt and cull the object
+  baseY: 1,
+  interactY: 0,
+  promptY: 0,
+  zone: WELCOME_ZONE,          // interaction = feet inside this rectangle (not a radius)
+  collision: null,             // floating cue — doesn't block movement
+  interactable: true,
+  action: 'room-exit',
+  label: 'STEP OUTSIDE',
+  img: null,
+  draw() {},                   // no sprite-layer visual
+  drawUI(ctx) {
+    const z = this.zone;
+    const t = Date.now() / 500;
+    const pulse = 0.5 + 0.5 * Math.sin(t);
+    const cx = wx(z.x + z.w / 2);
+    const bob = Math.sin(t * 1.6) * 4;
+    const ay  = wy(z.y + z.h * 0.45) + bob;
+    ctx.save();
+    ctx.fillStyle = `rgba(78,204,163,${0.7 + 0.3 * pulse})`;
+    ctx.beginPath();            // down-pointing chevron, 1.5x the old size
+    ctx.moveTo(cx, ay + 12);
+    ctx.lineTo(cx - 13.5, ay - 6);
+    ctx.lineTo(cx + 13.5, ay - 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+};
+
+sceneObjects.push(room2ExitObj);
 
 
 applyStudioUnpack(false);
@@ -1303,7 +1607,7 @@ let npcIdleTick  = 0;
 
 const player = {
   x: WORLD_W / 2 - PW / 2,
-  y: 614,
+  y: SPAWN_Y,
   vx: 0, vy: 0,
   facing: 'down',
   animFrame: 0,
@@ -1356,22 +1660,32 @@ const INTERACT_RANGE = 160; // world pixels
 function getNearbyObject() {
   const px = player.x + PW / 2;
   const py = player.y + FEET_OY + FEET_H / 2;
+  // The NEAREST thing in range wins (objects and NPCs alike), so two interactables
+  // whose ranges overlap — Chris and the scoreboard beside him — each take over
+  // when the player stands closer to them.
+  let best = null, bestD = INTERACT_RANGE;
   for (const obj of sceneObjects) {
     if (!obj.interactable) continue;
+    if (obj.zone) {                       // rectangle-based object (the street exit): usable only while the feet are inside
+      if (rectsOverlap(playerFeetRect(), obj.zone)) { best = obj; bestD = 0; }
+      continue;
+    }
     const ocx = obj.x + obj.w / 2;
     // Interaction proximity uses interactY when set, otherwise baseY.
     // Decouples interaction range from depth-sort anchor so wall-mounted
     // objects can be reached from the floor without breaking rendering.
     const ocy = (obj.interactY != null) ? obj.interactY : obj.baseY;
-    if (Math.hypot(px - ocx, py - ocy) < INTERACT_RANGE) return obj;
+    const d = Math.hypot(px - ocx, py - ocy);
+    if (d < bestD) { best = obj; bestD = d; }
   }
   for (const npc of npcs) {
     if (!npc.action) continue;
     const ocx = npc.x + npc.w / 2;
     const ocy = npc.baseY;
-    if (Math.hypot(px - ocx, py - ocy) < INTERACT_RANGE) return npc;
+    const d = Math.hypot(px - ocx, py - ocy);
+    if (d < bestD) { best = npc; bestD = d; }
   }
-  return null;
+  return best;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1393,7 +1707,24 @@ const emailSubmit  = document.getElementById('email-submit');
 const formError    = document.getElementById('form-error');
 let popupOpen = false;
 
+// Optional popup parts that only some popups use. Every open*() calls
+// resetPopupExtras() first so nothing leaks from one popup into the next.
+const popupBox  = document.getElementById('popup-box');
+const popupImg  = document.getElementById('popup-img');
+const popupLink = document.getElementById('popup-link');
+const popupBoard = document.getElementById('popup-board');
+function resetPopupExtras() {
+  popupImg.style.display = 'none';
+  popupImg.removeAttribute('src');
+  popupLink.style.display = 'none';
+  popupLink.setAttribute('href', '#');
+  popupBox.classList.remove('plaque', 'board');
+  popupBoard.style.display = 'none';
+  popupBoard.textContent = '';
+}
+
 function openEmailPopup() {
+  resetPopupExtras();
   popupIcon.textContent  = '✉';
   popupTitle.textContent = 'STAY IN THE LOOP';
   popupBody.innerHTML    = `
@@ -1415,11 +1746,16 @@ function openEmailPopup() {
   [nameInput, emailInput, phoneInput].forEach(i => i.style.borderColor = '#4ecca3');
   popupOverlay.classList.add('active');
   popupOpen = true;
+  TanaAudio.play('ui_open');
 }
 
 function closePopup() {
+  // Guarded: ESC calls this unconditionally, and the email-sent auto-close
+  // timer can fire after the player already closed it — one sound per close.
+  if (!popupOpen) return;
   popupOverlay.classList.remove('active');
   popupOpen = false;
+  TanaAudio.play('ui_close');
 }
 
 document.getElementById('popup-close').addEventListener('click', closePopup);
@@ -1436,6 +1772,7 @@ function showFormError(msg, fields) {
 }
 
 emailSubmit.addEventListener('click', async () => {
+  TanaAudio.play('ui_click');
   const name  = nameInput.value.trim();
   const email = emailInput.value.trim();
   const phone = phoneInput.value.trim();
@@ -1463,13 +1800,22 @@ emailSubmit.addEventListener('click', async () => {
     if (APPS_SCRIPT_URL && !APPS_SCRIPT_URL.startsWith('PASTE_')) {
       // No Content-Type header → simple request → no CORS preflight.
       // Apps Script reads the JSON body via e.postData.contents regardless.
+      // mode:'no-cors': Apps Script answers a POST with a redirect that carries
+      // no CORS headers, so a normal fetch REJECTS even though the row was
+      // saved. We don't need to read the response, so don't ask for it.
       await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
+        mode: 'no-cors',
         body: JSON.stringify({ name, email, phone })
       });
     } else {
       console.log('[TANA.EXE] (no APPS_SCRIPT_URL set) Captured:', { name, email, phone });
     }
+
+    // Remember the contact (email, else phone) locally so Zombie Street's
+    // game-over "claim prizes" prompt can prefill it. localStorage only —
+    // never sent anywhere but the Apps Script call above.
+    try { localStorage.setItem('tana-contact', email || phone); } catch (_) {}
 
     nameInput.style.display    = 'none';
     emailInput.style.display   = 'none';
@@ -1494,6 +1840,12 @@ emailSubmit.addEventListener('click', async () => {
 let debugOn = false;
 window.addEventListener('keydown', e => {
   if (e.key === '`' || e.key === '~') debugOn = !debugOn;
+  // Debug lighting view: with debug on, L cycles normal → multiply map only → screen map only.
+  if (debugOn && NIGHT_LIGHTING && (e.key === 'l' || e.key === 'L')) {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    lightDebug = (lightDebug + 1) % 3;
+  }
 });
 
 // ─────────────────────────────────────────────────────────
@@ -1507,129 +1859,183 @@ let tvOpen = false;
 // Mobile fixes for a black YouTube embed:
 //  • Move the overlay to <body> level so it isn't nested inside the fixed,
 //    overflow-hidden game container (and so it stacks above touch controls).
-//  • Show the overlay first, then load the embed on the next frame, so iOS
-//    isn't asked to paint an iframe that was created inside an opacity:0 layer.
+//  • Show the overlay first, then load the embed a couple of frames later, so
+//    iOS isn't asked to paint an iframe that was created inside an opacity:0
+//    layer. The embed comes from youtube-nocookie.com (some phones block
+//    youtube.com frames); the WATCH ON YOUTUBE link still goes to the real page.
 //  • While the TV is open, pause the in-room loop video and stop redrawing the
-//    full-screen canvas, freeing the phone's video decoder and GPU for YouTube.
+//    full-screen canvas (see the game loop), freeing the phone's video decoder
+//    and GPU for YouTube.
 document.body.appendChild(tvOverlay);
 
-function openTV(videoId) {
+// ── SECRET DISK (easter egg) ──
+//  tana_disk = '1' is set in Zombie Street when wave 8 begins; tana_disk_watched = '1' is set here the
+//  first time the secret video opens. Plain localStorage flags (try/catch'd — private browsing must not
+//  crash anything); no server, no accounts.
+const SECRET_VIDEO_ID  = 'fpxSr1R7vHU';
+const DISK_KEY         = 'tana_disk';
+const DISK_WATCHED_KEY = 'tana_disk_watched';
+let diskWatchedMem = false;      // fallback for the session when storage is blocked
+function diskFlag(k) { try { return localStorage.getItem(k) === '1'; } catch (_) { return false; } }
+function hasDisk()       { return diskFlag(DISK_KEY); }
+function diskPending()   { return hasDisk() && !diskWatchedMem && !diskFlag(DISK_WATCHED_KEY); }
+function markDiskWatched() {
+  diskWatchedMem = true;
+  try { localStorage.setItem(DISK_WATCHED_KEY, '1'); } catch (_) {}
+}
+
+const tvSwitchBtn = document.getElementById('tv-switch-btn');
+let tvVideoId = null;            // the video currently showing in the overlay
+
+// Point the overlay at a video. Shared by openTV and the DISK/TV switch button, so the secret video
+// gets exactly the same load path as the main one (youtube-nocookie embed, loaded a couple of frames
+// after the overlay is visible, same parameters, fallback link kept in step).
+function loadTVVideo(videoId) {
+  tvVideoId = videoId;
   tvYtLink.href = `https://www.youtube.com/watch?v=${videoId}`;
+  if (videoId === SECRET_VIDEO_ID) markDiskWatched();
+  // Switch button: only for disk holders; names the video you'd switch TO.
+  tvSwitchBtn.hidden = !hasDisk();
+  tvSwitchBtn.textContent = videoId === SECRET_VIDEO_ID ? '📺 TV' : '💾 DISK';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!tvOpen || tvVideoId !== videoId) return;   // closed (or swapped again) before the embed was due
+    tvIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+  }));
+}
+
+function openTV(videoId) {
   tvOverlay.classList.add('active');
   tvOpen = true;
   try { tvVideo.pause(); } catch (_) {}
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (!tvOpen) return;
-    tvIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
-  }));
-  duckBGMForTV();                // fade soundtrack out under YouTube
+  loadTVVideo(videoId);
+  TanaAudio.duckMusic(true);     // fade music out under YouTube
+  TanaAudio.play('ui_open');
 }
 
+// Swap between the main video and the secret one without closing the overlay (music stays ducked).
+tvSwitchBtn.addEventListener('click', () => {
+  if (!tvOpen || !hasDisk()) return;
+  const mainId = sceneObjects.find(o => o.id === 'tv').videoId;
+  loadTVVideo(tvVideoId === SECRET_VIDEO_ID ? mainId : SECRET_VIDEO_ID);
+});
+
 function closeTV() {
-  if (!tvOpen) return;
+  if (!tvOpen) return;           // ESC calls this unconditionally; safe when already closed
+  tvVideoId = null;
   tvIframe.src = '';
   tvOverlay.classList.remove('active');
   tvOpen = false;
   playTvLoop();                  // resume the in-room TV loop
-  unduckBGMFromTV();             // fade soundtrack back in
+  TanaAudio.duckMusic(false);    // fade music back in
+  TanaAudio.play('ui_close');
 }
 
 document.getElementById('tv-close-btn').addEventListener('click', closeTV);
 
 // ─────────────────────────────────────────────────────────
-//  BACKGROUND SOUNDTRACK
-//  • Tries to autoplay on load. If the browser blocks it
-//    (most do on first visit), arms a one-shot listener
-//    that starts playback on the user's first interaction.
-//  • Fades out under the YouTube TV so the two don't fight.
-//  • Mute toggle persists to localStorage. 'M' is a shortcut.
+//  ROOM 2 TRANSITION — retro pixelation dissolve
+//  Captures the current frame, then over ~500ms progressively redraws it
+//  onto a shrinking offscreen canvas (fewer effective pixels each step)
+//  and scales that back up with smoothing disabled, so the screen
+//  dissolves into a growing blocky mosaic before navigating to /zombies.
 // ─────────────────────────────────────────────────────────
-const bgm        = document.getElementById('bgm');
-const bgmToggle  = document.getElementById('bgm-toggle');
-const BGM_VOLUME = 0.40;   // playback target volume (0..1)
-const BGM_FADE   = 250;    // fade duration in ms
+let roomTransitioning = false;
+// Back/forward cache: leaving for Zombie Street freezes this page with
+// roomTransitioning = true and the dissolve canvas still covering the game.
+// Restoring that snapshot would leave every interaction blocked — reload fresh.
+window.addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
+const transitionCanvas = document.getElementById('transitionCanvas');
+const tCtx             = transitionCanvas.getContext('2d');
 
-let bgmStarted = false;
-let bgmFadeRAF = null;
-let userMuted  = false;
-try { userMuted = (localStorage.getItem('tana-bgm-muted') === '1'); } catch (_) {}
+function startRoomTransition() {
+  if (roomTransitioning) return;
+  roomTransitioning = true;
 
-bgm.volume = 0; // always start silent; we ramp up via fadeBGM
+  const w = canvas.width, h = canvas.height;
+
+  // Freeze the current frame
+  const snapshot = document.createElement('canvas');
+  snapshot.width = w; snapshot.height = h;
+  snapshot.getContext('2d').drawImage(canvas, 0, 0);
+
+  // Line the transition canvas up exactly over the game canvas
+  transitionCanvas.width       = w;
+  transitionCanvas.height      = h;
+  transitionCanvas.style.width  = canvas.style.width;
+  transitionCanvas.style.height = canvas.style.height;
+  transitionCanvas.style.left   = canvas.style.left;
+  transitionCanvas.style.top    = canvas.style.top;
+  transitionCanvas.style.opacity = '1';
+
+  const offscreen = document.createElement('canvas');
+  const offCtx    = offscreen.getContext('2d');
+
+  const DURATION   = 520;  // ms — within the 400-600ms target window
+  const START_MULT = 1;    // effectively full resolution at the start
+  const END_MULT   = 46;   // very blocky by the end
+  const OVERSCAN   = 24;   // px padding so jitter never reveals an edge
+  const startTime  = performance.now();
+
+  function step(now) {
+    const t = Math.min(1, (now - startTime) / DURATION);
+
+    // Shrink the offscreen canvas each step — fewer effective pixels
+    const mult  = START_MULT + (END_MULT - START_MULT) * t;
+    const downW = Math.max(1, Math.round(w / mult));
+    const downH = Math.max(1, Math.round(h / mult));
+    offscreen.width  = downW;
+    offscreen.height = downH;
+    offCtx.imageSmoothingEnabled = false;
+    offCtx.drawImage(snapshot, 0, 0, downW, downH);
+
+    // Slight random jitter — grows with t — so it reads as unstable/bobbly
+    // rather than a clean mechanical zoom.
+    const jitterMag = 8 * t;
+    const jx = (Math.random() - 0.5) * jitterMag;
+    const jy = (Math.random() - 0.5) * jitterMag;
+
+    // Scale back up with smoothing disabled — this is the blocky mosaic look
+    tCtx.imageSmoothingEnabled = false;
+    tCtx.clearRect(0, 0, w, h);
+    tCtx.drawImage(
+      offscreen, 0, 0, downW, downH,
+      -OVERSCAN / 2 + jx, -OVERSCAN / 2 + jy, w + OVERSCAN, h + OVERSCAN
+    );
+
+    if (t < 1) {
+      requestAnimationFrame(step);
+    } else {
+      window.location.href = '/zombies';
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// ─────────────────────────────────────────────────────────
+//  SOUND — master mute + music hooks (all audio lives in assets/audio.js)
+//  • The ♪ button and 'M' toggle a master mute (sfx + music), persisted
+//    to localStorage 'tana-muted' (the old 'tana-bgm-muted' value is
+//    migrated by audio.js on first load).
+//  • Music: the seamless beat loop (assets/music/tana_beat_loop.mp3) at normal speed.
+//    setMusic() only asks for it — audio.js starts it on the first tap / click / key
+//    (browsers keep audio locked until then). The TV popup ducks it via duckMusic().
+// ─────────────────────────────────────────────────────────
+const bgmToggle = document.getElementById('bgm-toggle');
+// "📲 FULL SCREEN" HUD button next to the mute button (touch browsers only; reopens the install popup).
+if (window.TanaInstall) TanaInstall.mountHudButton();
 
 function applyMuteUI() {
-  bgmToggle.classList.toggle('muted', userMuted);
+  bgmToggle.classList.toggle('muted', TanaAudio.isMuted() === true);
 }
 applyMuteUI();
 
-function fadeBGM(toVol, durMs) {
-  if (bgmFadeRAF) cancelAnimationFrame(bgmFadeRAF);
-  const fromVol = bgm.volume;
-  const start   = performance.now();
-  const step = (now) => {
-    const k = Math.min(1, (now - start) / durMs);
-    bgm.volume = fromVol + (toVol - fromVol) * k;
-    if (k < 1) bgmFadeRAF = requestAnimationFrame(step);
-    else       bgmFadeRAF = null;
-  };
-  bgmFadeRAF = requestAnimationFrame(step);
-}
-
-function tryStartBGM() {
-  if (bgmStarted || userMuted || tvOpen) return;
-  const p = bgm.play();
-  if (p && typeof p.then === 'function') {
-    p.then(() => {
-      bgmStarted = true;
-      fadeBGM(BGM_VOLUME, BGM_FADE);
-    }).catch(() => {
-      // Autoplay blocked — first-interaction listeners below will retry
-    });
-  } else {
-    bgmStarted = true;
-    fadeBGM(BGM_VOLUME, BGM_FADE);
-  }
-}
-
-window.addEventListener('load', tryStartBGM);
-
-// First-interaction fallback. Capture phase so we win even if
-// other handlers stopPropagation. Self-removes once started.
-['keydown', 'pointerdown', 'touchstart', 'click'].forEach(evt => {
-  const handler = () => {
-    tryStartBGM();
-    if (bgmStarted) window.removeEventListener(evt, handler, true);
-  };
-  window.addEventListener(evt, handler, true);
-});
-
 bgmToggle.addEventListener('click', () => {
-  userMuted = !userMuted;
-  try { localStorage.setItem('tana-bgm-muted', userMuted ? '1' : '0'); } catch (_) {}
+  TanaAudio.toggleMute();
   applyMuteUI();
-  if (userMuted) {
-    fadeBGM(0, BGM_FADE);
-    setTimeout(() => { if (userMuted) bgm.pause(); }, BGM_FADE + 30);
-  } else {
-    if (!bgmStarted) { tryStartBGM(); return; }
-    bgm.play().catch(() => {});
-    if (!tvOpen) fadeBGM(BGM_VOLUME, BGM_FADE);
-  }
+  if (!TanaAudio.isMuted()) TanaAudio.play('ui_click'); // confirm un-mute only
 });
 
-// Two state flags fight each other otherwise:
-//   userMuted        → user clicked mute; stay silent regardless of TV
-//   ducked-for-TV    → temporary, restored when TV closes (unless userMuted)
-function duckBGMForTV() {
-  if (userMuted || !bgmStarted) return;
-  fadeBGM(0, BGM_FADE);
-  setTimeout(() => { if (tvOpen) bgm.pause(); }, BGM_FADE + 30);
-}
-function unduckBGMFromTV() {
-  if (userMuted) return;
-  if (!bgmStarted) { tryStartBGM(); return; }
-  bgm.play().catch(() => {});
-  fadeBGM(BGM_VOLUME, BGM_FADE);
-}
+TanaAudio.setMusic('room1', 'normal');   // starts on unlock (first tap / click / key), fades in over 1.5 s
 
 // 'M' keyboard shortcut. Ignore when typing into inputs.
 window.addEventListener('keydown', e => {
@@ -1701,8 +2107,9 @@ jZone.addEventListener('touchcancel', jEnd,   { passive:false });
 //  INPUT — interact button
 // ─────────────────────────────────────────────────────────
 const iBtn = document.getElementById('interact-btn');
-// The action runs on touchend, not touchstart: iOS Safari only treats a
-// "completed" tap (touchend/click) as a user gesture for media and links.
+// The action runs on touchend, not touchstart: iOS Safari only lets
+// window.open() through when it's inside a "completed" tap (touchend/click).
+// touchstart just shows the pressed state.
 iBtn.addEventListener('touchstart', e => {
   e.preventDefault(); iBtn.classList.add('pressed');
 }, { passive:false });
@@ -1715,14 +2122,17 @@ iBtn.addEventListener('touchend', e => {
 iBtn.addEventListener('touchcancel', () => iBtn.classList.remove('pressed'));
 
 function tryInteract() {
+  if (roomTransitioning) return;
   if (popupOpen) { closePopup(); return; }
   if (tvOpen)    { closeTV();    return; }
   const obj = getNearbyObject();
   if (!obj) return;
-  if (obj.action === 'video')         openTV(obj.videoId);
+  if (obj.action === 'video')         openTV(diskPending() ? SECRET_VIDEO_ID : obj.videoId);
   if (obj.action === 'email')         openEmailPopup();
   if (obj.action === 'plaque-info')   openPlaqueInfo();
-  if (obj.action === 'external-link') window.open(obj.url, '_blank', 'noopener');
+  if (obj.action === 'scoreboard')    openScoreboard();
+  if (obj.action === 'external-link') openExternalLink(obj);
+  if (obj.action === 'room-exit')     startRoomTransition();
   if (obj.action === 'npc-talk') {
     const phrase = obj.phrases[Math.floor(Math.random() * obj.phrases.length)];
     obj._chat    = phrase;
@@ -1754,6 +2164,7 @@ function openChatPopup() {
   _chatPopup.style.display = 'flex';
   _chatInput.value = '';
   _chatInput.focus();
+  TanaAudio.play('ui_open');
 }
 
 function closeChatPopup() {
@@ -1761,6 +2172,7 @@ function closeChatPopup() {
   chatOpen = false;
   _chatPopup.style.display = 'none';
   _chatInput.blur();
+  TanaAudio.play('ui_close');
 }
 
 _chatInput.addEventListener('keydown', e => {
@@ -1776,9 +2188,42 @@ _chatInput.addEventListener('keydown', e => {
 });
 
 // ─────────────────────────────────────────────────────────
+//  EXTERNAL LINKS — window.open(), with a tap-to-open fallback popup
+// ─────────────────────────────────────────────────────────
+// NOTE: no 'noopener' in the features string — with it, window.open()
+// ALWAYS returns null (even on success), which would make a blocked open
+// indistinguishable from a working one. We null the opener by hand instead.
+function openExternalLink(obj) {
+  let w = null;
+  try { w = window.open(obj.url, '_blank'); } catch (_) {}
+  if (w) { try { w.opener = null; } catch (_) {} return; }
+  openLinkPopup(obj); // blocked → show a real <a> the user can tap
+}
+
+function openLinkPopup(obj) {
+  resetPopupExtras();
+  popupIcon.textContent  = '↗';
+  popupTitle.textContent = String(obj.label || 'LINK').toUpperCase();
+  popupBody.textContent  = 'Tap below to open the link.';
+  emailWrap.style.display = 'none';
+  popupLink.setAttribute('href', obj.url);
+  popupLink.style.display = 'flex';
+  popupOverlay.classList.add('active');
+  popupOpen = true;
+  TanaAudio.play('ui_open');
+}
+popupLink.addEventListener('click', () => setTimeout(closePopup, 150)); // the <a> navigates natively
+
+// ─────────────────────────────────────────────────────────
 //  PLAQUE — info popup
 // ─────────────────────────────────────────────────────────
 function openPlaqueInfo() {
+  resetPopupExtras();
+  // Plaque image (restored from the Phase-1 reveal card) between title and text.
+  popupBox.classList.add('plaque');
+  popupImg.src = 'assets/plaq.png';
+  popupImg.alt = 'Gold record plaque';
+  popupImg.style.display = 'block';
   popupIcon.textContent  = '★';
   popupTitle.textContent = 'GOLD RECORD';
   popupBody.innerHTML    = `
@@ -1788,6 +2233,30 @@ function openPlaqueInfo() {
   emailWrap.style.display = 'none';
   popupOverlay.classList.add('active');
   popupOpen = true;
+  TanaAudio.play('ui_open');
+}
+
+// ─────────────────────────────────────────────────────────
+//  SCOREBOARD — Zombie Street leaderboard popup (assets/leaderboard.js).
+//  Same board as the game-over screen: WEEKLY | ALL TIME, the player's own
+//  rows highlighted, and their best placed on an 11th row if outside the top 10.
+// ─────────────────────────────────────────────────────────
+function openScoreboard() {
+  resetPopupExtras();
+  popupBox.classList.add('board');
+  popupIcon.textContent  = '♛';
+  popupTitle.textContent = 'ZOMBIE STREET';
+  emailWrap.style.display = 'none';
+  if (window.TanaBoard) {
+    popupBody.textContent = '';
+    popupBoard.style.display = 'block';
+    TanaBoard.render(popupBoard, {});
+  } else {
+    popupBody.textContent = 'SCOREBOARD OFFLINE';
+  }
+  popupOverlay.classList.add('active');
+  popupOpen = true;
+  TanaAudio.play('ui_open');
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1795,7 +2264,7 @@ function openPlaqueInfo() {
 // ─────────────────────────────────────────────────────────
 function update(dt = 1) {
 
-  if (nameScreenOpen || popupOpen || chatOpen || tvOpen) return;
+  if (nameScreenOpen || popupOpen || chatOpen || tvOpen || roomTransitioning) return;
 
   let vx = 0, vy = 0;
 
@@ -1860,6 +2329,17 @@ if (moving) {
       }
     }
     _bouncerNpc._idleFrame = _anyInZone ? 1 : 0;
+
+    // The bouncer talks when the LOCAL player's feet step into the zone (outside → inside).
+    // Local only (never broadcast). Re-arms once they have left; at most once per 30 s.
+    const _inZone = rectsOverlap(playerFeetRect(), WELCOME_ZONE);
+    if (_bouncerZoneWas === null) _bouncerZoneWas = _inZone;     // first frame: just learn the state
+    else if (_inZone && !_bouncerZoneWas && Date.now() - _bouncerLastSay >= BOUNCER_SAY_COOLDOWN_MS) {
+      _bouncerLastSay = Date.now();
+      _bouncerNpc._chat    = BOUNCER_LINES[Math.floor(Math.random() * BOUNCER_LINES.length)];
+      _bouncerNpc._chatExp = Date.now() + 4000;
+    }
+    _bouncerZoneWas = _inZone;
   }
 
   updateCamera();
@@ -1998,7 +2478,12 @@ function drawPlayer() {
     ctx.fillRect(sx + 4, sy + PH * 0.35, PW - 8, PH * 0.65);
   }
 
-  // Name tag
+}
+
+// Name tag + chat bubble: UI, drawn AFTER the lighting passes (never darkened).
+function drawPlayerUI() {
+  const sx = wx(player.x);
+  const sy = wy(player.y);
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   roundRect(ctx, sx + PW / 2 - 22, sy - 22, 44, 16, 2);
   ctx.fill();
@@ -2013,12 +2498,19 @@ function drawPlayer() {
 // ─────────────────────────────────────────────────────────
 //  DRAW — REMOTE PLAYER
 // ─────────────────────────────────────────────────────────
-function drawRemotePlayer(rp) {
+// Interpolated draw position of a remote player (shared by the sprite and UI passes).
+function remoteDrawPos(rp) {
   const t = rp._interpStart !== undefined ? Math.min(1, (Date.now() - rp._interpStart) / 150) : 1;
-  const drawX = rp._fromX !== undefined ? rp._fromX + (rp._targetX - rp._fromX) * t : rp.x;
-  const drawY = rp._fromY !== undefined ? rp._fromY + (rp._targetY - rp._fromY) * t : rp.y;
-  const sx = wx(drawX);
-  const sy = wy(drawY);
+  return {
+    x: rp._fromX !== undefined ? rp._fromX + (rp._targetX - rp._fromX) * t : rp.x,
+    y: rp._fromY !== undefined ? rp._fromY + (rp._targetY - rp._fromY) * t : rp.y,
+  };
+}
+
+function drawRemotePlayer(rp) {
+  const pos = remoteDrawPos(rp);
+  const sx = wx(pos.x);
+  const sy = wy(pos.y);
   if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;
 
   ctx.globalAlpha = 1;
@@ -2049,7 +2541,17 @@ function drawRemotePlayer(rp) {
     ctx.fillRect(sx + 4, sy + PH * 0.35, PW - 8, PH * 0.65);
   }
 
-  // Name tag
+  ctx.globalAlpha = 1;
+}
+
+// Name tag + chat bubble (UI — drawn after the lighting passes).
+function drawRemotePlayerUI(rp) {
+  const pos = remoteDrawPos(rp);
+  const sx = wx(pos.x);
+  const sy = wy(pos.y);
+  if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;
+
+  ctx.globalAlpha = 1;
   const label = String(rp.name || 'ANON').substring(0, 12).toUpperCase();
   ctx.font = '8px "Press Start 2P"';
   const tw   = ctx.measureText(label).width;
@@ -2092,6 +2594,13 @@ function drawNPC(npc) {
     ctx.drawImage(npc.img, srcX, 0, FRAME_W, FRAME_H, sx, sy, npc.w, npc.h);
     ctx.restore();
   }
+}
+
+// NPC name tag + chat bubble (UI — drawn after the lighting passes).
+function drawNPCUI(npc) {
+  const sx = wx(npc.x);
+  const sy = wy(npc.y);
+  if (sx + npc.w < 0 || sx > VIEW_W || sy + npc.h < 0 || sy > VIEW_H) return;
 
   if (npc.label) {
     ctx.font = '8px "Press Start 2P"';
@@ -2146,10 +2655,18 @@ function drawNPC(npc) {
 // t = 0 → minimized textless pip (always on for interactables)
 // t = 1 → full [E] Label badge with arrow (when player is nearby)
 // In-between values tween smoothly so the pip "inflates" into the badge.
+// Prompt colour for an interactable: obj.promptColor (hex) or the default gold, with its rgb triplet for rgba().
+function promptColorOf(obj) {
+  const hex = obj.promptColor || '#f9c74f';
+  const n = parseInt(hex.slice(1), 16);
+  return { hex, rgb: `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}` };
+}
+
 function drawInteractPrompt(obj, t) {
   const sx = wx(obj.x + obj.w / 2);
   const sy = wy((obj.promptY != null ? obj.promptY : obj.y) - 8);
   const time = Date.now();
+  const pc = promptColorOf(obj);   // gold normally; cyan for the TV while a secret disk is waiting
 
   ctx.font = '9px "Press Start 2P"';
   const label = `[E] ${obj.label}`;
@@ -2177,15 +2694,15 @@ function drawInteractPrompt(obj, t) {
   // fades out as the badge expands so it doesn't muddy the full state.
   const haloAlpha = (1 - t) * 0.18;
   if (haloAlpha > 0.01) {
-    ctx.fillStyle = `rgba(249,199,79,${haloAlpha})`;
+    ctx.fillStyle = `rgba(${pc.rgb},${haloAlpha})`;
     ctx.beginPath();
     ctx.arc(cx, cy, 7, 0, Math.PI * 2);
     ctx.fill();
   }
 
   // The box (same look as before — just sized by t)
-  ctx.fillStyle   = 'rgba(249,199,79,0.13)';
-  ctx.strokeStyle = '#f9c74f';
+  ctx.fillStyle   = `rgba(${pc.rgb},0.13)`;
+  ctx.strokeStyle = pc.hex;
   ctx.lineWidth   = 1.5;
   roundRect(ctx, cx - w/2, boxTop, w, h, Math.min(3, h/2));
   ctx.fill(); ctx.stroke();
@@ -2194,7 +2711,7 @@ function drawInteractPrompt(obj, t) {
   // fades out by the time the badge is half-expanded.
   const pipAlpha = Math.max(0, 1 - t / 0.5);
   if (pipAlpha > 0.02) {
-    ctx.fillStyle = `rgba(249,199,79,${pipAlpha})`;
+    ctx.fillStyle = `rgba(${pc.rgb},${pipAlpha})`;
     ctx.beginPath();
     ctx.arc(cx, cy, 1.4, 0, Math.PI * 2);
     ctx.fill();
@@ -2204,7 +2721,7 @@ function drawInteractPrompt(obj, t) {
   const textAlpha = Math.max(0, (t - 0.55) / 0.45);
   if (textAlpha > 0.02) {
     ctx.globalAlpha = textAlpha;
-    ctx.fillStyle   = '#f9c74f';
+    ctx.fillStyle   = pc.hex;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(label, cx, cy);
     ctx.globalAlpha = 1;
@@ -2213,7 +2730,7 @@ function drawInteractPrompt(obj, t) {
   // Down arrow — only meaningful when expanded; fades with t
   if (t > 0.1) {
     ctx.globalAlpha = t;
-    ctx.fillStyle = '#f9c74f';
+    ctx.fillStyle = pc.hex;
     ctx.beginPath();
     ctx.moveTo(cx,     boxBottom + 5);
     ctx.lineTo(cx - 4, boxBottom);
@@ -2239,9 +2756,9 @@ function drawHUD() {
   ctx.fillStyle = '#4ecca3';
   ctx.font = '9px "Press Start 2P"';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText('▸ TANA ROOM', 8, CROP_TOP + 10);
+  ctx.fillText('▸ TANA ROOM', 8 + HUD_L, CROP_TOP + 10);
   ctx.textAlign = 'right';
-  ctx.fillText('ONLINE: ' + (remotePlayers.size + 1), VIEW_W - 8, CROP_TOP + 10);
+  ctx.fillText('ONLINE: ' + (remotePlayers.size + 1), VIEW_W - 8 - HUD_R, CROP_TOP + 10);
 
   // Bottom action hint
   const near = getNearbyObject();
@@ -2253,6 +2770,277 @@ function drawHUD() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(`[E]  →  ${near.label}`, VIEW_W / 2, screenBtm - 10);
   }
+}
+
+// ─────────────────────────────────────────────────────────
+//  NIGHT LIGHTING
+//
+//  Per frame (when NIGHT_LIGHTING is on and the maps have loaded):
+//   1. background (base_night.png) → main canvas, NOT lit.
+//   2. the Y-sorted sprites (props, local + remote players, NPCs) are drawn in
+//      their usual depth order onto a separate transparent LAYER.
+//   3. lit = black + layer, × multiply map, + screen map at LIGHT_SCREEN_STRENGTH,
+//      then masked back to the layer's own alpha — so only sprite pixels are
+//      touched and the background underneath stays as painted.
+//   4. lit layer → main canvas, then the TV glow (screen blend) over everything.
+//   5. UI (name tags, chat bubbles, [E] prompts), then HUD / debug — unlit.
+//  The maps are drawn at wx(0), wy(0) — the same world→screen mapping as the
+//  sprites — so they stay locked to the furniture whatever the camera or
+//  CROP_TOP does. (Drawing on black first keeps the semi-transparent floor
+//  shadows black; the multiply blend alone would tint them with the map colour.)
+// ─────────────────────────────────────────────────────────
+const imgReady = im => !!im && im.complete && im.naturalWidth > 0;
+
+function resizeLightLayers(scalePx) {
+  if (!NIGHT_LIGHTING || LIGHTING_MODE !== 'fullscreen') return;   // per-sprite mode needs no screen-sized canvases
+  if (!layerCanvas) {
+    layerCanvas = document.createElement('canvas'); layerCtx = layerCanvas.getContext('2d');
+    litCanvas   = document.createElement('canvas'); litCtx   = litCanvas.getContext('2d');
+    maskCanvas  = document.createElement('canvas'); maskCtx  = maskCanvas.getContext('2d');
+  }
+  for (const c of [layerCanvas, litCanvas, maskCanvas]) { c.width = canvas.width; c.height = canvas.height; }
+  for (const c of [layerCtx, litCtx, maskCtx]) { c.setTransform(scalePx, 0, 0, scalePx, 0, 0); c.imageSmoothingEnabled = false; }
+}
+
+function lightingReady() {
+  return lightingOn && (LIGHTING_MODE !== 'fullscreen' || !!layerCanvas) && imgReady(lightMulImg) && imgReady(lightScrImg) && imgReady(bgImg);
+}
+
+// Build the lit version of the sprite layer and composite it onto the main canvas.
+function compositeLitLayer(mainCtx) {
+  const W = litCanvas.width, H = litCanvas.height;
+  // Black base + the sprite layer (1:1 pixels, so identity transform).
+  litCtx.save();
+  litCtx.setTransform(1, 0, 0, 1, 0, 0);
+  litCtx.globalCompositeOperation = 'source-over';
+  litCtx.globalAlpha = 1;
+  litCtx.fillStyle = '#000';
+  litCtx.fillRect(0, 0, W, H);
+  litCtx.drawImage(layerCanvas, 0, 0);
+  litCtx.restore();
+
+  // Lightmaps under the world transform (litCtx already carries the view scale).
+  litCtx.save();
+  litCtx.imageSmoothingEnabled = true;           // the maps are soft; upscaling shouldn't pixelate them
+  litCtx.globalCompositeOperation = 'multiply';
+  litCtx.drawImage(lightMulImg, wx(0), wy(0));
+  litCtx.globalCompositeOperation = 'screen';
+  litCtx.globalAlpha = LIGHT_SCREEN_STRENGTH;
+  litCtx.drawImage(lightScrImg, wx(0), wy(0));
+  litCtx.restore();
+
+  // Keep only the sprite pixels.
+  litCtx.save();
+  litCtx.setTransform(1, 0, 0, 1, 0, 0);
+  litCtx.globalCompositeOperation = 'destination-in';
+  litCtx.drawImage(layerCanvas, 0, 0);
+  litCtx.restore();
+
+  mainCtx.save();
+  mainCtx.setTransform(1, 0, 0, 1, 0, 0);
+  mainCtx.globalCompositeOperation = 'source-over';
+  mainCtx.globalAlpha = 1;
+  mainCtx.drawImage(litCanvas, 0, 0);
+  mainCtx.restore();
+}
+
+// ── PER-SPRITE LIGHTING (LIGHTING_MODE 'perSprite') ──
+//  Every sprite is lit on its own, then drawn straight onto the main canvas in depth order — so
+//  occlusion just works and no screen-sized layer is needed. Same recipe as the full-screen pass:
+//  black + sprite → × the matching crop of the multiply map → + the screen map crop at
+//  LIGHT_SCREEN_STRENGTH → masked back to the sprite's own alpha.
+//   • static props: lit ONCE at world size (litStatic), cached on the object, drawn every frame;
+//   • moving / animated sprites: relit every frame in two small reusable scratch canvases (litDynamic).
+//  The recipe works in WORLD pixels (the maps are 1:1 with the world), `bx,by` = world top-left.
+function litRecipe(dstCtx, srcCanvas, bx, by, w, h) {
+  dstCtx.setTransform(1, 0, 0, 1, 0, 0);
+  dstCtx.globalAlpha = 1;
+  dstCtx.globalCompositeOperation = 'source-over';
+  dstCtx.fillStyle = '#000';
+  dstCtx.fillRect(0, 0, w, h);
+  dstCtx.drawImage(srcCanvas, 0, 0, w, h, 0, 0, w, h);
+  dstCtx.imageSmoothingEnabled = true;                 // the maps are soft
+  dstCtx.globalCompositeOperation = 'multiply';
+  dstCtx.drawImage(lightMulImg, bx, by, w, h, 0, 0, w, h);
+  dstCtx.globalCompositeOperation = 'screen';
+  dstCtx.globalAlpha = LIGHT_SCREEN_STRENGTH;
+  dstCtx.drawImage(lightScrImg, bx, by, w, h, 0, 0, w, h);
+  dstCtx.globalAlpha = 1;
+  dstCtx.globalCompositeOperation = 'destination-in';
+  dstCtx.drawImage(srcCanvas, 0, 0, w, h, 0, 0, w, h);
+  dstCtx.globalCompositeOperation = 'source-over';
+  dstCtx.imageSmoothingEnabled = false;
+}
+
+// Static prop: build (once per image) its lit copy, then just blit it.
+function litStatic(obj, sx, sy) {
+  const w = Math.max(1, Math.round(obj.w)), h = Math.max(1, Math.round(obj.h));
+  if (!obj._lit || obj._litImg !== obj.img || obj._litW !== w || obj._litH !== h) {
+    const a = document.createElement('canvas'); a.width = w; a.height = h;
+    const ac = a.getContext('2d'); ac.imageSmoothingEnabled = false; ac.drawImage(obj.img, 0, 0, w, h);
+    const b = document.createElement('canvas'); b.width = w; b.height = h;
+    litRecipe(b.getContext('2d'), a, Math.round(obj.x), Math.round(obj.y), w, h);
+    obj._lit = b; obj._litImg = obj.img; obj._litW = w; obj._litH = h;
+  }
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(obj._lit, sx, sy, obj.w, obj.h);
+}
+
+// Moving / animated sprite: draw it (drawFn, which uses the global ctx and wx()/wy()) into a scratch
+// canvas, relight it there, and blit the result at its place on the main canvas.
+const _dyn = { spr: null, sprCtx: null, lit: null, litCtx: null };
+function litDynamic(wx0, wy0, ww, wh, drawFn) {
+  const bx = Math.floor(wx0) - 6, by = Math.floor(wy0) - 6, bw = Math.ceil(ww) + 12, bh = Math.ceil(wh) + 12;
+  if (!_dyn.spr) {
+    _dyn.spr = document.createElement('canvas'); _dyn.sprCtx = _dyn.spr.getContext('2d');
+    _dyn.lit = document.createElement('canvas'); _dyn.litCtx = _dyn.lit.getContext('2d');
+  }
+  if (_dyn.spr.width < bw || _dyn.spr.height < bh) {      // grow only
+    _dyn.spr.width = _dyn.lit.width = Math.max(_dyn.spr.width, bw);
+    _dyn.spr.height = _dyn.lit.height = Math.max(_dyn.spr.height, bh);
+  }
+  const mainCtx = ctx, sc = _dyn.sprCtx;
+  sc.setTransform(1, 0, 0, 1, 0, 0);
+  sc.clearRect(0, 0, _dyn.spr.width, _dyn.spr.height);
+  sc.setTransform(1, 0, 0, 1, -wx(bx), -wy(by));       // view coords → scratch pixels
+  sc.imageSmoothingEnabled = false;
+  ctx = sc;
+  try { drawFn(); } finally { ctx = mainCtx; }
+  _dyn.litCtx.setTransform(1, 0, 0, 1, 0, 0);
+  _dyn.litCtx.clearRect(0, 0, _dyn.lit.width, _dyn.lit.height);
+  litRecipe(_dyn.litCtx, _dyn.spr, bx, by, bw, bh);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(_dyn.lit, 0, 0, bw, bh, wx(bx), wy(by), bw, bh);
+}
+
+// Paint the sprite layer again, un-lit, but only where an `unlit` object is visible (the mask).
+function compositeUnlit(mainCtx) {
+  litCtx.save();                       // litCanvas is free again — the lit layer is already on the main canvas
+  litCtx.setTransform(1, 0, 0, 1, 0, 0);
+  litCtx.globalCompositeOperation = 'source-over';
+  litCtx.clearRect(0, 0, litCanvas.width, litCanvas.height);
+  litCtx.drawImage(layerCanvas, 0, 0);
+  litCtx.globalCompositeOperation = 'destination-in';
+  litCtx.drawImage(maskCanvas, 0, 0);
+  litCtx.restore();
+  mainCtx.save();
+  mainCtx.setTransform(1, 0, 0, 1, 0, 0);
+  mainCtx.globalCompositeOperation = 'source-over';
+  mainCtx.globalAlpha = 1;
+  mainCtx.drawImage(litCanvas, 0, 0);
+  mainCtx.restore();
+}
+
+// ── TV light: colour sampled from the TV video, eased, with a subtle flicker ──
+const tvLight = {
+  r: TV_FALLBACK_RGB[0], g: TV_FALLBACK_RGB[1], b: TV_FALLBACK_RGB[2], luma: 0.35,   // smoothed, what the glow uses
+  tr: TV_FALLBACK_RGB[0], tg: TV_FALLBACK_RGB[1], tb: TV_FALLBACK_RGB[2], tluma: 0.35, // latest sample (target)
+  lastSample: -1e9, lastFrame: 0, noise: 0,
+  samp: null, sampCtx: null,       // 8×8 canvas the video is shrunk into
+  tint: null, tintCtx: null, tintKey: '', tintAt: -1e9, // glow mask tinted with the current colour
+};
+
+function updateTvLight(now) {
+  const L = tvLight;
+  const dt = L.lastFrame ? Math.min(250, now - L.lastFrame) : 16;
+  L.lastFrame = now;
+
+  const videoOk = tvVideo.readyState >= 2 && !tvVideo.paused && tvVideo.videoWidth > 0;
+  if (!videoOk) {
+    // The video isn't playing at all: gentle teal (never black, never a jump).
+    L.tr = TV_FALLBACK_RGB[0]; L.tg = TV_FALLBACK_RGB[1]; L.tb = TV_FALLBACK_RGB[2]; L.tluma = 0.35;
+  } else if (now - L.lastSample >= 1000 / TV_SAMPLE_HZ) {
+    L.lastSample = now;
+    try {
+      if (!L.samp) {
+        L.samp = document.createElement('canvas'); L.samp.width = L.samp.height = 8;
+        L.sampCtx = L.samp.getContext('2d', { willReadFrequently: true });
+      }
+      L.sampCtx.drawImage(tvVideo, 0, 0, 8, 8);
+      const d = L.sampCtx.getImageData(0, 0, 8, 8).data;
+      let r = 0, g = 0, b = 0;
+      for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+      const n = d.length / 4; r /= n; g /= n; b /= n;
+      const m = Math.max(r, g, b);
+      // Brightness (true luma) goes into the glow's alpha, so near-black frames fade the glow to ZERO.
+      // The colour is the video's hue at full brightness, saturation boosted a little.
+      L.tluma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      if (m > 1) {
+        const k = 255 / m;
+        let cr = r * k, cg = g * k, cb = b * k;
+        const mean = (cr + cg + cb) / 3;
+        const boost = c => Math.max(0, Math.min(255, mean + (c - mean) * TV_SATURATION_BOOST));
+        L.tr = boost(cr); L.tg = boost(cg); L.tb = boost(cb);
+      } // pure black: keep the last colour — the glow is already fading to zero via luma
+    } catch (_) {
+      L.tr = TV_FALLBACK_RGB[0]; L.tg = TV_FALLBACK_RGB[1]; L.tb = TV_FALLBACK_RGB[2]; L.tluma = 0.35; // e.g. tainted canvas
+    }
+  }
+  const a = 1 - Math.exp(-dt / TV_COLOR_SMOOTH_MS);
+  L.r += (L.tr - L.r) * a; L.g += (L.tg - L.g) * a; L.b += (L.tb - L.b) * a; L.luma += (L.tluma - L.luma) * a;
+}
+
+function drawTvGlow(mainCtx, now) {
+  if (!imgReady(tvGlowImg)) return;
+  const L = tvLight;
+  updateTvLight(now);
+
+  // Re-tint the white glow mask when the colour has moved (≤ ~12×/s; the colour eases slowly).
+  const key = Math.round(L.r / 3) + ',' + Math.round(L.g / 3) + ',' + Math.round(L.b / 3);
+  if (!L.tint) {
+    // Crop tvglow.png to its non-transparent bounding box once — only that region is tinted and drawn.
+    let bx = 0, by = 0, bw = tvGlowImg.naturalWidth, bh = tvGlowImg.naturalHeight;
+    try {
+      const c = document.createElement('canvas'); c.width = bw; c.height = bh;
+      const cc = c.getContext('2d', { willReadFrequently: true }); cc.drawImage(tvGlowImg, 0, 0);
+      const d = cc.getImageData(0, 0, bw, bh).data;
+      let x0 = bw, y0 = bh, x1 = -1, y1 = -1;
+      for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (d[(y * bw + x) * 4 + 3] > 2) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 >= x0 && y1 >= y0) { bx = x0; by = y0; bw = x1 - x0 + 1; bh = y1 - y0 + 1; }
+    } catch (_) {}
+    L.box = { x: bx, y: by, w: bw, h: bh };
+    L.tint = document.createElement('canvas');
+    L.tint.width = bw; L.tint.height = bh;
+    L.tintCtx = L.tint.getContext('2d');
+  }
+  if (key !== L.tintKey && now - L.tintAt > 80) {
+    L.tintKey = key; L.tintAt = now;
+    const t = L.tintCtx;
+    t.globalCompositeOperation = 'source-over';
+    t.clearRect(0, 0, L.tint.width, L.tint.height);
+    t.drawImage(tvGlowImg, L.box.x, L.box.y, L.box.w, L.box.h, 0, 0, L.box.w, L.box.h);
+    t.globalCompositeOperation = 'source-in';
+    t.fillStyle = `rgb(${Math.round(L.r)},${Math.round(L.g)},${Math.round(L.b)})`;
+    t.fillRect(0, 0, L.tint.width, L.tint.height);
+    t.globalCompositeOperation = 'source-over';
+  }
+
+  // Flicker: two slow sines + a little smoothed noise.
+  L.noise += ((Math.random() * 2 - 1) - L.noise) * 0.2;
+  // Glow strength follows the video's brightness (smoothstep, no floor); flicker scales with it too.
+  const u = Math.max(0, Math.min(1, (L.luma - TV_LUMA_LO) / (TV_LUMA_HI - TV_LUMA_LO)));
+  const bright = u * u * (3 - 2 * u);
+  const flick = Math.max(0.3, 1 + TV_FLICKER_AMOUNT * bright * (0.5 * Math.sin(now * 0.011) + 0.3 * Math.sin(now * 0.027 + 1.3) + 0.4 * L.noise));
+  const alpha = Math.max(0, Math.min(1, TV_GLOW_STRENGTH * bright * flick));
+  if (alpha < 0.002) return;
+
+  mainCtx.save();
+  mainCtx.globalCompositeOperation = 'screen';
+  mainCtx.globalAlpha = alpha;
+  mainCtx.imageSmoothingEnabled = true;
+  mainCtx.drawImage(L.tint, wx(L.box.x), wy(L.box.y));
+  mainCtx.restore();
+}
+
+// Debug view: the raw map over the whole frame, in place of the lit result.
+function drawLightDebugMap(mainCtx) {
+  const img = lightDebug === 1 ? lightMulImg : lightScrImg;
+  mainCtx.save();
+  mainCtx.fillStyle = '#000';
+  mainCtx.fillRect(0, 0, VIEW_W, VIEW_H);
+  mainCtx.imageSmoothingEnabled = true;
+  mainCtx.drawImage(img, wx(0), wy(0));
+  mainCtx.restore();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2302,23 +3090,39 @@ function render() {
   // Build render list
   const renderList = [];
 
+  // Each entry: fn = the sprite (lit by the night passes), ui = name tag / chat
+  // bubble / [E] prompt (never lit; drawn after the lighting, in the same depth order).
   for (const obj of sceneObjects) {
+    const onScreen = () => {
+      const sx = wx(obj.x), sy = wy(obj.y);
+      return !(sx + obj.w < 0 || sx > VIEW_W || sy + obj.h < 0 || sy > VIEW_H); // cull off-screen objects
+    };
+    const rawDraw = () => {
+      const sx = wx(obj.x);
+      const sy = wy(obj.y);
+      ctx.imageSmoothingEnabled = false;
+      if (obj.img && obj.img.complete && obj.img.naturalWidth > 0) {
+        ctx.drawImage(obj.img, sx, sy, obj.w, obj.h);
+      } else {
+        obj.draw(ctx, sx, sy);
+      }
+    };
     renderList.push({
       baseY: obj.baseY,
-      fn: () => {
-        const sx = wx(obj.x);
-        const sy = wy(obj.y);
-        // Cull off-screen objects
-        if (sx + obj.w < 0 || sx > VIEW_W) return;
-        if (sy + obj.h < 0 || sy > VIEW_H) return;
-
-        ctx.imageSmoothingEnabled = false;
-        if (obj.img && obj.img.complete && obj.img.naturalWidth > 0) {
-          ctx.drawImage(obj.img, sx, sy, obj.w, obj.h);
-        } else {
-          obj.draw(ctx, sx, sy);
-        }
-
+      unlit: !!obj.unlit,
+      // per-sprite lighting: unlit objects raw; static images from their cached lit copy; animated ones relit
+      lit: () => {
+        if (!onScreen()) return;
+        const hasImg = obj.img && obj.img.complete && obj.img.naturalWidth > 0;
+        if (obj.unlit) return rawDraw();
+        if (hasImg) return litStatic(obj, wx(obj.x), wy(obj.y));
+        if (obj.animated) return litDynamic(obj.x, obj.y, obj.w, obj.h, () => obj.draw(ctx, wx(obj.x), wy(obj.y)));
+        return rawDraw();
+      },
+      fn: () => { if (onScreen()) rawDraw(); },
+      ui: () => {
+        if (!onScreen()) return;
+        if (obj.drawUI) obj.drawUI(ctx);   // e.g. the street exit's chevron (unlit, after the lighting)
         // Interaction prompt — minimized pip always shown for interactables,
         // expands into full [E] Label badge as the player approaches.
         if (obj.interactable && !popupOpen && !tvOpen) {
@@ -2328,27 +3132,89 @@ function render() {
           if (Math.abs(target - obj.promptT) < 0.001) obj.promptT = target;
           drawInteractPrompt(obj, obj.promptT);
         }
-      }
+      },
     });
   }
 
   // Add player to sort list
-  renderList.push({ baseY: playerBaseY(), fn: drawPlayer });
+  renderList.push({ baseY: playerBaseY(), fn: drawPlayer, lit: () => litDynamic(player.x, player.y, PW, PH, drawPlayer), ui: drawPlayerUI });
 
   for (const rp of remotePlayers.values()) {
     const rpBaseY = rp.y + FEET_OY + FEET_H;
-    renderList.push({ baseY: rpBaseY, fn: () => drawRemotePlayer(rp) });
+    renderList.push({
+      baseY: rpBaseY,
+      fn: () => drawRemotePlayer(rp),
+      lit: () => {
+        const pos = remoteDrawPos(rp), sx = wx(pos.x), sy = wy(pos.y);
+        if (sx + PW < 0 || sx > VIEW_W || sy + PH < 0 || sy > VIEW_H) return;   // off-screen
+        litDynamic(pos.x, pos.y, PW, PH, () => drawRemotePlayer(rp));
+      },
+      ui: () => drawRemotePlayerUI(rp),
+    });
   }
 
   for (const npc of npcs) {
-    renderList.push({ baseY: npc.baseY, fn: () => drawNPC(npc) });
+    renderList.push({
+      baseY: npc.baseY,
+      fn: () => drawNPC(npc),
+      lit: () => {
+        const sx = wx(npc.x), sy = wy(npc.y);
+        if (sx + npc.w < 0 || sx > VIEW_W || sy + npc.h < 0 || sy > VIEW_H) return;
+        litDynamic(npc.x, npc.y, npc.w, npc.h, () => drawNPC(npc));
+      },
+      ui: () => drawNPCUI(npc),
+    });
   }
 
   // Sort by Y depth
   renderList.sort((a, b) => a.baseY - b.baseY);
 
-  // Draw all
-  for (const item of renderList) item.fn();
+  if (!lightingReady()) {
+    // Day mode (NIGHT_LIGHTING off), or the night maps haven't loaded yet:
+    // exactly the original single pass, sprite then its UI, in depth order.
+    for (const item of renderList) { item.fn(); item.ui(); }
+  } else if (LIGHTING_MODE === 'perSprite') {
+    // Night mode, per-sprite: each sprite is lit on its own and drawn straight onto the main canvas in
+    // depth order (so occlusion is natural). Then the TV glow over everything, then the unlit UI.
+    if (lightDebug === 0) {
+      for (const item of renderList) (item.lit || item.fn)();
+      drawTvGlow(ctx, performance.now());
+    } else {
+      drawLightDebugMap(ctx);
+    }
+    ctx.imageSmoothingEnabled = false;
+    for (const item of renderList) item.ui();
+  } else {
+    // Night mode, 'fullscreen': sprites onto their own layer (same depth order), lit, composited
+    // over the background; then the TV glow over everything; then the unlit UI.
+    const mainCtx = ctx;
+    layerCtx.clearRect(0, 0, VIEW_W, VIEW_H);
+    // `unlit: true` objects also go onto a mask in the same depth order: drawn onto it when they are
+    // drawn, then every normal sprite drawn after (= in front of) them is cut out of it with
+    // destination-out, so a player standing in front of the TV is still lit.
+    let sawUnlit = false;
+    try {
+      for (const item of renderList) {
+        ctx = layerCtx; item.fn();
+        if (item.unlit) {
+          if (!sawUnlit) { maskCtx.clearRect(0, 0, VIEW_W, VIEW_H); sawUnlit = true; }
+          ctx = maskCtx; maskCtx.globalCompositeOperation = 'source-over'; item.fn();
+        } else if (sawUnlit) {
+          ctx = maskCtx; maskCtx.save(); maskCtx.globalCompositeOperation = 'destination-out'; item.fn(); maskCtx.restore();
+        }
+      }
+    } finally { ctx = mainCtx; }
+
+    if (lightDebug === 0) {
+      compositeLitLayer(mainCtx);
+      if (sawUnlit) compositeUnlit(mainCtx);
+      drawTvGlow(mainCtx, performance.now());
+    } else {
+      drawLightDebugMap(mainCtx);
+    }
+    ctx.imageSmoothingEnabled = false;
+    for (const item of renderList) item.ui();
+  }
 
   // ── DEBUG OVERLAY (press ` backtick to toggle) ──────────
   if (debugOn) {
@@ -2410,6 +3276,10 @@ function render() {
     // Debug label top-right
     ctx.fillStyle = '#f9c74f'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
     ctx.fillText('[ ` ] DEBUG ON', VIEW_W - 6, dbgBtm - 30);
+    ctx.fillText(perfDebugLine(), VIEW_W - 6, dbgBtm - 46);
+    if (NIGHT_LIGHTING) {
+      ctx.fillText(`[ L ] LIGHT: ${['LIT (normal)', 'MULTIPLY MAP ONLY', 'SCREEN MAP ONLY'][lightDebug]}${lightingReady() ? '' : ' (maps not active)'}`, VIEW_W - 6, dbgBtm - 14);
+    }
   }
 
 
@@ -2424,8 +3294,50 @@ function render() {
 // ─────────────────────────────────────────────────────────
 const gameContainer = document.getElementById('game-container');
 
+// ─────────────────────────────────────────────────────────
+//  RENDER RESOLUTION + FPS METER
+//  The backing store is screen px × min(devicePixelRatio, RENDER_DPR_MAX, renderDprCap): a 3x phone
+//  screen doesn't need 3x the pixels. Adaptive quality: if the average frame time stays above
+//  PERF_SLOW_MS for PERF_SLOW_SECONDS, renderDprCap steps down (2 -> 1.5 -> 1) and the canvas is
+//  resized; it never goes back up during the session. Backtick (debug) shows fps / frame ms.
+// ─────────────────────────────────────────────────────────
+const RENDER_DPR_MAX = 2;
+const RENDER_DPR_STEPS = [2, 1.5, 1];
+const PERF_SLOW_MS = 22, PERF_SLOW_SECONDS = 3;
+let renderDprCap = RENDER_DPR_MAX;
+const perf = { fps: 0, avgMs: 0, last: 0, frames: 0, sumMs: 0, winStart: 0, slowWindows: 0, log: '' };
+function renderDpr() { return Math.min(window.devicePixelRatio || 1, RENDER_DPR_MAX, renderDprCap); }
+// Call once per animation frame with the rAF timestamp.
+function perfFrame(ts) {
+  const gap = perf.last ? ts - perf.last : 0;
+  perf.last = ts;
+  if (document.hidden || gap <= 0 || gap > 250) { perf.winStart = 0; perf.slowWindows = 0; return; } // tab hidden / a hitch — not a quality signal
+  if (!perf.winStart) { perf.winStart = ts; perf.frames = 0; perf.sumMs = 0; }
+  perf.frames++; perf.sumMs += gap;
+  if (ts - perf.winStart >= 1000) {                        // one-second windows
+    perf.fps = perf.frames * 1000 / (ts - perf.winStart);
+    perf.avgMs = perf.sumMs / perf.frames;
+    perf.slowWindows = perf.avgMs > PERF_SLOW_MS ? perf.slowWindows + 1 : 0;
+    perf.winStart = 0;
+    if (perf.slowWindows >= PERF_SLOW_SECONDS) {
+      perf.slowWindows = 0;
+      const i = RENDER_DPR_STEPS.indexOf(renderDprCap);
+      if (i >= 0 && i < RENDER_DPR_STEPS.length - 1) {
+        const from = renderDprCap;
+        renderDprCap = RENDER_DPR_STEPS[i + 1];
+        perf.log = `render DPR ${from} -> ${renderDprCap} (avg ${perf.avgMs.toFixed(1)} ms)`;
+        if (debugOn) console.log('[perf] ' + perf.log);
+        resizeGame();
+      }
+    }
+  }
+}
+function perfDebugLine() {
+  return `FPS ${perf.fps.toFixed(0)}  avg ${perf.avgMs.toFixed(1)}ms  DPR ${renderDpr()}${perf.log ? '  [' + perf.log + ']' : ''}`;
+}
+
 function resizeGame() {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = renderDpr();
   // visualViewport gives the true visible area after browser chrome (address bar,
   // nav bar, keyboard) is accounted for. Falls back to innerWidth/Height on old browsers.
   const vp = window.visualViewport;
@@ -2437,6 +3349,8 @@ function resizeGame() {
   // clips the excess symmetrically. The camera shifts so the player stays on-screen.
   // On desktops (all ~16:9) the canvas fits the screen perfectly with no bars/crop.
   const scale = SCREEN_W / VIEW_W;
+  // Safe-area insets (notch) → view units, for the canvas HUD text.
+  if (window.TanaInstall) { const si = TanaInstall.safeInsets(); HUD_L = si.l / scale; HUD_R = si.r / scale; }
   const cssH  = VIEW_H * scale;   // may exceed SCREEN_H on wide phones
 
   canvas.style.width  = SCREEN_W + 'px';
@@ -2451,6 +3365,7 @@ function resizeGame() {
   // Uniform scale transform: game coords → physical pixels
   ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
+  resizeLightLayers(scale * dpr);   // sprite + lit layers match the canvas backing store
 
   // Visible slice: how many game-px fit on screen vertically, and where screen
   // top lands in canvas game-space. Used by camera clamping and HUD placement.
@@ -2481,19 +3396,56 @@ setTimeout(resizeGame, 100);
       skinBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       playerSkin = parseInt(btn.dataset.skin, 10);
+      TanaAudio.play('ui_click');
     });
   });
 
   function confirm() {
     const raw = inp.value.trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase();
     playerName = raw || 'ANON';
+    // Persist so a second page (e.g. room 2) can read the chosen identity.
+    try {
+      localStorage.setItem('tana-player-name', playerName);
+      localStorage.setItem('tana-player-skin', String(playerSkin));
+    } catch (_) {}
     nameScreenOpen = false;
     screen.remove();
+    TanaAudio.play('ui_close');   // entry screen is an overlay — its dismissal is the close sound
     initMultiplayer();
+    // Mobile browser (not installed, not in-app): offer the full-screen / home-screen how-to once,
+    // unless dismissed in the last 3 days.
+    if (window.TanaInstall) TanaInstall.maybeShowAfterEntry();
   }
 
   confirmBtn.addEventListener('click', confirm);
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') confirm(); });
+
+  // ── Returning from Zombie Street (its GO BACK TO THE CRIB button sets
+  //    sessionStorage 'tana-return' = '1' and navigates here). If the player's
+  //    name + skin are still in localStorage, skip this screen and take the
+  //    exact path confirm() takes — so the bouncer / room-cap logic still runs
+  //    inside initMultiplayer(). Anything missing → normal entry screen.
+  //    The flag is consumed either way, so a plain reload shows the entry screen. ──
+  let retName = null, retSkin = NaN, retFlag = null;
+  try {
+    retFlag = sessionStorage.getItem('tana-return');
+    if (retFlag !== null) sessionStorage.removeItem('tana-return');
+    retName = localStorage.getItem('tana-player-name');
+    retSkin = parseInt(localStorage.getItem('tana-player-skin'), 10);
+  } catch (_) {}
+  retName = String(retName || '').trim().replace(/[^a-zA-Z0-9_ ]/g, '').substring(0, 12).toUpperCase();
+  if (retFlag === '1' && retName && retSkin >= 0 && retSkin < skinImgs.length) {
+    playerName  = retName;
+    playerSkin  = retSkin;
+    nameScreenOpen = false;
+    returningFromStreet = true;   // bgImg.onload → spawnAtStreetExit()
+    screen.remove();
+    // Deferred to a microtask: initMultiplayer's surroundings (the game loop's
+    // `let`s further down this script) must have initialised first.
+    Promise.resolve().then(initMultiplayer);
+    return;
+  }
+
   inp.focus();
 })();
 
@@ -2527,6 +3479,9 @@ function initMultiplayer() {
     let _broadcastInterval = null;
     const joinWorld = () => {
       if (_broadcastInterval) { clearInterval(_broadcastInterval); _broadcastInterval = null; }
+      // joinWorld() also runs for silent reconnects — only sound when the
+      // bouncer overlay was actually up.
+      if (_bouncerOpen) TanaAudio.play('ui_close');
       _bouncerOpen = false;
       _bouncerOverlay.style.display = 'none';
 
@@ -2665,6 +3620,8 @@ function initMultiplayer() {
           let _afkCountTimer = null;
 
           const _dismissAfk = () => {
+            // Also bound to every keydown — only the visible→hidden edge is a "close".
+            if (_afkVisible) TanaAudio.play('ui_close');
             _afkVisible = false;
             _afkOverlay.style.display = 'none';
             clearInterval(_afkCountTimer);
@@ -2675,6 +3632,7 @@ function initMultiplayer() {
 
           const _showAfk = () => {
             _afkVisible = true;
+            TanaAudio.play('ui_open');
             let _secs = 30;
             const _countEl = _afkOverlay.querySelector('#_afkCount');
             _countEl.textContent = 'RETURNING IN ' + _secs + '...';
@@ -2779,6 +3737,7 @@ function initMultiplayer() {
           } else {
             _bouncerOpen = true;
             _bouncerOverlay.style.display = 'flex';
+            TanaAudio.play('ui_open');
             _syncBouncer();
           }
         }, 1500);
@@ -2808,10 +3767,12 @@ let _lastFrameTime = 0;
 (function loop(ts) {
   const dt = _lastFrameTime ? Math.min((ts - _lastFrameTime) / 16.667, 3) : 1;
   _lastFrameTime = ts;
+  perfFrame(ts);
   update(dt);
   if (!tvOpen) render();         // canvas is fully covered while the TV popup is open
-  // Hide the joystick / chat / ACT buttons while a popup is open
-  document.body.classList.toggle('modal-open', popupOpen || tvOpen);
+  // Hide the joystick / chat / ACT buttons while any popup is open
+  // (info / email / link / plaque / scoreboard share #popup-overlay).
+  document.body.classList.toggle('modal-open', popupOpen || tvOpen || chatOpen);
   requestAnimationFrame(loop);
 })();
 
