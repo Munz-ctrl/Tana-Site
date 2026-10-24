@@ -333,7 +333,9 @@
        hide the joystick, chat and ACT buttons while a popup is up. */
     body.modal-open #touch-ui { display: none !important; }
 
-    #tv-close-btn {
+    #tv-btns { display: flex; gap: 10px; align-items: center; justify-content: center; }
+    #tv-switch-btn[hidden] { display: none; }
+    #tv-close-btn, #tv-switch-btn {
       font-family: 'Press Start 2P', monospace;
       font-size: 7px; color: #4ecca3;
       background: rgba(78,204,163,0.06);
@@ -343,7 +345,7 @@
       min-height: 44px;
       transition: background 0.1s;
     }
-    #tv-close-btn:hover { background: rgba(78,204,163,0.2); }
+    #tv-close-btn:hover, #tv-switch-btn:hover { background: rgba(78,204,163,0.2); }
 
     /* Fallback if the YouTube embed refuses to load. */
     #tv-yt-link {
@@ -750,7 +752,10 @@
         allow="autoplay; encrypted-media; picture-in-picture"></iframe>
     </div>
     <a id="tv-yt-link" href="https://www.youtube.com/" target="_blank" rel="noopener">WATCH ON YOUTUBE ↗</a>
-    <button id="tv-close-btn">✕  CLOSE</button>
+    <div id="tv-btns">
+      <button id="tv-close-btn">✕  CLOSE</button>
+      <button id="tv-switch-btn" hidden>💾 DISK</button>
+    </div>
   </div>
 
 
@@ -1168,7 +1173,10 @@ const sceneObjects = [
     x: 640, y: 50, w: 245, h: 161,
     baseY: 200, collision: null,
     interactable: true, action: 'video',
-    label: 'PLAY VIDEO',
+    // Secret disk easter egg: while the player holds the disk (earned in Zombie Street) and hasn't
+    // watched the secret video yet, the TV reads INSERT DISK with a cyan pip. See "TV VIDEO OVERLAY".
+    get label()       { return diskPending() ? 'INSERT DISK' : 'PLAY VIDEO'; },
+    get promptColor() { return diskPending() ? '#78ffd0' : '#f9c74f'; },
     videoId: 'UQiQ74AbvQ8',
     img: null,
     draw(ctx, sx, sy) {
@@ -1860,21 +1868,60 @@ let tvOpen = false;
 //    and GPU for YouTube.
 document.body.appendChild(tvOverlay);
 
-function openTV(videoId) {
+// ── SECRET DISK (easter egg) ──
+//  tana_disk = '1' is set in Zombie Street when wave 8 begins; tana_disk_watched = '1' is set here the
+//  first time the secret video opens. Plain localStorage flags (try/catch'd — private browsing must not
+//  crash anything); no server, no accounts.
+const SECRET_VIDEO_ID  = 'fpxSr1R7vHU';
+const DISK_KEY         = 'tana_disk';
+const DISK_WATCHED_KEY = 'tana_disk_watched';
+let diskWatchedMem = false;      // fallback for the session when storage is blocked
+function diskFlag(k) { try { return localStorage.getItem(k) === '1'; } catch (_) { return false; } }
+function hasDisk()       { return diskFlag(DISK_KEY); }
+function diskPending()   { return hasDisk() && !diskWatchedMem && !diskFlag(DISK_WATCHED_KEY); }
+function markDiskWatched() {
+  diskWatchedMem = true;
+  try { localStorage.setItem(DISK_WATCHED_KEY, '1'); } catch (_) {}
+}
+
+const tvSwitchBtn = document.getElementById('tv-switch-btn');
+let tvVideoId = null;            // the video currently showing in the overlay
+
+// Point the overlay at a video. Shared by openTV and the DISK/TV switch button, so the secret video
+// gets exactly the same load path as the main one (youtube-nocookie embed, loaded a couple of frames
+// after the overlay is visible, same parameters, fallback link kept in step).
+function loadTVVideo(videoId) {
+  tvVideoId = videoId;
   tvYtLink.href = `https://www.youtube.com/watch?v=${videoId}`;
+  if (videoId === SECRET_VIDEO_ID) markDiskWatched();
+  // Switch button: only for disk holders; names the video you'd switch TO.
+  tvSwitchBtn.hidden = !hasDisk();
+  tvSwitchBtn.textContent = videoId === SECRET_VIDEO_ID ? '📺 TV' : '💾 DISK';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!tvOpen || tvVideoId !== videoId) return;   // closed (or swapped again) before the embed was due
+    tvIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
+  }));
+}
+
+function openTV(videoId) {
   tvOverlay.classList.add('active');
   tvOpen = true;
   try { tvVideo.pause(); } catch (_) {}
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (!tvOpen) return;         // closed again before the embed was due
-    tvIframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
-  }));
+  loadTVVideo(videoId);
   TanaAudio.duckMusic(true);     // fade music out under YouTube
   TanaAudio.play('ui_open');
 }
 
+// Swap between the main video and the secret one without closing the overlay (music stays ducked).
+tvSwitchBtn.addEventListener('click', () => {
+  if (!tvOpen || !hasDisk()) return;
+  const mainId = sceneObjects.find(o => o.id === 'tv').videoId;
+  loadTVVideo(tvVideoId === SECRET_VIDEO_ID ? mainId : SECRET_VIDEO_ID);
+});
+
 function closeTV() {
   if (!tvOpen) return;           // ESC calls this unconditionally; safe when already closed
+  tvVideoId = null;
   tvIframe.src = '';
   tvOverlay.classList.remove('active');
   tvOpen = false;
@@ -2080,7 +2127,7 @@ function tryInteract() {
   if (tvOpen)    { closeTV();    return; }
   const obj = getNearbyObject();
   if (!obj) return;
-  if (obj.action === 'video')         openTV(obj.videoId);
+  if (obj.action === 'video')         openTV(diskPending() ? SECRET_VIDEO_ID : obj.videoId);
   if (obj.action === 'email')         openEmailPopup();
   if (obj.action === 'plaque-info')   openPlaqueInfo();
   if (obj.action === 'scoreboard')    openScoreboard();
@@ -2608,10 +2655,18 @@ function drawNPCUI(npc) {
 // t = 0 → minimized textless pip (always on for interactables)
 // t = 1 → full [E] Label badge with arrow (when player is nearby)
 // In-between values tween smoothly so the pip "inflates" into the badge.
+// Prompt colour for an interactable: obj.promptColor (hex) or the default gold, with its rgb triplet for rgba().
+function promptColorOf(obj) {
+  const hex = obj.promptColor || '#f9c74f';
+  const n = parseInt(hex.slice(1), 16);
+  return { hex, rgb: `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}` };
+}
+
 function drawInteractPrompt(obj, t) {
   const sx = wx(obj.x + obj.w / 2);
   const sy = wy((obj.promptY != null ? obj.promptY : obj.y) - 8);
   const time = Date.now();
+  const pc = promptColorOf(obj);   // gold normally; cyan for the TV while a secret disk is waiting
 
   ctx.font = '9px "Press Start 2P"';
   const label = `[E] ${obj.label}`;
@@ -2639,15 +2694,15 @@ function drawInteractPrompt(obj, t) {
   // fades out as the badge expands so it doesn't muddy the full state.
   const haloAlpha = (1 - t) * 0.18;
   if (haloAlpha > 0.01) {
-    ctx.fillStyle = `rgba(249,199,79,${haloAlpha})`;
+    ctx.fillStyle = `rgba(${pc.rgb},${haloAlpha})`;
     ctx.beginPath();
     ctx.arc(cx, cy, 7, 0, Math.PI * 2);
     ctx.fill();
   }
 
   // The box (same look as before — just sized by t)
-  ctx.fillStyle   = 'rgba(249,199,79,0.13)';
-  ctx.strokeStyle = '#f9c74f';
+  ctx.fillStyle   = `rgba(${pc.rgb},0.13)`;
+  ctx.strokeStyle = pc.hex;
   ctx.lineWidth   = 1.5;
   roundRect(ctx, cx - w/2, boxTop, w, h, Math.min(3, h/2));
   ctx.fill(); ctx.stroke();
@@ -2656,7 +2711,7 @@ function drawInteractPrompt(obj, t) {
   // fades out by the time the badge is half-expanded.
   const pipAlpha = Math.max(0, 1 - t / 0.5);
   if (pipAlpha > 0.02) {
-    ctx.fillStyle = `rgba(249,199,79,${pipAlpha})`;
+    ctx.fillStyle = `rgba(${pc.rgb},${pipAlpha})`;
     ctx.beginPath();
     ctx.arc(cx, cy, 1.4, 0, Math.PI * 2);
     ctx.fill();
@@ -2666,7 +2721,7 @@ function drawInteractPrompt(obj, t) {
   const textAlpha = Math.max(0, (t - 0.55) / 0.45);
   if (textAlpha > 0.02) {
     ctx.globalAlpha = textAlpha;
-    ctx.fillStyle   = '#f9c74f';
+    ctx.fillStyle   = pc.hex;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(label, cx, cy);
     ctx.globalAlpha = 1;
@@ -2675,7 +2730,7 @@ function drawInteractPrompt(obj, t) {
   // Down arrow — only meaningful when expanded; fades with t
   if (t > 0.1) {
     ctx.globalAlpha = t;
-    ctx.fillStyle = '#f9c74f';
+    ctx.fillStyle = pc.hex;
     ctx.beginPath();
     ctx.moveTo(cx,     boxBottom + 5);
     ctx.lineTo(cx - 4, boxBottom);

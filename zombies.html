@@ -343,6 +343,7 @@
     }
     #gameover-stats { font-size: 9px; color: #b0b8d0; line-height: 2.4; margin-bottom: 16px; }
     #gameover-stats b { color: #f9c74f; }
+    #go-disk-note { font-size: 7px; color: #f9c74f; line-height: 1.9; margin: -6px 0 14px; }
 
     #go-name-wrap { margin-bottom: 12px; }
     #go-name-input {
@@ -513,6 +514,7 @@
       FINAL: <b id="go-score">0</b><br>
       WAVE REACHED: <b id="go-wave">1</b>
     </div>
+    <div id="go-disk-note" style="display:none">💾 YOU HAVE THE SECRET DISK. TAKE IT TO THE TV IN TANA'S ROOM.</div>
 
     <div id="go-name-wrap" style="display:none">
       <input id="go-name-input" maxlength="12" placeholder="YOUR NAME" autocomplete="off">
@@ -2689,8 +2691,29 @@ function waveZombieCount(wave) {
   return Math.min(ZOMBIE_COUNT_MAX, Math.round(ZOMBIE_COUNT_BASE + ZOMBIE_COUNT_GROWTH * (wave - 1)));
 }
 
+// ── SECRET DISK (easter egg) ──
+//  Reaching wave 8 earns a "secret disk", saved as a flag in localStorage (no server). It's played on the
+//  TV in Tana's room (index.html), which sets tana_disk_watched. All storage access is try/catch'd so
+//  private browsing can't crash the game.
+const DISK_KEY         = 'tana_disk';
+const DISK_WATCHED_KEY = 'tana_disk_watched';
+const DISK_WAVE        = 8;
+const DISK_TOAST_MS    = 3000;
+function diskFlag(k) { try { return localStorage.getItem(k) === '1'; } catch (_) { return false; } }
+let diskHeld  = diskFlag(DISK_KEY);   // also true for the rest of the session if storage is blocked
+let diskToast = null;                 // { start } while the pickup banner is up
+
+function earnDisk() {
+  if (diskHeld) return;               // once per browser
+  diskHeld = true;
+  try { localStorage.setItem(DISK_KEY, '1'); } catch (_) {}
+  diskToast = { start: performance.now() };
+  TanaAudio.play('weapon_unlock');    // shared pickup chime
+}
+
 function startWave(n) {
   if (n === 1) runStartAt = performance.now(); // run clock: wave 1 start, after any TAP TO FIGHT wait
+  if (n >= DISK_WAVE) earnDisk();
   waveNumber       = n;
   // New wave's INTRO banner begins: switch the music tempo version if this wave crosses a threshold
   // (crossfade), and warm up the next version the wave before it is needed.
@@ -3815,6 +3838,50 @@ function drawWaveBanner() {
 }
 
 // ─────────────────────────────────────────────────────────
+//  DRAW — SECRET DISK toast + HUD icon
+//  Non-blocking: drawn on the canvas near the top (below the score), never over the middle of the street.
+// ─────────────────────────────────────────────────────────
+function drawDiskHud() {
+  if (diskToast) {
+    const t = (performance.now() - diskToast.start) / DISK_TOAST_MS;
+    if (t >= 1) {
+      diskToast = null;
+    } else {
+      const alpha = t < 0.08 ? t / 0.08 : t > 0.8 ? (1 - t) / 0.2 : 1;
+      const cx = VIEW_W / 2, top = CROP_TOP + 50 + 6 * (1 - Math.min(1, t / 0.08));
+      const title = '★ SECRET DISK FOUND ★', sub = "PLAY IT ON THE TV IN TANA'S ROOM";
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '8px "Press Start 2P"';
+      const subW = ctx.measureText(sub).width;
+      ctx.font = '12px "Press Start 2P"';
+      const w = Math.max(ctx.measureText(title).width, subW) + 28, h = 44;
+      ctx.fillStyle = 'rgba(5,5,10,0.82)';
+      ctx.fillRect(cx - w / 2, top, w, h);
+      ctx.strokeStyle = '#f9c74f'; ctx.lineWidth = 2;
+      ctx.strokeRect(cx - w / 2, top, w, h);
+      ctx.fillStyle = '#f9c74f';
+      ctx.fillText(title, cx, top + 15);
+      ctx.font = '8px "Press Start 2P"';
+      ctx.fillStyle = '#b0b8d0';
+      ctx.fillText(sub, cx, top + 33);
+      ctx.restore();
+    }
+  }
+
+  // Little floppy-disk icon (top right, under the WAVE text) for the rest of the run.
+  if (diskHeld && !diskToast) {
+    const x = Math.round(VIEW_W - 8 - HUD_R - 14), y = CROP_TOP + 22 - 7;
+    ctx.fillStyle = '#f9c74f';  ctx.fillRect(x, y, 14, 14);
+    ctx.fillStyle = '#0c0710';  ctx.fillRect(x + 4, y, 6, 5);     // metal shutter
+    ctx.fillStyle = '#f9c74f';  ctx.fillRect(x + 7, y + 1, 2, 3);  // shutter slot
+    ctx.fillStyle = '#0c0710';  ctx.fillRect(x + 3, y + 8, 8, 6);  // label
+    ctx.fillStyle = '#f9c74f';  ctx.fillRect(x + 4, y + 10, 6, 1);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 //  DRAW — HUD
 // ─────────────────────────────────────────────────────────
 function drawHUD() {
@@ -3884,6 +3951,8 @@ function drawHUD() {
     ctx.textAlign = 'left';
     ctx.fillText(`NO-HEAL +${Math.round(NO_HEAL_BONUS_FRACTION * 100)}%`, 8 + HUD_L, rowY + barH + 10);
   }
+
+  drawDiskHud();
 
   // Mobile weapon row (DOM) — kept in sync every frame; cheap, it only touches the DOM on change.
   updateWeaponRow(performance.now());
@@ -4444,6 +4513,8 @@ function showGameOverOverlay() {
   goSubmitStatus.textContent = '';
   goSession++;
   goInstallLine.style.display = (window.TanaInstall && TanaInstall.touchBrowser()) ? '' : 'none';
+  // Secret disk reminder: only while the disk is held and not yet watched in Tana's room.
+  document.getElementById('go-disk-note').style.display = (diskHeld && !diskFlag(DISK_WATCHED_KEY)) ? '' : 'none';
   goShownAt = performance.now();
   clearTimeout(goAckTimer);
   goLastRun = null;
