@@ -2855,20 +2855,30 @@ function wy(worldY) { return Math.round(worldY - cam.y); }
 //  INPUT — keyboard
 // ─────────────────────────────────────────────────────────
 const keys = {};
+// Dev tools (debug overlay, and in Zombie Street K = clear wave, H = self-damage) are OFF for players.
+// Open any page with ?dev=1 to switch them on in this browser (it carries across rooms); ?dev=0 switches them off.
+const DEV_MODE = (() => {
+  try {
+    const q = new URLSearchParams(location.search).get('dev');
+    if (q === '1') localStorage.setItem('tana_dev', '1');
+    if (q === '0') localStorage.removeItem('tana_dev');
+    return localStorage.getItem('tana_dev') === '1';
+  } catch (_) { return false; }
+})();
 let debugOn = false;
 window.addEventListener('keydown', e => {
   keys[e.key] = true;
-  if (e.key === '`') debugOn = !debugOn;
+  if (DEV_MODE && e.key === '`') debugOn = !debugOn;
   // DEBUG — instantly clear the current wave (kills all active zombies and
   // marks the wave fully spawned so WAVE_ACTIVE's normal check advances it
   // to WAVE_CLEAR next tick). Useful for fast-forwarding to test unlocks.
-  if (e.key === 'k' || e.key === 'K') {
+  if (DEV_MODE && (e.key === 'k' || e.key === 'K')) {
     zombies.length = 0;
     waveSpawnedCount = waveTotalCount;
   }
   // DEBUG — self-inflicted damage, for exercising the HP/game-over flow
   // without waiting to actually get cornered by a swarm.
-  if ((e.key === 'h' || e.key === 'H') && !gameOver) {
+  if (DEV_MODE && (e.key === 'h' || e.key === 'H') && !gameOver) {
     applyPlayerDamage(25, { x: player.x + PW, y: player.y });
   }
   // Manual weapon switch — cycles to the next unlocked weapon.

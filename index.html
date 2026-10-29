@@ -1838,9 +1838,19 @@ emailSubmit.addEventListener('click', async () => {
 //         yellow = baseY line, cyan = player feet, blue dashes = floor bounds
 //  Use this to calibrate object x/y/w/h and collision rects to your PNG.
 // ─────────────────────────────────────────────────────────
+// Dev tools (debug overlay, and in Zombie Street K = clear wave, H = self-damage) are OFF for players.
+// Open any page with ?dev=1 to switch them on in this browser (it carries across rooms); ?dev=0 switches them off.
+const DEV_MODE = (() => {
+  try {
+    const q = new URLSearchParams(location.search).get('dev');
+    if (q === '1') localStorage.setItem('tana_dev', '1');
+    if (q === '0') localStorage.removeItem('tana_dev');
+    return localStorage.getItem('tana_dev') === '1';
+  } catch (_) { return false; }
+})();
 let debugOn = false;
 window.addEventListener('keydown', e => {
-  if (e.key === '`' || e.key === '~') debugOn = !debugOn;
+  if (DEV_MODE && (e.key === '`' || e.key === '~')) debugOn = !debugOn;
   // Debug lighting view: with debug on, L cycles normal → multiply map only → screen map only.
   if (debugOn && NIGHT_LIGHTING && (e.key === 'l' || e.key === 'L')) {
     const t = e.target;
