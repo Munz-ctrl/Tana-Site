@@ -2605,15 +2605,26 @@ if (CROWD_N) (function() {
     'JUNE','RAYRAY','KAYLA_T','DESTINY','AXEL','MOMO','TOBI','XANDER','PRISM'
   ];
   const LINES = [
-    'THIS GOES CRAZY','TANA RUN IT BACK','TURN IT UPPP','#ME ON REPEAT',
-    'THE BASS IN HERE','FIRST TIME HERE','THIS ROOM IS HARD','OMG HI',
-    'SONG OF THE YEAR','TANA!!!','NEED THIS ON VINYL','DANCE FLOOR NOW',
-    'LETS GOOO','BEST RELEASE PARTY','VIBES ARE CRAZY','PLAY IT AGAIN',
-    'WHO ELSE FROM NY','ALBUM OF THE YEAR','IM NOT LEAVING','HELLO FROM LONDON',
-    'THIS IS SO COOL','STUDIO IS FIRE','ON MY 5TH LISTEN','BOUNCER LET ME IN LOL',
-    'W PARTY','LOVE U TANA','OUR YEAR','WHO PLAYING THIS'
+    'YEEEEERRRRRR','YERRRR','AYOOOO','AYO WHO DJING','HELLOOOO','HIIII','HI GUYS',
+    'WSG','WSP EVERYBODY','WHO TRYNA DANCE','COME TO THE SPEAKERS','SPEAKERS!!!',
+    'OMGGG','NAHHH THIS HARD','THIS SO HARD','TANAAAAA','TANA I LOVE U','WE OUTSIDE',
+    'IM CRYINGGG','BRUH','HOW DO I DANCE','HOW U CHAT','WHO GOT THE AUX','RUN IT BACKKK',
+    'AGAINNN','FIRST!!!','JUST GOT HERE','LETS GOOOOOO','SHEEEESH','NO WAYYY','YO WHAT',
+    'WAIT THIS IS SICK','IM FROM BROOKLYN','BX IN THE BUILDING','LA STAND UP',
+    'HI FROM TORONTO','LONDON IN HERE','ATL!!!','HOUSTON WHERE U AT','IS TANA HERE?',
+    'WHERE TANA AT','CHRIS!!!','CHRIS SAID HI TO ME','BOUNCER MEAN LOL','I LOVE THIS ROOM',
+    'HER ROOM IS SO CUTE','LOOK AT THE SHOE WALL','CUTE BEAR','IM THE BEAR','BEAR GANG',
+    'DREAD GANG','FOLLOW MEEE','COME HERE','OVER HERE','WAIT FOR ME','BRB','BRB FOOD',
+    'IM BACK','WYD','LOL','LOLLL','HAHAHA','LMAOOO','LMAO WHO IS THAT',':)','<33','W',
+    'WWWWW','W TANA','W PARTY','MY WIFI LAGGING','LAGGG','#ME ON REPEAT','THE BASSSS',
+    'TURN IT UPPPP','LOUDER','EVERYBODY JUMP','STUDIO TOUR?','I MADE IT','MOM IM FAMOUS',
+    'ITS PACKED IN HERE','HOW MANY PPL IN HERE','ROOM FULL LOL','LET ME IN','HEYYY',
+    'YERRR NY','???','!!!!!!','OK THIS IS CRAZY','HELLO???','HI STRANGERS','ALBUM OF THE YEAR FR'
   ];
-  const REPLIES = ['FR','REAL','W','FACTS','YESSS','SAME','LOL'];
+  const REPLIES = [
+    'FR','REAL','W','FACTS','YESSS','SAME','LOL','LMAOO','YERRR','HIII','ON GOD','NAHH',
+    'TRUE','FRFR','OMG SAME','BRO','HAHA','YOOO','WSG','HEY','OMW','REALLL','STOPPP'
+  ];
 
   // Crowd hotspots (feet-centre world coords). w = how popular it is.
   const HOT = [
@@ -2719,6 +2730,7 @@ if (CROWD_N) (function() {
   }
 
   let spawned = false, nextChat = 0;
+  const recent = [];
   (function crowdLoop() {
     requestAnimationFrame(crowdLoop);
     if (!spawned) {
@@ -2732,16 +2744,26 @@ if (CROWD_N) (function() {
     for (const b of bots) step(b);
 
     const now = Date.now();
-    if (now > nextChat) {
-      nextChat = now + rand(2000, 4500);
+    // Always keep at least one bubble on screen, and pop new ones often
+    const showing = bots.filter(b => b._chat && now < b._chatExp - 1200).length;
+    if (now > nextChat || showing === 0) {
+      nextChat = now + rand(500, 1400);
       const free = bots.filter(b => !(b._chat && now < b._chatExp));
       const b = free.length ? pick(free) : null;
       if (b) {
-        b._chat = pick(LINES); b._chatExp = now + 5000;
-        // sometimes a neighbour answers
-        if (Math.random() < 0.25) {
-          const near = free.find(o => o !== b && Math.abs(feetX(o) - feetX(b)) < 160 && Math.abs(feetY(o) - feetY(b)) < 100);
-          if (near) setTimeout(() => { near._chat = pick(REPLIES); near._chatExp = Date.now() + 5000; }, rand(700, 1600));
+        let line = pick(LINES);
+        for (let k = 0; k < 4 && recent.includes(line); k++) line = pick(LINES);
+        recent.push(line); if (recent.length > 12) recent.shift();
+        b._chat = line; b._chatExp = now + 5000;
+        // neighbours answer (sometimes copying the message, like real chat spam)
+        if (Math.random() < 0.55) {
+          const near = free.filter(o => o !== b && Math.abs(feetX(o) - feetX(b)) < 200 && Math.abs(feetY(o) - feetY(b)) < 120);
+          const n = Math.min(near.length, Math.random() < 0.3 ? 2 : 1);
+          for (let k = 0; k < n; k++) {
+            const o = near.splice(Math.floor(Math.random() * near.length), 1)[0];
+            const txt = Math.random() < 0.2 ? line : pick(REPLIES);
+            setTimeout(() => { o._chat = txt; o._chatExp = Date.now() + 5000; }, rand(600, 1800) + k * 900);
+          }
         }
       }
     }
