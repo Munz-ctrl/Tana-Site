@@ -2313,7 +2313,7 @@ setTimeout(resizeGame, 100);
     playerName = raw || 'ANON';
     nameScreenOpen = false;
     screen.remove();
-    initMultiplayer();
+    if (CROWD_N) startCrowdEntry(); else initMultiplayer();
   }
 
   confirmBtn.addEventListener('click', confirm);
@@ -2559,6 +2559,194 @@ function initMultiplayer() {
     console.error('[TANA.EXE] Multiplayer init failed:', e);
   }
 }
+
+// ─────────────────────────────────────────────────────────
+//  CROWD MODE (recording only)
+//  ?crowd=45        → 45 fake local players, fully offline
+//  ?crowd&full=1    → 50 fake players + bouncer ROOM FULL card
+//  Fakes live only in this tab. Supabase is never initialised in
+//  crowd mode, so nothing is sent and real visitors never see them.
+// ─────────────────────────────────────────────────────────
+const _crowdQS   = new URLSearchParams(location.search);
+const CROWD_FULL = _crowdQS.has('full');
+const CROWD_N    = (_crowdQS.has('crowd') || CROWD_FULL)
+  ? (CROWD_FULL ? ROOM_CAP : Math.max(1, Math.min(ROOM_CAP, parseInt(_crowdQS.get('crowd'), 10) || 45)))
+  : 0;
+
+// Called instead of initMultiplayer() when crowd mode is on
+function startCrowdEntry() {
+  // Own chat bubbles work locally (no channel exists in crowd mode)
+  _chatInput.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const text = _chatInput.value.trim().toUpperCase().substring(0, 40);
+    if (text) { player._chat = text; player._chatExp = Date.now() + 5000; }
+  });
+  if (!CROWD_FULL) return;
+  // Fake "room full" moment, same timing as the real presence check
+  const ov  = document.getElementById('bouncer-overlay');
+  const vip = document.getElementById('bouncer-vip');
+  setTimeout(() => {
+    document.getElementById('bouncer-count').textContent = ROOM_CAP + ' / 50 PLAYERS';
+    ov.style.display = 'flex';
+  }, 1500);
+  vip.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && vip.value === FORCE_PASS) ov.style.display = 'none';
+  });
+}
+
+if (CROWD_N) (function() {
+  const NAMES = [
+    'NOVA_K','JAYDXN','SKYLA77','MOONCHILD','TANASTAN','BRII','KAI WRLD','DRE4L',
+    'LUNAAA','YUNGFLEX','MIA XO','ZAYYY','PIXELPOP','RICO_V','SOFTBOI','JUJU',
+    'ANON','ANON','ANON','ELLIEB','TAYO','KXNG_DEE','STARGIRL','MARCUSS','VIBEZ',
+    'LILMOON','NAYA','JAEJAE','OKAYKEN','BEANIE','CHLOE_M','SAINTJ','REMYY',
+    'BLUEFACEZ','AMARA','NIKO_9','SUNNY D','TREY','GIGI','DJ PLUTO','KOFI',
+    'ROSE_ROSE','ZEE','MALIK B','LEXI','HONEY','OSCAR_W','NINA','BENZO','IVY',
+    'JUNE','RAYRAY','KAYLA_T','DESTINY','AXEL','MOMO','TOBI','XANDER','PRISM'
+  ];
+  const LINES = [
+    'THIS GOES CRAZY','TANA RUN IT BACK','TURN IT UPPP','#ME ON REPEAT',
+    'THE BASS IN HERE','FIRST TIME HERE','THIS ROOM IS HARD','OMG HI',
+    'SONG OF THE YEAR','TANA!!!','NEED THIS ON VINYL','DANCE FLOOR NOW',
+    'LETS GOOO','BEST RELEASE PARTY','VIBES ARE CRAZY','PLAY IT AGAIN',
+    'WHO ELSE FROM NY','ALBUM OF THE YEAR','IM NOT LEAVING','HELLO FROM LONDON',
+    'THIS IS SO COOL','STUDIO IS FIRE','ON MY 5TH LISTEN','BOUNCER LET ME IN LOL',
+    'W PARTY','LOVE U TANA','OUR YEAR','WHO PLAYING THIS'
+  ];
+  const REPLIES = ['FR','REAL','W','FACTS','YESSS','SAME','LOL'];
+
+  // Crowd hotspots (feet-centre world coords). w = how popular it is.
+  const HOT = [
+    { x: 770,  y: 420, r: 120, w: 5 },  // carpet / dance floor
+    { x: 620,  y: 655, r: 70,  w: 3 },  // left speaker
+    { x: 930,  y: 375, r: 55,  w: 3 },  // right speaker
+    { x: 955,  y: 615, r: 60,  w: 2 },  // by Chris
+    { x: 770,  y: 660, r: 110, w: 1 },  // front of room
+    { x: 1260, y: 480, r: 110, w: 2 },  // studio
+    { x: 350,  y: 490, r: 70,  w: 1 },  // bedroom
+  ];
+  const HOT_W = HOT.reduce((s, h) => s + h.w, 0);
+  const DIRS  = ['down', 'down', 'left', 'right', 'up'];
+  const rand  = (a, b) => a + Math.random() * (b - a);
+  const pick  = arr => arr[Math.floor(Math.random() * arr.length)];
+  const pickHot = () => { let r = Math.random() * HOT_W; for (const h of HOT) { if ((r -= h.w) < 0) return h; } return HOT[0]; };
+  const feetX = b => b.x + PW / 2;
+  const feetY = b => b.y + FEET_OY + FEET_H / 2;
+  const roomOf = x => x < 505 ? 0 : x < 1060 ? 1 : 2;
+  const DOORS = [505, 1060];   // gaps under the two interior walls
+  const DOOR_Y = 625;
+
+  const bots = [];
+
+  // Find a free, walkable spot in a hotspot with a bit of personal space
+  function spotIn(h, self) {
+    for (let i = 0; i < 12; i++) {
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * h.r;
+      const fx = h.x + Math.cos(a) * d, fy = h.y + Math.sin(a) * d * 0.6;
+      const px = fx - PW / 2, py = fy - FEET_OY - FEET_H / 2;
+      if (wouldCollide(px, py)) continue;
+      let crowded = false;
+      for (const o of bots) {
+        if (o === self) continue;
+        const ox = o._c.path.length ? o._c.path[o._c.path.length - 1].x : feetX(o);
+        const oy = o._c.path.length ? o._c.path[o._c.path.length - 1].y : feetY(o);
+        if (Math.abs(ox - fx) < 42 && Math.abs(oy - fy) < 26) { crowded = true; break; }
+      }
+      if (!crowded || i > 9) return { x: fx, y: fy };
+    }
+    return null;
+  }
+
+  function goIdle(b) {
+    const c = b._c;
+    c.path = [];
+    b.animFrame = 0;
+    c.until  = performance.now() + (Math.random() < 0.25 ? rand(12000, 30000) : rand(2000, 8000));
+    c.turnAt = performance.now() + rand(1000, 5000);
+    if (Math.random() < 0.5) b.facing = 'down';
+  }
+
+  function walkTo(b, h) {
+    const t = spotIn(h, b);
+    if (!t) { goIdle(b); return; }
+    const c = b._c, path = [];
+    let r0 = roomOf(feetX(b)); const r1 = roomOf(t.x);
+    while (r0 !== r1) {   // route through the gaps under the walls
+      const door = r1 > r0 ? DOORS[r0] : DOORS[r0 - 1];
+      path.push({ x: door, y: DOOR_Y });
+      r0 += r1 > r0 ? 1 : -1;
+    }
+    path.push(t);
+    c.path = path; c.hot = h; c.walkFrames = 0;
+  }
+
+  function spawn(i, nameIdx) {
+    const h = pickHot();
+    const b = {
+      name: NAMES[nameIdx], skin: i % 3,
+      x: 0, y: 0, facing: pick(DIRS), animFrame: 0,
+      _idleTick: Math.floor(Math.random() * 60),
+      _c: { path: [], hot: h, until: 0, turnAt: 0, animTick: 0, walkFrames: 0,
+            speed: Math.random() < 0.3 ? SPEED : rand(1.8, 3.2) },
+    };
+    const s = spotIn(h, b) || { x: HOT[0].x, y: HOT[0].y };
+    b.x = s.x - PW / 2; b.y = s.y - FEET_OY - FEET_H / 2;
+    bots.push(b);
+    goIdle(b);
+    b._c.until = performance.now() + rand(0, 9000);   // stagger first moves
+    remotePlayers.set('crowd_' + i, b);   // reuses remote-player rendering + ONLINE count
+  }
+
+  function step(b) {
+    const c = b._c, now = performance.now();
+    if (!c.path.length) {
+      if (now > c.turnAt) { b.facing = pick(DIRS); c.turnAt = now + rand(1500, 6000); }
+      if (now > c.until) walkTo(b, Math.random() < 0.7 ? c.hot : pickHot());
+      return;
+    }
+    const tgt = c.path[0];
+    const dx = tgt.x - feetX(b), dy = tgt.y - feetY(b), d = Math.hypot(dx, dy);
+    if (d < 4) { c.path.shift(); if (!c.path.length) goIdle(b); return; }
+    const sp = Math.min(c.speed, d);
+    const vx = dx / d * sp, vy = dy / d * sp;
+    if (Math.abs(vx) >= Math.abs(vy)) b.facing = vx > 0 ? 'right' : 'left';
+    else b.facing = vy > 0 ? 'down' : 'up';
+    let moved = false;
+    if (!wouldCollide(b.x + vx, b.y)) { b.x += vx; moved = true; }
+    if (!wouldCollide(b.x, b.y + vy)) { b.y += vy; moved = true; }
+    if (!moved || ++c.walkFrames > 900) { goIdle(b); return; }   // blocked: just stand there
+    if (++c.animTick >= Math.round(45 / c.speed)) { c.animTick = 0; b.animFrame ^= 1; }
+  }
+
+  let spawned = false, nextChat = 0;
+  (function crowdLoop() {
+    requestAnimationFrame(crowdLoop);
+    if (!spawned) {
+      // wait until bgImg.onload has sized the world + player
+      if (!(bgImg.complete && bgImg.naturalWidth > 0 && WORLD_W === bgImg.naturalWidth)) return;
+      const order = NAMES.map((_, i) => i).sort(() => Math.random() - 0.5);
+      for (let i = 0; i < CROWD_N; i++) spawn(i, order[i]);
+      spawned = true;
+      console.log('[TANA.EXE] crowd mode:', CROWD_N, 'local players');
+    }
+    for (const b of bots) step(b);
+
+    const now = Date.now();
+    if (now > nextChat) {
+      nextChat = now + rand(2000, 4500);
+      const free = bots.filter(b => !(b._chat && now < b._chatExp));
+      const b = free.length ? pick(free) : null;
+      if (b) {
+        b._chat = pick(LINES); b._chatExp = now + 5000;
+        // sometimes a neighbour answers
+        if (Math.random() < 0.25) {
+          const near = free.find(o => o !== b && Math.abs(feetX(o) - feetX(b)) < 160 && Math.abs(feetY(o) - feetY(b)) < 100);
+          if (near) setTimeout(() => { near._chat = pick(REPLIES); near._chatExp = Date.now() + 5000; }, rand(700, 1600));
+        }
+      }
+    }
+  })();
+})();
 
 // ─────────────────────────────────────────────────────────
 //  GAME LOOP
