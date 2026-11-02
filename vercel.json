@@ -4,6 +4,11 @@
       "source": "/me",
       "destination": "https://createmusic.fm/me",
       "permanent": false
+    },
+    {
+      "source": "/ldn",
+      "destination": "https://gotobeat.com/gig/sightedcon/",
+      "permanent": false
     }
   ],
   "rewrites": [
