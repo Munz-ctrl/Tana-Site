@@ -9,6 +9,11 @@
       "source": "/ldn",
       "destination": "https://gotobeat.com/gig/sightedcon/",
       "permanent": false
+    },
+    {
+      "source": "/ATL",
+      "destination": "https://www.axs.com/events/1693936/tana-welcome-to-atlanta-tickets",
+      "permanent": false
     }
   ],
   "rewrites": [
